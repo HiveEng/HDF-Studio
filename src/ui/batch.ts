@@ -12,7 +12,7 @@ export interface BatchDeps {
   openOutput: (name: string, data: Uint8Array) => Promise<void>;
 }
 
-const STORE = "quire.recipes";
+const STORE = "hdfstudio.recipes";
 const loadSaved = (): Recipe[] => JSON.parse(localStorage.getItem(STORE) ?? "[]");
 const storeSaved = (r: Recipe[]) => localStorage.setItem(STORE, JSON.stringify(r));
 
@@ -37,7 +37,7 @@ function build(deps: BatchDeps): HTMLElement {
   r.className = "modal-back hidden";
   r.innerHTML = `
   <div class="batch">
-    <header><h2>Batch</h2><span class="muted">Run a recipe on many PDFs at once. Same recipes work in the <code>quire</code> command line tool.</span><button class="close" title="Close (Esc)">×</button></header>
+    <header><h2>Batch</h2><span class="muted">Run a recipe on many PDFs at once. Same recipes work in the <code>hdfstudio</code> command line tool.</span><button class="close" title="Close (Esc)">×</button></header>
     <section class="b-files">
       <h3>1. Files <span id="batchCount" class="muted"></span></h3>
       <div class="row"><button id="batchAdd">Add files…</button><button id="batchTabs">Add open tabs</button><button id="batchClear">Clear</button></div>

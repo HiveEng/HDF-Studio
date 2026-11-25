@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// quire: command line companion to the Quire app. Batch-process PDFs with the same engine and recipes.
+// hdfstudio: command line companion to the HDF Studio app. Batch-process PDFs with the same engine and recipes.
 import { readFileSync, writeFileSync, readdirSync, statSync, mkdirSync, existsSync } from "node:fs";
 import { join, basename, dirname, resolve, extname } from "node:path";
 import { Engine } from "../src/engine/core";
@@ -7,31 +7,31 @@ import { runRecipe, parseStep, BUILTIN_RECIPES, STEP_LABELS, type Recipe } from 
 import { parseRanges } from "../src/engine/ranges";
 import { signPdf, verifySignatures, makeSelfSignedP12 } from "../src/engine/digisign";
 
-const HELP = `quire - batch PDF tools (AGPL-3.0)
+const HELP = `hdfstudio - batch PDF tools (AGPL-3.0)
 
 Usage:
-  quire info <files|folders...>                     Page count, size, title, encryption
-  quire merge -o out.pdf <files|folders...>         Merge in order, one bookmark per file
-  quire split <file> [--every N | --bookmarks] [-o dir]
-  quire extract <file> <pages> -o out.pdf           e.g. quire extract a.pdf "1-3,7" -o part.pdf
-  quire text <file> [-o out.txt]                    Extract text
-  quire search <text> <files|folders...> [--csv]    Find text across many PDFs
-  quire fill <form.pdf> <data.csv> [-o dir] [--name "{col} - {col}"] [--flatten]
+  hdfstudio info <files|folders...>                     Page count, size, title, encryption
+  hdfstudio merge -o out.pdf <files|folders...>         Merge in order, one bookmark per file
+  hdfstudio split <file> [--every N | --bookmarks] [-o dir]
+  hdfstudio extract <file> <pages> -o out.pdf           e.g. hdfstudio extract a.pdf "1-3,7" -o part.pdf
+  hdfstudio text <file> [-o out.txt]                    Extract text
+  hdfstudio search <text> <files|folders...> [--csv]    Find text across many PDFs
+  hdfstudio fill <form.pdf> <data.csv> [-o dir] [--name "{col} - {col}"] [--flatten]
                                                     Fill a form once per CSV row (mail merge)
-  quire fields <form.pdf>                           List form fields and current values
-  quire sign <files|folders...> --cert me.pfx --password pw [-o dir]
+  hdfstudio fields <form.pdf>                           List form fields and current values
+  hdfstudio sign <files|folders...> --cert me.pfx --password pw [-o dir]
         [--reason ".."] [--location ".."] [--page N --rect "x0,y0,x1,y1"]  (points from top-left; omit for invisible)
                                                     Digitally sign one or many PDFs
-  quire verify <files|folders...>                   Validate digital signatures
-  quire make-cert "Your Name" -o me.pfx --password pw [--email you@x.com]
+  hdfstudio verify <files|folders...>                   Validate digital signatures
+  hdfstudio make-cert "Your Name" -o me.pfx --password pw [--email you@x.com]
                                                     Create a self-signed certificate
-  quire recipes                                     List built-in recipes and step types
-  quire run <recipe> <files|folders...> [options]   Apply a recipe to every PDF
+  hdfstudio recipes                                     List built-in recipes and step types
+  hdfstudio run <recipe> <files|folders...> [options]   Apply a recipe to every PDF
       <recipe> is a built-in name (quotes or a unique prefix), a .json file, or "-" to use --step only
       --step "<op> key=value ..."   add a step (repeatable), e.g.
             --step 'stamp text="Page {page} of {pages}" position=bottom-center'
             --step 'protect ownerPassword=s3cret allowCopy=false'
-      -o, --out <dir>       output folder (default: <input folder>/quire-out)
+      -o, --out <dir>       output folder (default: <input folder>/hdfstudio-out)
       --name <template>     output name, e.g. "{name}-stamped" ({name} {part} {date})
       --password <pw>       password for protected inputs
       --continue-bates      carry Bates numbers across files (on by default when a step uses {bates})
@@ -64,7 +64,7 @@ function collect(paths: string[], recursive: boolean): string[] {
     if (st.isDirectory()) {
       if (depth > 0 && !recursive) return;
       for (const e of readdirSync(p).sort()) {
-        if (e === "quire-out") continue;
+        if (e === "hdfstudio-out") continue;
         const full = join(p, e);
         if (statSync(full).isDirectory()) walk(full, depth + 1);
         else if (extname(e).toLowerCase() === ".pdf") out.push(full);
@@ -86,7 +86,7 @@ function findRecipe(name: string, steps: string[]): Recipe {
   if (exact) return structuredClone(exact);
   const matches = BUILTIN_RECIPES.filter((r) => r.name.toLowerCase().startsWith(lower));
   if (matches.length === 1) return structuredClone(matches[0]);
-  throw new Error(matches.length ? `"${name}" matches several recipes: ${matches.map((m) => m.name).join("; ")}` : `No recipe "${name}". Run "quire recipes" to list them.${steps.length ? "" : ' Use "-" with --step for inline steps.'}`);
+  throw new Error(matches.length ? `"${name}" matches several recipes: ${matches.map((m) => m.name).join("; ")}` : `No recipe "${name}". Run "hdfstudio recipes" to list them.${steps.length ? "" : ' Use "-" with --step for inline steps.'}`);
 }
 
 const fmtSize = (n: number) => (n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.round(n / 1024)} KB`);
@@ -128,7 +128,7 @@ export function main(argv: string[]): number {
       const f = rest[0];
       const d = e.open(readFileSync(f), basename(f));
       const parts = e.split(d.id, args.flags.bookmarks ? { bookmarks: true } : { every: Number(args.flags.every ?? 1) });
-      const dir = (args.flags.out as string) ?? join(dirname(f), "quire-out");
+      const dir = (args.flags.out as string) ?? join(dirname(f), "hdfstudio-out");
       mkdirSync(dir, { recursive: true });
       for (const p of parts) writeFileSync(join(dir, `${basename(f, extname(f))} - ${p.suffix}.pdf`), p.data);
       log(`Split ${f} into ${parts.length} files in ${dir}`);
@@ -137,7 +137,7 @@ export function main(argv: string[]): number {
     case "extract": {
       const [f, range] = rest;
       const out = args.flags.out as string;
-      if (!f || !range || !out) throw new Error('usage: quire extract <file> "<pages>" -o out.pdf');
+      if (!f || !range || !out) throw new Error('usage: hdfstudio extract <file> "<pages>" -o out.pdf');
       const d = e.open(readFileSync(f), basename(f));
       writeFileSync(out, e.extract(d.id, parseRanges(range, d.pageCount)));
       log(`Wrote ${out}`);
@@ -170,9 +170,9 @@ export function main(argv: string[]): number {
     }
     case "fill": {
       const [form, csv] = rest;
-      if (!form || !csv) throw new Error("usage: quire fill <form.pdf> <data.csv> [-o dir]");
+      if (!form || !csv) throw new Error("usage: hdfstudio fill <form.pdf> <data.csv> [-o dir]");
       const out = e.mailMerge(readFileSync(form), readFileSync(csv, "utf8"), { name: (args.flags.name as string) ?? `${basename(form, extname(form))} - {row}`, flatten: !!args.flags.flatten });
-      const dir = (args.flags.out as string) ?? join(dirname(form), "quire-out");
+      const dir = (args.flags.out as string) ?? join(dirname(form), "hdfstudio-out");
       mkdirSync(dir, { recursive: true });
       for (const o of out) writeFileSync(join(dir, o.name), o.data);
       const missing = new Set(out.flatMap((o) => o.missing));
@@ -195,7 +195,7 @@ export function main(argv: string[]): number {
       for (const f of collect(rest, recursive)) {
         try {
           const out = signPdf(readFileSync(f), { p12, password, page: args.flags.page ? Number(args.flags.page) - 1 : 0, rect, reason: args.flags.reason as string, location: args.flags.location as string });
-          const dir = (args.flags.out as string) ?? join(dirname(f), "quire-out");
+          const dir = (args.flags.out as string) ?? join(dirname(f), "hdfstudio-out");
           mkdirSync(dir, { recursive: true });
           const target = join(dir, `${basename(f, extname(f))} (signed).pdf`);
           writeFileSync(target, out);
@@ -223,7 +223,7 @@ export function main(argv: string[]): number {
     }
     case "make-cert": {
       const out = args.flags.out as string, password = args.flags.password as string;
-      if (!rest[0] || !out || !password) throw new Error('usage: quire make-cert "Your Name" -o me.pfx --password pw');
+      if (!rest[0] || !out || !password) throw new Error('usage: hdfstudio make-cert "Your Name" -o me.pfx --password pw');
       writeFileSync(out, makeSelfSignedP12(rest[0], password, args.flags.email as string | undefined));
       log(`Wrote ${out}`);
       return 0;
@@ -237,7 +237,7 @@ export function main(argv: string[]): number {
     }
     case "run": {
       const [name, ...paths] = rest;
-      if (!name || !paths.length) throw new Error("usage: quire run <recipe> <files|folders...>");
+      if (!name || !paths.length) throw new Error("usage: hdfstudio run <recipe> <files|folders...>");
       const recipe = findRecipe(name, args.steps);
       recipe.steps.push(...args.steps.map(parseStep));
       if (args.flags.name) recipe.output = args.flags.name as string;
@@ -247,7 +247,7 @@ export function main(argv: string[]): number {
       let bates = 0, ok = 0, failed = 0;
       const started = Date.now();
       for (const f of files) {
-        const dir = (args.flags.out as string) ?? join(dirname(f), "quire-out");
+        const dir = (args.flags.out as string) ?? join(dirname(f), "hdfstudio-out");
         try {
           if (args.flags["dry-run"]) {
             log(`would process ${f} -> ${dir}`);
@@ -278,11 +278,11 @@ export function main(argv: string[]): number {
   }
 }
 
-if (process.argv[1] && /quire(\.ts|\.mjs|\.js)?$/.test(process.argv[1])) {
+if (process.argv[1] && /hdfstudio(\.ts|\.mjs|\.js)?$/.test(process.argv[1])) {
   try {
     process.exitCode = main(process.argv.slice(2));
   } catch (err) {
-    console.error(`quire: ${(err as Error).message}`);
+    console.error(`hdfstudio: ${(err as Error).message}`);
     process.exitCode = 1;
   }
 }

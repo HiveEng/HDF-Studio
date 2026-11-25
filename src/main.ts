@@ -432,7 +432,7 @@ function renderTabs() {
     };
     nav.append(el);
   }
-  document.title = active ? `${active.name} - Quire` : "Quire";
+  document.title = active ? `${active.name} - HDF Studio` : "HDF Studio";
 }
 async function save(saveAs: boolean) {
   if (!active) return;
@@ -747,7 +747,7 @@ async function signWithCertificate() {
 }
 async function createCertificate() {
   const r = await ask("Create a self-signed certificate", [
-    { name: "name", label: "Your name", value: localStorage.getItem("quire.author") ?? "" },
+    { name: "name", label: "Your name", value: localStorage.getItem("hdfstudio.author") ?? "" },
     { name: "email", label: "Email (optional)" },
     { name: "pw", label: "Password to protect the certificate file", type: "password" },
   ], "Create");
@@ -821,7 +821,7 @@ async function placeSignature(page: number, at: [number, number], rect?: number[
     const w = pw * s, h = ph * s;
     rect = [x0 + (x1 - x0 - w) / 2, y0 + (y1 - y0 - h) / 2, x0 + (x1 - x0 + w) / 2, y0 + (y1 - y0 + h) / 2];
   }
-  await engine.placeImage(t.info.id, page, rect, png, `Signed by ${localStorage.getItem("quire.author") || "Reviewer"} on ${new Date().toLocaleDateString()}`);
+  await engine.placeImage(t.info.id, page, rect, png, `Signed by ${localStorage.getItem("hdfstudio.author") || "Reviewer"} on ${new Date().toLocaleDateString()}`);
   t.dirty = true;
   renderTabs();
   refreshPage(page);
@@ -988,9 +988,9 @@ toolsEl.append(redactBtn);
 // ---------- Theme ----------
 function setTheme(dark: boolean) {
   document.documentElement.classList.toggle("dark", dark);
-  localStorage.setItem("quire.theme", dark ? "dark" : "light");
+  localStorage.setItem("hdfstudio.theme", dark ? "dark" : "light");
 }
-setTheme((localStorage.getItem("quire.theme") ?? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")) === "dark");
+setTheme((localStorage.getItem("hdfstudio.theme") ?? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")) === "dark");
 
 // ---------- Commands, shortcuts, palette ----------
 interface Command { id: string; title: string; keys?: string; run: () => void }
@@ -1158,5 +1158,5 @@ paletteInput.addEventListener("blur", () => setTimeout(closePalette, 150));
 })().catch((e) => status(String(e)));
 
 // Exposed for tests and future modules.
-Object.assign(window, { quire: { openFiles, runSearch, goToPage, commands, get active() { return active; } } });
+Object.assign(window, { hdfStudio: { openFiles, runSearch, goToPage, commands, get active() { return active; } } });
 buildView();

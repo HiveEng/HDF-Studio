@@ -25,5 +25,5 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![startup_files])
         .run(tauri::generate_context!())
-        .expect("error while running Quire");
+        .expect("error while running HDF Studio");
 }

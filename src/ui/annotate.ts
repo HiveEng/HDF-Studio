@@ -53,7 +53,7 @@ export function setupAnnotate(d: AnnotateDeps) {
   let color: RGB | null = null; // null = per-tool default
   let selection: { page: number; text: string } | null = null;
   let selected: AnnotInfo | null = null;
-  const author = () => localStorage.getItem("quire.author") || "Reviewer";
+  const author = () => localStorage.getItem("hdfstudio.author") || "Reviewer";
 
   // ----- helpers -----
   const pageOf = (e: PointerEvent | MouseEvent) => {
@@ -360,7 +360,7 @@ export function setupAnnotate(d: AnnotateDeps) {
     head.querySelector<HTMLElement>('[data-a="xfdf"]')!.onclick = async () => d.saveText(doc.name.replace(/\.pdf$/i, "") + ".xfdf", await d.engine.exportXfdf(doc.info.id, doc.name));
     head.querySelector<HTMLElement>('[data-a="author"]')!.onclick = async () => {
       const r = await ask("Your name on comments", [{ name: "n", label: "Author", value: author() }], "Save");
-      if (r?.n) localStorage.setItem("quire.author", r.n);
+      if (r?.n) localStorage.setItem("hdfstudio.author", r.n);
       renderComments();
     };
     if (!list.length) {

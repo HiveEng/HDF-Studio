@@ -1,12 +1,12 @@
 [package]
-name = "quire"
+name = "hdf-studio"
 version = "0.1.0"
 description = "Open-source PDF reader and editor"
 license = "AGPL-3.0-or-later"
 edition = "2021"
 
 [lib]
-name = "quire_lib"
+name = "hdf_studio_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

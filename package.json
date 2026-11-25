@@ -1,13 +1,13 @@
 {
-  "name": "quire",
+  "name": "hdf-studio",
   "version": "0.1.0",
-  "description": "Open-source PDF reader and editor",
+  "description": "HDF Studio: open-source PDF reader and editor",
   "scripts": {
     "test": "node --import tsx --test test/*.test.ts",
     "dev": "vite",
     "build": "tsc -p . && vite build",
     "tauri": "tauri",
-    "quire": "tsx cli/quire.ts"
+    "hdfstudio": "tsx cli/hdfstudio.ts"
   },
   "license": "AGPL-3.0-or-later",
   "dependencies": {
@@ -25,5 +25,8 @@
     "typescript": "^7.0.2",
     "vite": "^8.3.8"
   },
-  "type": "module"
+  "type": "module",
+  "bin": {
+    "hdfstudio": "cli/hdfstudio.ts"
+  }
 }

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Quire",
+  "productName": "HDF Studio",
   "version": "0.1.0",
-  "identifier": "app.quire.pdf",
+  "identifier": "com.hiveeng.hdfstudio",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -10,7 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [{ "label": "main", "title": "Quire", "width": 1280, "height": 860, "minWidth": 640, "minHeight": 400, "dragDropEnabled": false }],
+    "windows": [{ "label": "main", "title": "HDF Studio", "width": 1280, "height": 860, "minWidth": 640, "minHeight": 400, "dragDropEnabled": false }],
     "security": { "csp": null }
   },
   "bundle": {

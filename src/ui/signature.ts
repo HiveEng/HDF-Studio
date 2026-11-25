@@ -1,5 +1,5 @@
 // Create, store and reuse a handwritten-style signature: draw it, type it, or import an image.
-const KEY = "quire.signature";
+const KEY = "hdfstudio.signature";
 
 export function savedSignature(): Uint8Array | null {
   const b64 = localStorage.getItem(KEY);

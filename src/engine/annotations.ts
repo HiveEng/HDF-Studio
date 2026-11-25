@@ -200,7 +200,7 @@ export function exportXfdf(doc: mupdf.PDFDocument, fileName: string): string {
     for (const a of listAnnotations(doc, i)) {
       const tag = { Text: "text", Highlight: "highlight", Underline: "underline", StrikeOut: "strikeout", Squiggly: "squiggly", FreeText: "freetext", Square: "square", Circle: "circle", Line: "line", Ink: "ink", Stamp: "stamp" }[a.type];
       if (!tag) continue;
-      let attrs = `page="${i}" rect="${rectUser(a.rect)}" color="${hex(a.color.length === 3 ? a.color : [0, 0, 0])}" title="${esc(a.author)}" name="quire-${a.key}"`;
+      let attrs = `page="${i}" rect="${rectUser(a.rect)}" color="${hex(a.color.length === 3 ? a.color : [0, 0, 0])}" title="${esc(a.author)}" name="hdfstudio-${a.key}"`;
       if (a.modified) attrs += ` date="${pdfDate(a.modified)}"`;
       if (a.quads) attrs += ` coords="${a.quads.map((q) => [0, 2, 4, 6].map((k) => tp(q[k], q[k + 1]).map((v) => v.toFixed(2)).join(",")).join(",")).join(",")}"`;
       out.push(`  <${tag} ${attrs}>${a.contents ? `<contents>${esc(a.contents)}</contents>` : ""}</${tag}>`);

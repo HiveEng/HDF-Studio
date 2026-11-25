@@ -1,4 +1,4 @@
-# Quire
+# HDF Studio
 
 An open-source PDF reader and editor for Windows (macOS and Linux to follow), built for speed
 and batch workflows. Licensed under the GNU AGPL v3 or later.
@@ -34,7 +34,7 @@ npm test                # engine tests (Node)
 npm run tauri build     # Windows installers in src-tauri/target/release/bundle/
 ```
 
-## Batch and the `quire` command line tool
+## Batch and the `hdfstudio` command line tool
 
 The **Batch** panel (Ctrl+B) runs a recipe over any number of PDFs. A recipe is a list of steps, one per
 line, e.g.
@@ -53,15 +53,15 @@ Steps: `rotate`, `delete`, `keep`, `reverse`, `stamp` (headers/footers, page num
 The same recipes run from the terminal:
 
 ```sh
-npm run quire -- run "Bates" "D:/Case 42/Exhibits" -r -o "D:/Case 42/Stamped"
-npm run quire -- run - *.pdf --step 'stamp text="DRAFT" position=diagonal' --name "{name}-draft"
-npm run quire -- merge -o binder.pdf ch1.pdf ch2.pdf ch3.pdf
-npm run quire -- split big.pdf --bookmarks
-npm run quire -- search "invoice 1042" ./archive -r --csv > hits.csv
-npm run quire -- fill form.pdf people.csv --name "{Last} - {First}" --flatten
-npm run quire -- sign ./contracts --cert me.pfx --password **** --reason Approved --page 1 --rect "350,700,570,760"
-npm run quire -- verify ./contracts
-npm run quire -- recipes          # list built-in recipes and step types
+npm run hdfstudio -- run "Bates" "D:/Case 42/Exhibits" -r -o "D:/Case 42/Stamped"
+npm run hdfstudio -- run - *.pdf --step 'stamp text="DRAFT" position=diagonal' --name "{name}-draft"
+npm run hdfstudio -- merge -o binder.pdf ch1.pdf ch2.pdf ch3.pdf
+npm run hdfstudio -- split big.pdf --bookmarks
+npm run hdfstudio -- search "invoice 1042" ./archive -r --csv > hits.csv
+npm run hdfstudio -- fill form.pdf people.csv --name "{Last} - {First}" --flatten
+npm run hdfstudio -- sign ./contracts --cert me.pfx --password **** --reason Approved --page 1 --rect "350,700,570,760"
+npm run hdfstudio -- verify ./contracts
+npm run hdfstudio -- recipes          # list built-in recipes and step types
 ```
 
 ## Keyboard
@@ -92,7 +92,7 @@ npm run quire -- recipes          # list built-in recipes and step types
 |---|---|---|---|
 | 1 | View & search | Tabs, thumbnails, outline, zoom, full-text search | Done |
 | 2 | Organize & combine | Merge, split, reorder, rotate, extract, delete, insert pages | Done |
-| 3 | Automation | Batch panel, saved recipes, `quire` CLI, stamps/Bates/watermarks; watch folders next | Done (watch folders pending) |
+| 3 | Automation | Batch panel, saved recipes, `hdfstudio` CLI, stamps/Bates/watermarks; watch folders next | Done (watch folders pending) |
 | 4 | Comment & review | Highlight, notes, shapes, ink, stamps, replies, XFDF import/export | MuPDF annotations |
 | 5 | Redaction & security | Permanent redaction (text, images, vector art), find-and-redact by text/regex/patterns, hidden-data removal, AES-256 passwords and permissions | Done |
 | 6 | Forms & e-signatures | Fill/flatten forms, CSV mail merge, drawn/typed/image signatures, certificate (PKCS#7, .pfx) digital signatures, validation, batch signing | Done (form designer and timestamps next) |

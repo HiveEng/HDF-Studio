@@ -1,5 +1,5 @@
 // Recipes: reusable lists of steps applied to each file in a batch.
-// The same runner powers the batch panel in the app and the `quire` command line tool.
+// The same runner powers the batch panel in the app and the `hdfstudio` command line tool.
 import * as mupdf from "mupdf";
 import { parseRanges } from "./ranges";
 import { stampText, type Position } from "./stamp";
