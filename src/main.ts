@@ -1,6 +1,8 @@
 import { createEngine } from "./engine/client";
 import type { DocInfo, OutlineNode, SearchHit } from "./engine/core";
-import { pickFiles, filesFromList, saveFile, baseName, isTauri, type OpenedFile } from "./platform";
+import { pickFiles, filesFromList, saveFile, saveMany, baseName, isTauri, type OpenedFile } from "./platform";
+import { parseRanges, formatRanges } from "./engine/ranges";
+import { ask, confirmDialog } from "./ui/dialog";
 
 const engine = createEngine();
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
@@ -19,6 +21,10 @@ interface Tab {
   query: string;
   hits: SearchHit[];
   hitIndex: number;
+  selected: Set<number>;
+  anchor: number;
+  undo: Uint8Array[];
+  redo: Uint8Array[];
 }
 const tabs: Tab[] = [];
 let active: Tab | null = null;
@@ -142,7 +148,9 @@ function buildView() {
     box.style.aspectRatio = `${w} / ${h}`;
     box.style.boxShadow = "none";
     th.append(box, Object.assign(document.createElement("span"), { textContent: String(i + 1) }));
-    th.onclick = () => goToPage(i);
+    th.draggable = true;
+    if (t.selected.has(i)) th.classList.add("selected");
+    th.onclick = (e) => selectThumb(i, e);
     thumbsEl.append(th);
     thumbObserver.observe(box);
   });
@@ -357,16 +365,14 @@ async function openFiles(files: OpenedFile[]) {
       status(`Opening ${f.name}…`);
       let info = await engine.open(f.data, f.name);
       while (info.needsPassword) {
-        const pw = prompt(`${f.name} is password protected. Password:`);
+        const pw = (await ask(`${f.name} is password protected`, [{ name: "pw", label: "Password", type: "password" }], "Unlock"))?.pw ?? null;
         if (pw === null) {
           await engine.close(info.id);
           throw new Error("cancelled");
         }
         info = (await engine.unlock(info.id, pw)) ?? info;
       }
-      const tab: Tab = { info, name: f.name, path: f.path, dirty: false, zoom: 1, fit: "width", page: 0, scrollTop: 0, query: "", hits: [], hitIndex: -1 };
-      tabs.push(tab);
-      active = tab;
+            addTab(info, f.name, f.path);
       status(`${f.name}: ${info.pageCount} pages`);
     } catch (e) {
       if ((e as Error).message !== "cancelled") status(`Could not open ${f.name}: ${(e as Error).message}`);
@@ -374,13 +380,19 @@ async function openFiles(files: OpenedFile[]) {
   }
   buildView();
 }
+function addTab(info: DocInfo, name: string, path: string | null, dirty = false) {
+  const tab: Tab = { info, name, path, dirty, zoom: 1, fit: "width", page: 0, scrollTop: 0, query: "", hits: [], hitIndex: -1, selected: new Set(), anchor: 0, undo: [], redo: [] };
+  tabs.push(tab);
+  active = tab;
+  return tab;
+}
 function switchTab(t: Tab) {
   if (active) active.scrollTop = viewer.scrollTop;
   active = t;
   buildView();
 }
 async function closeTab(t: Tab) {
-  if (t.dirty && !confirm(`Close ${t.name} without saving?`)) return;
+  if (t.dirty && !(await confirmDialog(`Close ${t.name} without saving?`, "Close without saving"))) return;
   await engine.close(t.info.id);
   const i = tabs.indexOf(t);
   tabs.splice(i, 1);
@@ -434,10 +446,220 @@ viewer.addEventListener("drop", async (e) => {
 
 // ---------- Sidebar ----------
 function showSidePanel(name: string) {
+  $("#thumb-tools").classList.toggle("hidden", name !== "thumbs");
   document.querySelectorAll<HTMLElement>(".side-tabs button").forEach((b) => b.classList.toggle("active", b.dataset.side === name));
   document.querySelectorAll<HTMLElement>(".side-panel").forEach((p) => p.classList.toggle("hidden", p.id !== `side-${name}`));
 }
 document.querySelectorAll<HTMLElement>(".side-tabs button").forEach((b) => (b.onclick = () => showSidePanel(b.dataset.side!)));
+
+// ---------- Organize pages ----------
+/** Run a document-changing operation with undo support, then refresh the view. */
+async function mutate(label: string, op: (t: Tab) => Promise<DocInfo>) {
+  if (!active) return;
+  const t = active;
+  try {
+    const snap = await engine.snapshot(t.info.id);
+    const info = await op(t);
+    t.undo.push(snap);
+    if (t.undo.length > 30) t.undo.shift();
+    t.redo = [];
+    t.info = info;
+    t.dirty = true;
+    t.hits = [];
+    t.hitIndex = -1;
+    t.selected = new Set([...t.selected].filter((p) => p < info.pageCount));
+    t.page = Math.min(t.page, info.pageCount - 1);
+    if (t === active) buildView();
+    status(`${label}. Ctrl+Z to undo.`);
+  } catch (e) {
+    status(`${label} failed: ${(e as Error).message}`);
+  }
+}
+async function undoRedo(dir: "undo" | "redo") {
+  if (!active) return;
+  const t = active;
+  const from = dir === "undo" ? t.undo : t.redo;
+  const to = dir === "undo" ? t.redo : t.undo;
+  const data = from.pop();
+  if (!data) return status(`Nothing to ${dir}`);
+  to.push(await engine.snapshot(t.info.id));
+  t.info = await engine.replace(t.info.id, data);
+  t.dirty = true;
+  t.selected.clear();
+  buildView();
+  status(dir === "undo" ? "Undone" : "Redone");
+}
+
+/** Pages to act on: the thumbnail selection, or the current page. */
+function targetPages(): number[] {
+  if (!active) return [];
+  return active.selected.size ? [...active.selected].sort((a, b) => a - b) : [active.page];
+}
+function selectThumb(i: number, e: MouseEvent | KeyboardEvent) {
+  if (!active) return;
+  const t = active;
+  if (e.shiftKey) {
+    const [a, b] = [Math.min(t.anchor, i), Math.max(t.anchor, i)];
+    if (!e.ctrlKey) t.selected.clear();
+    for (let k = a; k <= b; k++) t.selected.add(k);
+  } else if (e.ctrlKey || e.metaKey) {
+    t.selected.has(i) ? t.selected.delete(i) : t.selected.add(i);
+    t.anchor = i;
+  } else {
+    t.selected = new Set([i]);
+    t.anchor = i;
+  }
+  [...thumbsEl.children].forEach((el, k) => el.classList.toggle("selected", t.selected.has(k)));
+  goToPage(i);
+  status(t.selected.size > 1 ? `${t.selected.size} pages selected (${formatRanges([...t.selected].sort((a, b) => a - b))})` : "");
+}
+
+// Drag thumbnails to reorder; drop PDF files onto thumbnails to insert them there.
+let dragFrom: number[] | null = null;
+function dropIndex(e: DragEvent): number | null {
+  const th = (e.target as HTMLElement).closest(".thumb") as HTMLElement | null;
+  if (!th) return active ? active.info.pageCount : null;
+  const i = Number(th.dataset.page);
+  const r = th.getBoundingClientRect();
+  return e.clientY > r.top + r.height / 2 ? i + 1 : i;
+}
+thumbsEl.addEventListener("dragstart", (e) => {
+  const th = (e.target as HTMLElement).closest(".thumb") as HTMLElement | null;
+  if (!th || !active) return;
+  const i = Number(th.dataset.page);
+  if (!active.selected.has(i)) selectThumb(i, e);
+  dragFrom = targetPages();
+  e.dataTransfer!.effectAllowed = "move";
+  e.dataTransfer!.setData("text/plain", formatRanges(dragFrom));
+});
+thumbsEl.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  thumbsEl.querySelectorAll(".drop-before,.drop-after").forEach((n) => n.classList.remove("drop-before", "drop-after"));
+  const at = dropIndex(e);
+  if (at === null) return;
+  const before = thumbsEl.children[at] as HTMLElement | undefined;
+  if (before) before.classList.add("drop-before");
+  else (thumbsEl.lastElementChild as HTMLElement | null)?.classList.add("drop-after");
+});
+thumbsEl.addEventListener("dragleave", () => thumbsEl.querySelectorAll(".drop-before,.drop-after").forEach((n) => n.classList.remove("drop-before", "drop-after")));
+thumbsEl.addEventListener("drop", async (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  thumbsEl.querySelectorAll(".drop-before,.drop-after").forEach((n) => n.classList.remove("drop-before", "drop-after"));
+  const at = dropIndex(e);
+  if (at === null || !active) return;
+  if (dragFrom) {
+    const pages = dragFrom;
+    dragFrom = null;
+    const count = pages.length;
+    const newStart = at - pages.filter((p) => p < at).length;
+    await mutate(`Moved ${count} page${count > 1 ? "s" : ""}`, (t) => engine.movePages(t.info.id, pages, at));
+    if (active) {
+      active.selected = new Set(pages.map((_, k) => newStart + k));
+      [...thumbsEl.children].forEach((el, k) => el.classList.toggle("selected", active!.selected.has(k)));
+    }
+  } else if (e.dataTransfer?.files.length) {
+    await insertFiles(await filesFromList(e.dataTransfer.files), at);
+  }
+});
+thumbsEl.addEventListener("dragend", () => (dragFrom = null));
+thumbsEl.addEventListener("keydown", (e) => {
+  if (!active) return;
+  if (e.key === "Delete") (e.preventDefault(), byId.deleteSelected.run());
+  else if (e.key === "a" && (e.ctrlKey || e.metaKey)) (e.preventDefault(), byId.selectAll.run());
+  else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    selectThumb(Math.max(0, Math.min(active.info.pageCount - 1, active.page + (e.key === "ArrowDown" ? 1 : -1))), e);
+  }
+});
+
+async function insertFiles(files: OpenedFile[], at: number) {
+  if (!active || !files.length) return;
+  await mutate(`Inserted ${files.map((f) => f.name).join(", ")}`, async (t) => {
+    let info = t.info;
+    let pos = at;
+    for (const f of files) {
+      const src = await engine.open(f.data, f.name);
+      try {
+        if (src.needsPassword) throw new Error(`${f.name} is password protected; open it first`);
+        info = await engine.insertFrom(t.info.id, pos, src.id);
+        pos += src.pageCount;
+      } finally {
+        await engine.close(src.id);
+      }
+    }
+    return info;
+  });
+}
+
+async function mergeFiles() {
+  const files = await pickFiles(true);
+  if (!files.length) return;
+  const ids: { id: number; title: string }[] = [];
+  try {
+    for (const f of files) {
+      const info = await engine.open(f.data, f.name);
+      if (info.needsPassword) throw new Error(`${f.name} is password protected; open it first`);
+      ids.push({ id: info.id, title: f.name.replace(/\.[^.]+$/, "") });
+    }
+    const merged = await engine.combine(ids);
+    const info = await engine.open(merged, "merged.pdf");
+    addTab(info, "Merged.pdf", null, true);
+    buildView();
+    status(`Merged ${files.length} files into ${info.pageCount} pages, with a bookmark per file`);
+  } catch (e) {
+    status(`Merge failed: ${(e as Error).message}`);
+  } finally {
+    for (const { id } of ids) await engine.close(id);
+  }
+}
+
+async function extractPages(pages?: number[]) {
+  if (!active) return;
+  const t = active;
+  if (!pages) {
+    const r = await ask("Extract pages to a new document", [{ name: "range", label: "Pages", value: formatRanges(targetPages()), hint: 'e.g. "1-3, 7, 10-", "odd", "even"' }], "Extract");
+    if (!r) return;
+    pages = parseRanges(r.range, t.info.pageCount);
+  }
+  const data = await engine.extract(t.info.id, pages);
+  const info = await engine.open(data, "extract.pdf");
+  const rs = formatRanges(pages);
+  addTab(info, `${t.name.replace(/\.pdf$/i, "")} (${rs.length <= 20 ? `pages ${rs}` : "extract"}).pdf`, null, true);
+  buildView();
+}
+
+async function splitDocument() {
+  if (!active) return;
+  const t = active;
+  const r = await ask("Split document", [
+    { name: "mode", label: "Split", type: "select", value: "every", options: [["every", "Every N pages"], ["ranges", "By page ranges"], ["bookmarks", "By top-level bookmarks"]] },
+    { name: "n", label: "N (for every N pages)", type: "number", value: "1" },
+    { name: "ranges", label: "Ranges (for page ranges), one file per group", placeholder: "1-3 | 4-8 | 9-", hint: "Separate output files with |" },
+  ], "Split");
+  if (!r) return;
+  try {
+    const mode = r.mode === "every" ? { every: Math.max(1, parseInt(r.n, 10) || 1) } : r.mode === "bookmarks" ? { bookmarks: true as const } : { groups: r.ranges.split("|").map((g) => parseRanges(g, t.info.pageCount)) };
+    const parts = await engine.split(t.info.id, mode);
+    const stem = t.name.replace(/\.pdf$/i, "");
+    const dir = await saveMany(parts.map((p) => ({ name: `${stem} - ${p.suffix}.pdf`, data: p.data })));
+    status(`Split into ${parts.length} files${dir ? ` in ${dir}` : ""}`);
+  } catch (e) {
+    status(`Split failed: ${(e as Error).message}`);
+  }
+}
+
+async function rangeOp(title: string, okLabel: string, run: (pages: number[]) => Promise<void>) {
+  if (!active) return;
+  const r = await ask(title, [{ name: "range", label: "Pages", value: formatRanges(targetPages()), hint: 'e.g. "1-3, 7, 10-", "odd", "even", "all"' }], okLabel);
+  if (!r) return;
+  try {
+    await run(parseRanges(r.range, active.info.pageCount));
+  } catch (e) {
+    status((e as Error).message);
+  }
+}
 
 // ---------- Theme ----------
 function setTheme(dark: boolean) {
@@ -472,6 +694,22 @@ const commands: Command[] = [
   { id: "showOutline", title: "Show outline", run: () => showSidePanel("outline") },
   { id: "showThumbs", title: "Show page thumbnails", run: () => showSidePanel("thumbs") },
   { id: "toggleTheme", title: "Toggle dark mode", run: () => setTheme(!document.documentElement.classList.contains("dark")) },
+  { id: "undo", title: "Undo", keys: "Ctrl+Z", run: () => undoRedo("undo") },
+  { id: "redo", title: "Redo", keys: "Ctrl+Y", run: () => undoRedo("redo") },
+  { id: "mergeFiles", title: "Merge files into a new document…", keys: "Ctrl+Shift+M", run: () => mergeFiles() },
+  { id: "insertFile", title: "Insert pages from files after current page…", run: async () => active && insertFiles(await pickFiles(true), active.page + 1) },
+  { id: "insertBlank", title: "Insert blank page after current", run: () => mutate("Inserted blank page", (t) => engine.insertBlank(t.info.id, t.page + 1, t.page)) },
+  { id: "splitDoc", title: "Split document…", run: () => splitDocument() },
+  { id: "extractPages", title: "Extract pages…", run: () => extractPages() },
+  { id: "extractSelected", title: "Extract selected pages to a new tab", run: () => extractPages(targetPages()) },
+  { id: "deleteSelected", title: "Delete selected pages", run: () => { const p = targetPages(); if (active && p.length >= active.info.pageCount) return status("Can't delete every page"); return mutate(`Deleted ${p.length} page(s)`, (t) => engine.deletePages(t.info.id, p)).then(() => active?.selected.clear()); } },
+  { id: "deletePages", title: "Delete pages…", run: () => rangeOp("Delete pages", "Delete", (p) => mutate(`Deleted ${p.length} page(s)`, (t) => engine.deletePages(t.info.id, p))) },
+  { id: "rotateRight", title: "Rotate selected pages right", keys: "Ctrl+]", run: () => { const p = targetPages(); return mutate("Rotated", (t) => engine.rotatePages(t.info.id, p, 90)); } },
+  { id: "rotateLeft", title: "Rotate selected pages left", keys: "Ctrl+[", run: () => { const p = targetPages(); return mutate("Rotated", (t) => engine.rotatePages(t.info.id, p, -90)); } },
+  { id: "rotatePages", title: "Rotate pages…", run: () => rangeOp("Rotate pages 90° clockwise", "Rotate", (p) => mutate("Rotated", (t) => engine.rotatePages(t.info.id, p, 90))) },
+  { id: "reversePages", title: "Reverse page order", run: () => mutate("Reversed page order", (t) => engine.reversePages(t.info.id)) },
+  { id: "duplicateSelected", title: "Duplicate selected pages", run: () => { const p = targetPages(); return mutate("Duplicated", (t) => { const n = t.info.pageCount; const order = [...Array(n).keys()]; order.splice(p[p.length - 1] + 1, 0, ...p); return engine.rearrange(t.info.id, order); }); } },
+  { id: "selectAll", title: "Select all pages", run: () => { if (!active) return; active.selected = new Set(active.info.pageSizes.keys()); [...thumbsEl.children].forEach((el) => el.classList.add("selected")); showSidePanel("thumbs"); } },
   { id: "palette", title: "Show all commands", keys: "Ctrl+K", run: () => openPalette() },
 ];
 const byId = Object.fromEntries(commands.map((c) => [c.id, c]));
@@ -493,9 +731,9 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   // Plain navigation keys shouldn't fire while typing in a field.
-  if (typing && !ks.includes("Ctrl") && !ks.startsWith("F")) return;
+  if (typing && ((!ks.includes("Ctrl") && !ks.startsWith("F")) || cmd.id === "undo" || cmd.id === "redo")) return;
   e.preventDefault();
-  cmd.run();
+  setTimeout(() => cmd.run(), 0);
 });
 
 const palette = $("#palette"), paletteInput = $<HTMLInputElement>("#paletteInput"), paletteList = $("#paletteList");
@@ -542,8 +780,10 @@ paletteInput.addEventListener("keydown", (e) => {
   if (e.key === "ArrowDown") paletteSel = Math.min(list.length - 1, paletteSel + 1);
   else if (e.key === "ArrowUp") paletteSel = Math.max(0, paletteSel - 1);
   else if (e.key === "Enter" && list[paletteSel]) {
+    e.preventDefault();
     closePalette();
-    list[paletteSel].run();
+    const cmd = list[paletteSel];
+    setTimeout(() => cmd.run(), 0); // let this keystroke finish before a dialog takes focus
     return;
   } else return;
   e.preventDefault();

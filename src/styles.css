@@ -97,3 +97,18 @@ main.no-sidebar { grid-template-columns: 0 1fr; }
 #paletteList li.sel { background: var(--accent-soft); }
 #paletteList li kbd { color: var(--muted); }
 .result .snippet { display: block; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.modal-back { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: grid; place-items: center; z-index: 20; }
+.modal { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; width: min(440px, 92vw); box-shadow: 0 12px 40px rgba(0,0,0,.35); display: flex; flex-direction: column; gap: 10px; }
+.modal h2 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+.modal label { display: flex; flex-direction: column; gap: 4px; }
+.modal label small { color: var(--muted); }
+.modal select { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; }
+.modal-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+button.primary { background: var(--accent); color: #fff; }
+button.primary:hover { filter: brightness(1.1); background: var(--accent); }
+.thumb.selected { outline: 2px solid var(--accent); outline-offset: -2px; }
+.thumb.drop-before { box-shadow: 0 -3px 0 var(--accent); }
+.thumb.drop-after { box-shadow: 0 3px 0 var(--accent); }
+.thumb-tools { display: flex; flex-wrap: wrap; gap: 2px; padding: 6px; border-bottom: 1px solid var(--border); }
+.thumb-tools button { padding: 2px 6px; font-size: 12px; }
+#sidebar { resize: horizontal; }

@@ -45,7 +45,15 @@
         <button data-side="outline">Outline</button>
         <button data-side="results">Results</button>
       </div>
-      <div id="side-thumbs" class="side-panel"></div>
+      <div id="thumb-tools" class="thumb-tools">
+        <button data-cmd="rotateLeft" title="Rotate selected left (Ctrl+[)">⟲</button>
+        <button data-cmd="rotateRight" title="Rotate selected right (Ctrl+])">⟳</button>
+        <button data-cmd="deleteSelected" title="Delete selected pages (Delete)">Delete</button>
+        <button data-cmd="extractSelected" title="Extract selected pages to a new tab">Extract</button>
+        <button data-cmd="insertBlank" title="Insert blank page after current">+ Blank</button>
+        <button data-cmd="insertFile" title="Insert pages from files after current">+ File</button>
+      </div>
+      <div id="side-thumbs" class="side-panel" tabindex="0"></div>
       <div id="side-outline" class="side-panel hidden"></div>
       <div id="side-results" class="side-panel hidden"></div>
     </aside>

@@ -51,3 +51,17 @@ export async function saveFile(data: Uint8Array, suggestedName: string, path: st
 export function baseName(p: string): string {
   return p.split(/[\\/]/).pop() || p;
 }
+
+/** Save several files at once: into a chosen folder in Tauri, or as downloads in a browser. */
+export async function saveMany(files: { name: string; data: Uint8Array }[]): Promise<string | null> {
+  if (isTauri) {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const { writeFile } = await import("@tauri-apps/plugin-fs");
+    const dir = await open({ directory: true, title: "Choose a folder for the output files" });
+    if (!dir || Array.isArray(dir)) return null;
+    for (const f of files) await writeFile(`${dir}/${f.name}`, f.data);
+    return dir;
+  }
+  for (const f of files) await saveFile(f.data, f.name, null, true);
+  return null;
+}
