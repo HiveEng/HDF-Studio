@@ -1,0 +1,19 @@
+# HDF Studio review server for QNAP Container Station (Applications > Create > paste this).
+# Review PDFs and comments are kept in the NAS shared folder below, so NAS backups cover them.
+services:
+  hdf-review:
+    image: ghcr.io/hiveeng/hdf-review:latest
+    container_name: hdf-review
+    restart: unless-stopped
+    # Root inside the container so it can write to the NAS shared folder without changing its permissions.
+    user: "0:0"
+    ports:
+      - "8787:8787"
+    environment:
+      HDF_MS_TENANT: 2cc319ea-c91f-4964-92a2-807a20ffe7b6
+      HDF_MS_CLIENT: 8b0d9e7f-df7a-44e9-b939-4961db6bf450
+      HDF_DOMAIN: hiveng.ca
+      HDF_DATA: /data
+      TZ: America/Halifax
+    volumes:
+      - /share/Container/hdf-reviews:/data

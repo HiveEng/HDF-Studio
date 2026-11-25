@@ -83,6 +83,39 @@ scheduled task at startup.
 Without `--ms-tenant`, the server can instead use a shared access code (`--token <code>`), which is
 fine for a quick trial but doesn't tell you who wrote what.
 
+### On a QNAP NAS (Container Station)
+
+The server image is built automatically by GitHub for Intel/AMD and ARM NAS models
+(`ghcr.io/hiveeng/hdf-review:latest`). The NAS only needs to be reachable inside the office
+network (and over VPN for remote staff). Microsoft sign-in happens between each PC and Microsoft,
+so **don't** forward any ports to the NAS from the internet.
+
+1. Install **Container Station** from the App Center (QTS 5 / QuTS hero 5).
+2. In **File Station**, open the **Container** shared folder and create a folder named `hdf-reviews`.
+   That's where review PDFs and comments are kept, so your normal NAS backups cover them.
+3. The repository is private, so the NAS must log in to GitHub's registry once:
+   - On GitHub: **Settings › Developer settings › Personal access tokens › Tokens (classic) ›
+     Generate new token**, with only the **read:packages** scope.
+   - In Container Station: **Preferences › Registry › Add**. Name `GitHub`, URL `https://ghcr.io`,
+     your GitHub username, and the token as the password.
+4. In Container Station: **Applications › Create**, name it `hdf-review`, paste the contents of
+   [`deploy/review-server/docker-compose.yml`](../deploy/review-server/docker-compose.yml), and
+   select **Create**.
+5. Check it: open `http://<NAS address>:8787/api/config` in a browser. You should see
+   `"auth":"microsoft"` and `hiveng.ca`.
+6. HTTPS and a friendly name:
+   - Add an internal DNS record, for example `review.hiveng.ca`, pointing at the NAS's address
+     (on your router or Windows DNS server).
+   - Put a certificate for that name on the NAS (**Control Panel › Security › SSL Certificate &
+     Private Key**). A wildcard `*.hiveng.ca` certificate you already own works.
+   - **Control Panel › Network & File Services › Network Access › Reverse Proxy › Add**: source
+     HTTPS, host `review.hiveng.ca`, port 443; destination HTTP, `localhost`, port 8787.
+   - People then use `https://review.hiveng.ca`. (Plain `http://<NAS address>:8787` also works inside
+     the office if you skip this step, but sign-in tokens then cross the network unencrypted.)
+
+To update: **Applications › hdf-review › Recreate** (or pull `ghcr.io/hiveeng/hdf-review:latest`
+again).
+
 ## Step 3: tell people the server address
 
 In HDF Studio:
