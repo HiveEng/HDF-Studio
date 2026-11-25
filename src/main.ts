@@ -1,6 +1,6 @@
 import { createEngine } from "./engine/client";
 import type { DocInfo, SearchHit } from "./engine/core";
-import { pickFiles, filesFromList, saveFile, saveMany, saveText, saveBytes, baseName, isTauri, tsaRequest, openExternal, type OpenedFile } from "./platform";
+import { pickFiles, filesFromList, saveFile, saveMany, saveText, saveBytes, baseName, isTauri, tsaRequest, openExternal, graphFetch, type OpenedFile } from "./platform";
 import { TSA_SERVERS } from "./engine/tsa-servers";
 import { OCR_LANGUAGES, BUNDLED_LANGS, langSource } from "./ocr/languages";
 import { setupAnnotate, type Tool } from "./ui/annotate";
@@ -57,6 +57,8 @@ interface Tab {
   scanNoticeDismissed?: boolean;
   /** Summary shown on a compare report tab. */
   compareNote?: string;
+  /** Opened from (or saved to) OneDrive / SharePoint: Save writes back there. */
+  cloud?: import("./cloud/graph").CloudRef;
 }
 const tabs: Tab[] = [];
 let active: Tab | null = null;
@@ -436,7 +438,8 @@ function renderTabs() {
   for (const t of tabs) {
     const el = document.createElement("div");
     el.className = "tab" + (t === active ? " active" : "");
-    el.title = t.path ?? t.name;
+    el.title = t.cloud ? `${t.cloud.where} › ${t.cloud.name} (OneDrive/SharePoint)` : t.path ?? t.name;
+    if (t.cloud) el.classList.add("cloud");
     el.innerHTML = `<span class="${t.dirty ? "dirty" : ""}"></span><button class="close" title="Close (Ctrl+W)">×</button>`;
     el.firstElementChild!.textContent = t.name;
     el.onclick = () => switchTab(t);
@@ -449,16 +452,103 @@ function renderTabs() {
   }
   document.title = active ? `${active.name} - HDF Studio` : "HDF Studio";
 }
+async function saveBytesOf(t: Tab) {
+  // Signed files must be saved incrementally, or the existing signatures would break.
+  const signed = await engine.hasSignatures(t.info.id);
+  return engine.save(t.info.id, signed ? "incremental" : ["garbage", "compress", ...t.saveExtra].join(","));
+}
+
+// ---------- OneDrive and SharePoint ----------
+let graphClient: import("./cloud/graph").Graph | null = null;
+async function graph() {
+  if (!graphClient) {
+    const { Graph, GRAPH_SCOPES } = await import("./cloud/graph");
+    graphClient = new Graph(graphFetch, !isTauri && localStorage.getItem("hdfstudio.cloudTest") ? async () => "test" : () => signIn.auth.accessToken(GRAPH_SCOPES));
+  }
+  return graphClient;
+}
+async function openFromCloud() {
+  if (!isTauri && !localStorage.getItem("hdfstudio.cloudTest")) return status("OneDrive and SharePoint work in the HDF Studio desktop app.");
+  const { browseCloud } = await import("./ui/cloud");
+  const g = await graph();
+  const pick = await browseCloud(g, { mode: "open" });
+  if (!pick || pick.mode !== "open") return;
+  const it = pick.item;
+  try {
+    status(`Downloading ${it.name}…`);
+    const data = await g.download(it.driveId, it.id);
+    const { canOpen, needsOffice } = await import("./engine/convert");
+    if (needsOffice(it.name)) return createPdf([{ name: it.name, path: null, data }]);
+    if (!canOpen(it.name)) return status(`${it.name}: HDF Studio can't open this kind of file`);
+    const before = tabs.length;
+    await openFiles([{ name: it.name, path: null, data }]);
+    const t = tabs[before];
+    if (t && /\.pdf$/i.test(it.name)) {
+      t.cloud = { driveId: it.driveId, itemId: it.id, parentId: it.parentId, eTag: it.eTag, name: it.name, webUrl: it.webUrl, where: pick.where };
+      renderTabs();
+      status(`${it.name} from ${pick.where}. Ctrl+S saves it back there.`);
+    }
+  } catch (e) {
+    status(`Could not open ${it.name}: ${(e as Error).message}`);
+  }
+}
+/** Save the tab to OneDrive/SharePoint: back to where it came from, or (saveAs) to a place the user picks. */
+async function saveToCloud(t: Tab, saveAs: boolean): Promise<boolean> {
+  const g = await graph();
+  const bytes = await saveBytesOf(t);
+  try {
+    if (t.cloud && !saveAs) {
+      status(`Saving ${t.cloud.name} to ${t.cloud.where}…`);
+      let it;
+      try {
+        it = await g.upload({ driveId: t.cloud.driveId, itemId: t.cloud.itemId, eTag: t.cloud.eTag, data: bytes });
+      } catch (e) {
+        if ((e as { status?: number }).status !== 412) throw e;
+        const r = await ask(`${t.cloud.name} was changed by someone else since you opened it`, [
+          { name: "how", label: "What now?", type: "select", value: "copy", options: [["copy", "Save my version as a copy next to it"], ["overwrite", "Replace their changes with mine"]] },
+        ], "Save");
+        if (!r) return false;
+        if (r.how === "overwrite") it = await g.upload({ driveId: t.cloud.driveId, itemId: t.cloud.itemId, data: bytes });
+        else {
+          const name = t.cloud.name.replace(/(\.pdf)?$/i, ` (${localStorage.getItem("hdfstudio.author") || "my copy"})$1`);
+          it = await g.upload({ driveId: t.cloud.driveId, parentId: t.cloud.parentId, name, data: bytes });
+        }
+      }
+      t.cloud = { ...t.cloud, itemId: it.id, eTag: it.eTag, name: it.name, parentId: it.parentId ?? t.cloud.parentId };
+    } else {
+      if (!isTauri && !localStorage.getItem("hdfstudio.cloudTest")) return (status("OneDrive and SharePoint work in the HDF Studio desktop app."), false);
+      const { browseCloud } = await import("./ui/cloud");
+      const pick = await browseCloud(g, { mode: "save", name: t.cloud?.name ?? (/\.pdf$/i.test(t.name) ? t.name : `${t.name}.pdf`) });
+      if (!pick || pick.mode !== "save") return false;
+      if (pick.existing && !(await confirmDialog(`${pick.name} already exists in ${pick.where}. Replace it?`, "Replace"))) return false;
+      status(`Saving ${pick.name} to ${pick.where}…`);
+      const it = pick.existing
+        ? await g.upload({ driveId: pick.driveId, itemId: pick.existing.id, data: bytes })
+        : await g.upload({ driveId: pick.driveId, parentId: pick.parentId, name: pick.name, data: bytes });
+      t.cloud = { driveId: pick.driveId, itemId: it.id, parentId: pick.parentId, eTag: it.eTag, name: it.name, webUrl: it.webUrl, where: pick.where };
+      t.path = null;
+    }
+    t.name = t.cloud.name;
+    t.dirty = false;
+    renderTabs();
+    status(`Saved ${t.cloud.name} to ${t.cloud.where}`);
+    return true;
+  } catch (e) {
+    status(`Save to OneDrive/SharePoint failed: ${(e as Error).message}. Your changes are still open here.`);
+    return false;
+  }
+}
+
 async function save(saveAs: boolean) {
   if (!active) return;
   const t = active;
-  // Signed files must be saved incrementally, or the existing signatures would break.
-  const signed = await engine.hasSignatures(t.info.id);
-  const bytes = await engine.save(t.info.id, signed ? "incremental" : ["garbage", "compress", ...t.saveExtra].join(","));
+  if (t.cloud && !saveAs) return void (await saveToCloud(t, false));
+  const bytes = await saveBytesOf(t);
   const p = await saveFile(bytes, t.name, t.path, saveAs);
   if (p) {
     t.path = p;
     t.name = baseName(p);
+    t.cloud = undefined;
     remember(p);
   }
   t.dirty = false;
@@ -2057,6 +2147,9 @@ const commands: Command[] = [
   { id: "redo", title: "Redo", keys: "Ctrl+Y", run: () => undoRedo("redo") },
   { id: "mergeFiles", title: "Merge files into a new document…", keys: "Ctrl+Shift+M", run: () => mergeFiles() },
   { id: "insertFile", title: "Insert pages from files: choose pages and where (start, end, before or after a page)…", run: () => void insertPagesFlow() },
+  { id: "openCloud", title: "Open from OneDrive or SharePoint…", keys: "Ctrl+Alt+O", run: () => void openFromCloud() },
+  { id: "saveCloud", title: "Save to OneDrive or SharePoint…", keys: "Ctrl+Alt+S", run: () => active && void saveToCloud(active, true) },
+  { id: "cloudWeb", title: "Show this file in OneDrive/SharePoint (browser)", run: () => active?.cloud?.webUrl ? openExternal(active.cloud.webUrl) : status("This file isn't from OneDrive or SharePoint") },
   { id: "saveAsImages", title: "Save pages as images (PNG, TIFF, JPEG, BMP) for AutoCAD…", run: () => void saveAsImages() },
   { id: "insertBlank", title: "Insert blank page after current", run: () => mutate("Inserted blank page", (t) => engine.insertBlank(t.info.id, t.page + 1, t.page)) },
   { id: "splitDoc", title: "Split document…", run: () => splitDocument() },

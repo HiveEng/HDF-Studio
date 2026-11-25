@@ -125,3 +125,24 @@ async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Prom
 export const oauthListen = () => tauriInvoke<number>("oauth_listen");
 export const oauthWait = (timeoutSecs: number) => tauriInvoke<string>("oauth_wait", { timeoutSecs });
 export const httpPostForm = (url: string, body: string) => tauriInvoke<string>("http_post_form", { url, body });
+
+/** Microsoft Graph / SharePoint request with raw bytes (desktop: through the app; browser: fetch). */
+export async function graphFetch(method: string, url: string, o: { token?: string; contentType?: string; extra?: [string, string]; body?: Uint8Array } = {}): Promise<Uint8Array> {
+  if (isTauri) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const headers: Record<string, string> = { "x-method": method, "x-url": url };
+    if (o.token) headers["x-token"] = o.token;
+    if (o.contentType) headers["x-content-type"] = o.contentType;
+    if (o.extra) headers["x-extra"] = `${o.extra[0]}: ${o.extra[1]}`;
+    const r = await invoke<ArrayBuffer>("graph_fetch", o.body ?? new Uint8Array(0), { headers });
+    return new Uint8Array(r);
+  }
+  const headers: Record<string, string> = {};
+  if (o.token) headers.Authorization = `Bearer ${o.token}`;
+  if (o.contentType) headers["Content-Type"] = o.contentType;
+  if (o.extra) headers[o.extra[0]] = o.extra[1];
+  const r = await fetch(url, { method, headers, body: o.body as BodyInit | undefined });
+  const b = new Uint8Array(await r.arrayBuffer());
+  if (!r.ok) throw new Error(`HTTP ${r.status}: ${new TextDecoder().decode(b)}`);
+  return b;
+}

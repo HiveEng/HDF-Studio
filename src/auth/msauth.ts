@@ -59,6 +59,10 @@ export class MsAuth {
     this.io.store.removeItem(this.key);
   }
 
+  /** Access tokens for other APIs (Microsoft Graph), by scope list. Memory only. */
+  private access = new Map<string, { token: string; exp: number }>();
+  private lastJson: Record<string, string> = {};
+
   /** Turn a token response into a saved session, checking the account is one we accept. */
   private accept(text: string, oldRefresh?: string): Saved {
     let j: Record<string, string>;
@@ -67,7 +71,8 @@ export class MsAuth {
     } catch {
       throw new Error("Microsoft sign-in sent an unexpected answer");
     }
-    if (j.error) throw new Error(`Microsoft sign-in failed: ${j.error_description?.split("\r\n")[0] ?? j.error}`);
+    this.lastJson = j;
+    if (j.error) throw Object.assign(new Error(`Microsoft sign-in failed: ${j.error_description?.split("\r\n")[0] ?? j.error}`), { code: j.error, description: j.error_description ?? "" });
     if (!j.id_token) throw new Error("Microsoft sign-in did not return an ID token");
     const c = decodeJwt(j.id_token);
     const email = emailOf(c);
@@ -83,7 +88,8 @@ export class MsAuth {
   }
 
   /** Open the browser and sign in. Resolves with the ID token. */
-  async signIn(): Promise<string> {
+  async signIn(extraScopes = ""): Promise<string> {
+    const scope = [SCOPES, extraScopes].filter(Boolean).join(" ");
     const verifier = b64url(this.rand(32));
     const challenge = b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
     const state = b64url(this.rand(16));
@@ -94,7 +100,7 @@ export class MsAuth {
       response_type: "code",
       redirect_uri: redirect,
       response_mode: "query",
-      scope: SCOPES,
+      scope,
       code_challenge: challenge,
       code_challenge_method: "S256",
       state,
@@ -106,8 +112,10 @@ export class MsAuth {
     const r = new URLSearchParams(await back);
     if (r.get("error")) throw new Error(r.get("error") === "access_denied" ? "Sign-in was cancelled" : `Microsoft sign-in failed: ${r.get("error_description") ?? r.get("error")}`);
     if (r.get("state") !== state) throw new Error("Sign-in answer did not match the request; try again");
-    const body = new URLSearchParams({ client_id: this.cfg.clientId, grant_type: "authorization_code", code: r.get("code") ?? "", redirect_uri: redirect, code_verifier: verifier, scope: SCOPES });
-    return this.accept(await this.io.postForm(`${this.base}/token`, body.toString())).idToken;
+    const body = new URLSearchParams({ client_id: this.cfg.clientId, grant_type: "authorization_code", code: r.get("code") ?? "", redirect_uri: redirect, code_verifier: verifier, scope });
+    const saved = this.accept(await this.io.postForm(`${this.base}/token`, body.toString()));
+    if (extraScopes) this.keepAccess(extraScopes);
+    return saved.idToken;
   }
 
   /**
@@ -132,6 +140,43 @@ export class MsAuth {
       this.signOut();
       return { status: "signin" };
     }
+  }
+
+  private keepAccess(scopes: string) {
+    const j = this.lastJson;
+    if (j.access_token) this.access.set(scopes, { token: j.access_token, exp: this.now() + Number(j.expires_in ?? 3600) * 1000 });
+  }
+
+  /**
+   * An access token for another API, e.g. Microsoft Graph ("https://graph.microsoft.com/Files.ReadWrite.All …").
+   * Uses the saved sign-in silently; when consent or a fresh sign-in is needed and `interactive` is set,
+   * opens the browser once (the user, or an admin for the whole organization, approves the access).
+   */
+  async accessToken(scopes: string, interactive = true): Promise<string> {
+    const c = this.access.get(scopes);
+    if (c && c.exp - 5 * 60_000 > this.now()) return c.token;
+    const s = this.load();
+    if (s?.refreshToken) {
+      try {
+        const body = new URLSearchParams({ client_id: this.cfg.clientId, grant_type: "refresh_token", refresh_token: s.refreshToken, scope: `${SCOPES} ${scopes}` });
+        this.accept(await this.io.postForm(`${this.base}/token`, body.toString()), s.refreshToken);
+        this.keepAccess(scopes);
+        const t = this.access.get(scopes);
+        if (t) return t.token;
+      } catch (e) {
+        const code = (e as { code?: string }).code;
+        const desc = (e as { description?: string }).description ?? "";
+        // Admin approval is needed and the user can't give it: say so plainly.
+        if (/AADSTS65001|AADSTS90094|AADSTS90008/.test(desc) && !interactive) throw new Error("HDF Studio needs permission to reach OneDrive and SharePoint. Ask your Microsoft 365 admin to approve it.");
+        if (code && !/interaction_required|consent_required|invalid_grant|login_required/.test(code) && !/AADSTS65001/.test(desc)) throw e;
+        /* consent or sign-in needed: fall through to the browser */
+      }
+    }
+    if (!interactive) throw new Error("Sign in to Microsoft 365 first");
+    await this.signIn(scopes);
+    const t = this.access.get(scopes);
+    if (!t) throw new Error("Microsoft did not grant access to OneDrive and SharePoint");
+    return t.token;
   }
 
   /** A valid ID token: the saved one, a refreshed one, or (if interactive) a fresh sign-in. */

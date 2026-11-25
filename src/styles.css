@@ -513,3 +513,35 @@ body.designing .page .field { display: none; }
 /* Snap marker */
 .snap-mark { stroke: #05C7F2; fill: none; pointer-events: none; }
 .snap-mark text { stroke: #fff; stroke-width: 3px; paint-order: stroke; fill: #0a7fa0; font-family: system-ui, sans-serif; }
+
+/* OneDrive / SharePoint browser */
+.modal.cloud { width: min(880px, 95vw); height: min(620px, 88vh); padding: 0; gap: 0; overflow: hidden; }
+.cloud header { padding: 14px 18px 10px; border-bottom: 1px solid var(--border); }
+.cloud header h2 { margin: 0; }
+.cloud-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 230px 1fr; }
+.cloud-places { border-right: 1px solid var(--border); overflow: auto; padding: 8px; display: flex; flex-direction: column; gap: 2px; background: var(--panel-2); }
+.cloud-places h3 { margin: 8px 6px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
+.cloud-places button { display: flex; flex-direction: column; align-items: flex-start; text-align: left; border: 0; background: none; padding: 6px 8px; border-radius: 7px; width: 100%; }
+.cloud-places button small { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.cloud-places button:hover { background: var(--hover); }
+.cloud-places button.active { background: color-mix(in srgb, var(--hive-cyan) 16%, var(--panel)); }
+.cloud-search { margin: 4px 2px 6px; }
+.cloud-main { display: flex; flex-direction: column; min-height: 0; }
+.cloud-crumbs { display: flex; align-items: center; gap: 4px; padding: 8px 12px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.cloud-crumbs button { border: 0; background: none; padding: 2px 6px; border-radius: 6px; font-weight: 500; }
+.cloud-crumbs button:hover { background: var(--hover); }
+.cloud-crumbs span { color: var(--muted); }
+.cloud-list { flex: 1; overflow: auto; padding: 4px 6px; outline: none; }
+.cloud-row { display: grid; grid-template-columns: 26px 1fr auto 70px; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 7px; cursor: default; user-select: none; }
+.cloud-row:hover { background: var(--hover); }
+.cloud-row.sel { background: color-mix(in srgb, var(--hive-cyan) 20%, var(--panel)); }
+.cloud-row.dim { opacity: .55; }
+.cloud-row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cloud-row .when, .cloud-row .sz { color: var(--muted); font-size: 12px; text-align: right; white-space: nowrap; }
+.cloud-msg { color: var(--muted); padding: 16px; }
+.cloud-msg.error { color: var(--danger); }
+.cloud footer { display: flex; align-items: flex-end; gap: 12px; padding: 10px 18px 14px; border-top: 1px solid var(--border); }
+.cloud footer .cloud-name { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.cloud footer .cloud-status { flex: 1; }
+.cloud footer .modal-buttons { margin: 0; }
+.tab.cloud > span::before { content: "☁ "; color: var(--accent); }

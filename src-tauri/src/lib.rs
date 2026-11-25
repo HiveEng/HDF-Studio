@@ -270,6 +270,58 @@ async fn http_post_form(url: String, body: String) -> Result<String, String> {
     .map_err(|e| e.to_string())?
 }
 
+/// Microsoft Graph (OneDrive and SharePoint) request with raw bytes both ways.
+/// Headers carry the request: x-method, x-url, x-token (optional), x-content-type, x-extra (one "Name: value").
+/// Only Graph and SharePoint upload addresses are allowed.
+#[tauri::command]
+async fn graph_fetch(request: tauri::ipc::Request<'_>) -> Result<tauri::ipc::Response, String> {
+    let h = request.headers();
+    let get = |k: &str| h.get(k).and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+    let (method, url, token, ctype, extra) = (get("x-method"), get("x-url"), get("x-token"), get("x-content-type"), get("x-extra"));
+    let host_ok = url.starts_with("https://graph.microsoft.com/")
+        || url
+            .strip_prefix("https://")
+            .and_then(|rest| rest.split('/').next())
+            .map(|host| host.ends_with(".sharepoint.com"))
+            .unwrap_or(false);
+    if !host_ok {
+        return Err("Unexpected OneDrive/SharePoint address".into());
+    }
+    let body = match request.body() {
+        tauri::ipc::InvokeBody::Raw(b) => b.clone(),
+        _ => Vec::new(),
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut req = ureq::request(if method.is_empty() { "GET" } else { &method }, &url).timeout(std::time::Duration::from_secs(600));
+        if !token.is_empty() {
+            req = req.set("Authorization", &format!("Bearer {token}"));
+        }
+        if !ctype.is_empty() {
+            req = req.set("Content-Type", &ctype);
+        }
+        if let Some((k, v)) = extra.split_once(": ") {
+            req = req.set(k, v);
+        }
+        let r = if body.is_empty() && (method.is_empty() || method == "GET" || method == "DELETE") { req.call() } else { req.send_bytes(&body) };
+        let (ok, resp) = match r {
+            Ok(r) => (true, r),
+            Err(ureq::Error::Status(_, r)) => (false, r),
+            Err(e) => return Err(format!("Could not reach OneDrive/SharePoint: {e}")),
+        };
+        let status = resp.status();
+        let mut out = Vec::new();
+        use std::io::Read;
+        resp.into_reader().take(2_000_000_000).read_to_end(&mut out).map_err(|e| e.to_string())?;
+        if ok {
+            Ok(tauri::ipc::Response::new(out))
+        } else {
+            Err(format!("HTTP {status}: {}", String::from_utf8_lossy(&out)))
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -286,7 +338,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![startup_files, office_available, office_to_pdf, ghostscript_available, pdfa_convert, tsa_request, scan_pages, oauth_listen, oauth_wait, http_post_form])
+        .invoke_handler(tauri::generate_handler![startup_files, office_available, office_to_pdf, ghostscript_available, pdfa_convert, tsa_request, scan_pages, oauth_listen, oauth_wait, http_post_form, graph_fetch])
         .run(tauri::generate_context!())
         .expect("error while running HDF Studio");
 }

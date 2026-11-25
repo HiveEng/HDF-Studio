@@ -91,5 +91,5 @@ export function setupSignIn(o: { logoHtml: string; onUser(u: MsUser): void; stat
     lock("You're signed out.");
   }
 
-  return { start, signOut, get user() { return user; } };
+  return { start, signOut, auth, get user() { return user; } };
 }

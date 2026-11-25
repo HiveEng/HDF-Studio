@@ -8,7 +8,7 @@ import {
   ImagePlus, Replace, ImageDown, Stamp, FileInput, FilePlus2, Copy, Trash2, RotateCcw, RotateCw, ArrowUpDown,
   LayoutGrid, Merge, FileOutput, Scissors, Signature, PenLine, BadgeCheck, FileKey, ShieldCheck, Sheet,
   FileSpreadsheet, Eraser, SquareDashed, ScanSearch, Shredder, Lock, LockOpen, File, FileDown, Workflow, ListChecks,
-  MoveHorizontal, Maximize, PanelLeft, Search, ScanText, ScanLine, GitCompare, FolderSync, ClipboardCheck, Archive, Languages, Users, Printer, FormInput, WandSparkles, Sparkles, Accessibility, Images,
+  MoveHorizontal, Maximize, PanelLeft, Search, ScanText, ScanLine, GitCompare, FolderSync, ClipboardCheck, Archive, Languages, Users, Printer, FormInput, WandSparkles, Sparkles, CloudDownload, CloudUpload, Accessibility, Images,
   Cloud, MessageSquareQuote, Spline, Pentagon, Ruler, RulerDimensionLine, DraftingCompass, Hash, Scaling, Crosshair, Waypoints, LandPlot, Settings, Split, Link, BookmarkPlus, Paperclip, Layers2,
   Toolbox, SpellCheck, Magnet,
 } from "lucide";
@@ -35,6 +35,10 @@ export const TASKS: Task[] = [
         { cmd: "scan", label: "Scan", icon: Printer, hint: "Scan from your scanner into a searchable PDF" },
         { cmd: "compare", label: "Compare", icon: GitCompare },
         { cmd: "settings", label: "Settings", icon: Settings },
+      ] },
+      { label: "Microsoft 365", items: [
+        { cmd: "openCloud", label: "Open from 365", icon: CloudDownload, hint: "Open from OneDrive or SharePoint (Ctrl+Alt+O)" },
+        { cmd: "saveCloud", label: "Save to 365", icon: CloudUpload, hint: "Save to OneDrive or SharePoint (Ctrl+Alt+S). Files opened from there save back with Ctrl+S." },
       ] },
       { label: "Tools", items: [
         { cmd: "tool-hand", tool: "hand", label: "Hand", icon: Hand, big: true },
