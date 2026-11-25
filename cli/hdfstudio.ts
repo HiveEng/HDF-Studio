@@ -81,7 +81,8 @@ Usage:
   hdfstudio check <files|folders...> [--json]           PDF/A, accessibility and security check (exit 1 on errors)
   hdfstudio pdfa <files|folders...> [-o dir]            Convert to PDF/A-2b for archiving (needs Ghostscript)
   hdfstudio review-server [--port 8787] [--data ./reviews] [--token code]
-        [--ms-tenant <tenant id> --ms-client <app id> --domain hiveng.ca]
+        [--ms-tenant <tenant id> --ms-client <app id> --domain hiveng.ca] [--trust-proxy]
+        Keeps an access log in <data>/access.log. --trust-proxy: behind a reverse proxy or Cloudflare Tunnel.
                                                     Run the shared review server (Microsoft 365 sign-in recommended)
   hdfstudio recipes                                     List built-in recipes and step types
   hdfstudio run <recipe> <files|folders...> [options]   Apply a recipe to every PDF
@@ -609,6 +610,7 @@ export async function main(argv: string[]): Promise<number> {
         dataDir: (args.flags.data as string) ?? "reviews",
         token: args.flags.token as string | undefined,
         microsoft: tenant ? { kind: "microsoft", tenant, clientId: client!, domains } : undefined,
+        trustProxy: !!args.flags["trust-proxy"] || /^(1|true|yes)$/i.test(env.HDF_TRUST_PROXY ?? ""),
         log: (m) => log(`${new Date().toISOString()} ${m}`),
       });
       log(`Review server running on port ${Number(args.flags.port ?? 8787)} (${tenant ? `Microsoft sign-in, ${domains.map((d) => "@" + d).join(", ")} only` : args.flags.token ? "access code required" : "OPEN: anyone who can reach it"}). Ctrl+C to stop.`);

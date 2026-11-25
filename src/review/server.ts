@@ -12,6 +12,7 @@
 //   GET  /api/reviews/:id/events                                    -> server-sent events: { seq } on every change
 //   GET  /r/:id                                                     -> a small page explaining how to join
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
+import { createWriteStream } from "node:fs";
 import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes, timingSafeEqual } from "node:crypto";
@@ -26,6 +27,12 @@ export interface ReviewServerOptions {
   /** Microsoft 365 sign-in restricted to company domains (recommended). */
   microsoft?: MicrosoftAuth;
   log?: (msg: string) => void;
+  /** Behind a reverse proxy or Cloudflare Tunnel: take the client address from CF-Connecting-IP / X-Forwarded-For. */
+  trustProxy?: boolean;
+  /** Requests per minute per address (default 600); failed sign-ins per minute per address (default 30). */
+  rateLimit?: { perMinute?: number; failedAuthPerMinute?: number };
+  /** Write an access log (time, address, account, request, status) to dataDir/access.log. Default true. */
+  accessLog?: boolean;
 }
 
 interface Item { name: string; author: string; xfdf: string; deleted: boolean; seq: number; updated: string; /** Verified email of whoever created it (sign-in mode). */ owner?: string }
@@ -96,7 +103,43 @@ export function startReviewServer(o: ReviewServerOptions): Promise<Server & { ur
       req.on("error", reject);
     });
 
+  // Abuse protection: simple per-address windows, reset every minute.
+  const perMinute = o.rateLimit?.perMinute ?? 600, failedPerMinute = o.rateLimit?.failedAuthPerMinute ?? 30;
+  const hits = new Map<string, { n: number; failed: number; streams: number }>();
+  const windowTimer = setInterval(() => {
+    for (const [k, v] of hits) if (v.streams) Object.assign(v, { n: 0, failed: 0 }); else hits.delete(k);
+  }, 60_000);
+  windowTimer.unref?.();
+  const counter = (ip: string) => {
+    let c = hits.get(ip);
+    if (!c) hits.set(ip, (c = { n: 0, failed: 0, streams: 0 }));
+    return c;
+  };
+  const clientIp = (req: IncomingMessage) => {
+    if (o.trustProxy) {
+      const cf = req.headers["cf-connecting-ip"];
+      if (typeof cf === "string" && cf) return cf.trim();
+      const xff = req.headers["x-forwarded-for"];
+      if (typeof xff === "string" && xff) return xff.split(",")[0].trim();
+    }
+    return req.socket.remoteAddress ?? "?";
+  };
+  const access = o.accessLog === false ? null : createWriteStream(join(o.dataDir, "access.log"), { flags: "a" });
+
   const server = createServer(async (req, res) => {
+    const ip = clientIp(req);
+    const who = { email: "-" };
+    if (access) {
+      const t0 = Date.now();
+      res.on("finish", () => access.write(`${new Date().toISOString()} ${ip} ${who.email} ${req.method} ${(req.url ?? "").replace(/([?&]token=)[^&]*/, "$1…")} ${res.statusCode} ${Date.now() - t0}ms\n`));
+    }
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    const c = counter(ip);
+    if (++c.n > perMinute || c.failed >= failedPerMinute) {
+      res.setHeader("Retry-After", "60");
+      return send(res, 429, { error: "Too many requests; try again in a minute" });
+    }
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -115,7 +158,11 @@ export function startReviewServer(o: ReviewServerOptions): Promise<Server & { ur
         return send(res, 200, o.microsoft ? { auth: "microsoft", tenant: o.microsoft.tenant, clientId: o.microsoft.clientId, domains: o.microsoft.domains } : { auth: o.token ? "token" : "none" });
       if (parts[0] !== "api" || parts[1] !== "reviews") return send(res, 404, { error: "Not found" });
       const user = await authenticate(req, url);
-      if (typeof user === "string") return send(res, 401, { error: user });
+      if (typeof user === "string") {
+        c.failed++;
+        return send(res, 401, { error: user });
+      }
+      if (user) who.email = user.email;
       const id = parts[2];
       if (!id) {
         if (req.method === "GET") return send(res, 200, [...reviews.values()].map((r) => ({ id: r.id, name: r.name, created: r.created, comments: Object.values(r.items).filter((i) => !i.deleted).length, reviewers: reviewers(r) })));
@@ -177,6 +224,8 @@ export function startReviewServer(o: ReviewServerOptions): Promise<Server & { ur
         return send(res, 200, { seq: r.seq });
       }
       if (sub === "events" && req.method === "GET") {
+        if (c.streams >= 50) return send(res, 429, { error: "Too many open connections" });
+        c.streams++;
         res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive" });
         res.write(`retry: 3000\ndata: ${JSON.stringify({ seq: r.seq })}\n\n`);
         let set = listeners.get(r.id);
@@ -184,6 +233,7 @@ export function startReviewServer(o: ReviewServerOptions): Promise<Server & { ur
         set.add(res);
         const ping = setInterval(() => res.write(": ping\n\n"), 25000);
         req.on("close", () => {
+          c.streams--;
           clearInterval(ping);
           set!.delete(res);
         });
@@ -194,6 +244,10 @@ export function startReviewServer(o: ReviewServerOptions): Promise<Server & { ur
       const status = (e as { status?: number }).status ?? 500;
       if (!res.headersSent) send(res, status, { error: (e as Error).message });
     }
+  });
+  server.on("close", () => {
+    clearInterval(windowTimer);
+    access?.end();
   });
   return new Promise((resolve) => {
     server.listen(o.port ?? 8787, o.host ?? "0.0.0.0", () => {

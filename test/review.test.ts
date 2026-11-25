@@ -148,3 +148,26 @@ test("Microsoft sign-in: only @hiveng.ca accounts, names come from the account, 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("review server: rate limits failed sign-ins and keeps an access log", async () => {
+  const { startReviewServer } = await import("../src/review/server");
+  const { mkdtempSync, readFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = mkdtempSync(join(tmpdir(), "rv-"));
+  const server = await startReviewServer({ port: 0, host: "127.0.0.1", dataDir: dir, token: "right", rateLimit: { failedAuthPerMinute: 3 }, trustProxy: true });
+  try {
+    const get = (tok: string, ip = "203.0.113.5") => fetch(`${server.url}/api/reviews?token=${tok}`, { headers: { "CF-Connecting-IP": ip } });
+    for (let i = 0; i < 3; i++) assert.equal((await get("wrong")).status, 401);
+    assert.equal((await get("right")).status, 429, "locked out after repeated failures");
+    assert.equal((await get("right", "198.51.100.7")).status, 200, "other addresses unaffected");
+    await new Promise<void>((r) => server.close(() => r()));
+    await new Promise((r) => setTimeout(r, 50));
+    const logText = readFileSync(join(dir, "access.log"), "utf8");
+    assert.match(logText, /203\.0\.113\.5 - GET \/api\/reviews\?token=… 401/);
+    assert.match(logText, /198\.51\.100\.7 - GET .* 200/);
+    assert.ok(!logText.includes("wrong"), "tokens are not logged");
+  } finally {
+    server.close();
+  }
+});
