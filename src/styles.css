@@ -61,14 +61,14 @@ button.primary.danger { background: var(--danger); color: #fff; }
 
 /* ---------- App bar: brand, task tabs, search ---------- */
 #appbar {
-  display: flex; align-items: stretch; gap: 8px; height: 46px; padding: 0 10px 0 12px;
+  display: flex; align-items: stretch; gap: 8px; height: 46px; padding: 0 10px 0 12px; max-width: 100vw; box-sizing: border-box;
   background: var(--appbar); color: var(--appbar-text);
 }
 .brand { display: flex; align-items: center; gap: 8px; padding-right: 14px; margin-right: 4px; border-right: 1px solid rgba(255,255,255,.12); white-space: nowrap; }
 .brand .mark { width: 30px; height: 24px; }
 .brand .name { font-size: 15px; letter-spacing: .2px; font-weight: 400; }
 .brand .name b { font-weight: 700; color: var(--hive-lime); }
-#tasks { display: flex; align-items: stretch; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+#tasks { display: flex; align-items: stretch; gap: 2px; overflow-x: auto; scrollbar-width: none; min-width: 0; }
 #tasks .task {
   position: relative; border: 0; border-radius: 0; padding: 0 12px; color: var(--appbar-muted); white-space: nowrap; font-weight: 500;
 }
@@ -96,7 +96,7 @@ button.primary.danger { background: var(--danger); color: #fff; }
 #redactApply { height: 30px; white-space: nowrap; }
 
 /* ---------- Ribbon ---------- */
-#ribbon { background: var(--panel); border-bottom: 1px solid var(--border); box-shadow: var(--shadow-1); position: relative; z-index: 2; }
+#ribbon { background: var(--panel); border-bottom: 1px solid var(--border); box-shadow: var(--shadow-1); position: relative; z-index: 2; max-width: 100vw; overflow: hidden; }
 .ribbon-panel { display: flex; align-items: stretch; gap: 0; padding: 6px 8px 0; overflow-x: auto; scrollbar-width: thin; }
 .rgroup { display: flex; flex-direction: column; padding: 0 8px; border-right: 1px solid var(--border); }
 .rgroup:last-child { border-right: 0; }
@@ -112,6 +112,11 @@ button.primary.danger { background: var(--danger); color: #fff; }
 .rb.active svg { color: var(--hive-ink); }
 :root.dark .rb.active svg { color: var(--hive-lime); }
 .rstack { display: flex; flex-direction: column; justify-content: flex-start; gap: 1px; }
+.rgroup .compact-body { display: none; }
+.rgroup.compact > .rgroup-body:not(.compact-body) { display: none; }
+.rgroup.compact > .compact-body { display: flex; }
+.rb:disabled { opacity: .38; cursor: default; }
+.rb:disabled:hover, .rb.active:disabled { background: none; }
 .color-slot { height: 74px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 0 6px; }
 .color-slot input[type=color] { width: 40px; height: 30px; padding: 2px; border-radius: 6px; cursor: pointer; }
 .color-slot button { font-size: 12px; padding: 2px 8px; }
@@ -186,18 +191,19 @@ main.no-sidebar #rail button.active::before { display: none; }
 
 /* ---------- Start screen ---------- */
 #empty { position: absolute; inset: 0; overflow: auto; display: grid; place-items: center; padding: 32px; background: var(--bg); }
-.start { width: min(760px, 100%); text-align: center; }
+.start { width: min(980px, 100%); text-align: center; }
 .start-logo { width: 150px; height: auto; margin-bottom: 4px; }
 :root.dark .start-logo { filter: brightness(1.35) saturate(1.1); }
 .start h1 { margin: 0 0 6px; font-size: 26px; font-weight: 600; letter-spacing: -.3px; }
 .start > p { margin: 0 0 22px; }
-.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; text-align: left; }
+.cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; text-align: left; }
+@media (max-width: 1000px) { .cards { grid-template-columns: repeat(2, 1fr); } }
 .card { text-align: left; display: grid; grid-template-columns: 40px 1fr; grid-template-rows: auto auto; column-gap: 12px; row-gap: 1px; align-items: center; padding: 14px 16px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-1); }
 .card:hover { background: var(--panel); border-color: var(--hive-lime); box-shadow: var(--shadow-2); transform: translateY(-1px); }
 .card > span { grid-row: 1 / 3; width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: var(--accent-soft); color: var(--hive-grey); }
 :root.dark .card > span { color: var(--hive-lime); }
-.card:nth-child(3n+2) > span { background: color-mix(in srgb, var(--hive-cyan) 16%, transparent); }
-.card:nth-child(3n) > span { background: color-mix(in srgb, var(--hive-yellow) 20%, transparent); }
+.card:nth-child(4n+2) > span { background: color-mix(in srgb, var(--hive-cyan) 16%, transparent); }
+.card:nth-child(4n+3) > span { background: color-mix(in srgb, var(--hive-yellow) 20%, transparent); }
 .card b { font-weight: 600; align-self: end; }
 .card small { align-self: start; }
 .card small { color: var(--muted); font-size: 12px; }
@@ -545,3 +551,16 @@ body.designing .page .field { display: none; }
 .cloud footer .cloud-status { flex: 1; }
 .cloud footer .modal-buttons { margin: 0; }
 .tab.cloud > span::before { content: "☁ "; color: var(--accent); }
+
+/* Narrow windows: keep the app bar on one line and the ribbon inside the window. */
+@media (max-width: 1280px) {
+  .cmd-pill kbd { display: none; }
+  .search { width: clamp(150px, 18vw, 240px); }
+}
+@media (max-width: 1150px) {
+  .brand .name { display: none; }
+  .cmd-pill > span:nth-child(2) { display: none; }
+  #tasks .task { padding-left: 9px; padding-right: 9px; }
+}
+.rgroup.icons .rb:not(.big) > span { display: none; }
+.rgroup.icons .rb:not(.big) { padding: 3px 6px; }

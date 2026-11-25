@@ -120,6 +120,7 @@ export function setupEngineering(d: EngDeps) {
   function toggleSnap(on = !snapOn) {
     snapOn = on;
     localStorage.setItem("hdfstudio.snap", on ? "1" : "0");
+    document.querySelectorAll('[data-cmd="toggleSnap"]').forEach((b) => b.classList.toggle("active", on));
     d.status(on ? "Snap to drawing is on (hold Alt to place a point freely)." : "Snap to drawing is off.");
   }
   const scales = new Map<string, Scale | null>();

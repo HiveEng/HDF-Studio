@@ -148,7 +148,10 @@ const thumbObserver = new IntersectionObserver(
 );
 
 // ---------- Layout ----------
+/** Set once the ribbon exists: greys out document commands when nothing is open. */
+let onDocState: (has: boolean) => void = () => {};
 function buildView() {
+  onDocState(!!active);
   pageObserver.disconnect();
   thumbObserver.disconnect();
   queue.length = 0;
@@ -473,10 +476,15 @@ async function openFromCloud() {
   const g = await graph();
   const pick = await browseCloud(g, { mode: "open" });
   if (!pick || pick.mode !== "open") return;
-  const it = pick.item;
+  await openCloudItem({ driveId: pick.item.driveId, itemId: pick.item.id, parentId: pick.item.parentId, eTag: pick.item.eTag, name: pick.item.name, webUrl: pick.item.webUrl, where: pick.where });
+}
+async function openCloudItem(ref: import("./cloud/graph").CloudRef) {
+  const g = await graph();
   try {
-    status(`Downloading ${it.name}…`);
-    const data = await g.download(it.driveId, it.id);
+    status(`Downloading ${ref.name}…`);
+    // Fresh details (the eTag guards Save against overwriting someone else's changes).
+    const it = await g.item(ref.driveId, ref.itemId);
+    const data = await g.download(it.driveId || ref.driveId, it.id);
     const { canOpen, needsOffice } = await import("./engine/convert");
     if (needsOffice(it.name)) return createPdf([{ name: it.name, path: null, data }]);
     if (!canOpen(it.name)) return status(`${it.name}: HDF Studio can't open this kind of file`);
@@ -484,12 +492,13 @@ async function openFromCloud() {
     await openFiles([{ name: it.name, path: null, data }]);
     const t = tabs[before];
     if (t && /\.pdf$/i.test(it.name)) {
-      t.cloud = { driveId: it.driveId, itemId: it.id, parentId: it.parentId, eTag: it.eTag, name: it.name, webUrl: it.webUrl, where: pick.where };
+      t.cloud = { ...ref, driveId: it.driveId || ref.driveId, itemId: it.id, parentId: it.parentId ?? ref.parentId, eTag: it.eTag, name: it.name, webUrl: it.webUrl ?? ref.webUrl };
+      rememberCloud(t.cloud);
       renderTabs();
-      status(`${it.name} from ${pick.where}. Ctrl+S saves it back there.`);
+      status(`${it.name} from ${ref.where}. Ctrl+S saves it back there.`);
     }
   } catch (e) {
-    status(`Could not open ${it.name}: ${(e as Error).message}`);
+    status(`Could not open ${ref.name}: ${(e as Error).message}`);
   }
 }
 /** Save the tab to OneDrive/SharePoint: back to where it came from, or (saveAs) to a place the user picks. */
@@ -530,6 +539,7 @@ async function saveToCloud(t: Tab, saveAs: boolean): Promise<boolean> {
     }
     t.name = t.cloud.name;
     t.dirty = false;
+    rememberCloud(t.cloud);
     renderTabs();
     status(`Saved ${t.cloud.name} to ${t.cloud.where}`);
     return true;
@@ -2112,6 +2122,11 @@ setTheme((localStorage.getItem("hdfstudio.theme") ?? (matchMedia("(prefers-color
 
 // ---------- Commands, shortcuts, palette ----------
 interface Command { id: string; title: string; keys?: string; run: () => void }
+/** One-key shortcuts for the engineering and measuring tools. */
+const ENG_KEYS: Partial<Record<(typeof ENG_TOOLS)[number], string>> = {
+  cloud: "C", callout: "L", stamp: "S", leader: "Shift+L", dimension: "Shift+D", polyline: "Shift+Y",
+  "m-length": "M", "m-area": "Shift+M", "m-perimeter": "Shift+P", "m-count": "Shift+C", "m-angle": "Shift+G", "m-polylength": "Shift+N",
+};
 const commands: Command[] = [
   { id: "open", title: "Open files…", keys: "Ctrl+O", run: async () => openFiles(await pickFiles()) },
   { id: "save", title: "Save", keys: "Ctrl+S", run: () => save(false) },
@@ -2190,7 +2205,7 @@ const commands: Command[] = [
   { id: "unprotect", title: "Remove password protection", run: () => unprotectFlow() },
   { id: "tool-sign", title: "Sign: place your signature", keys: "G", run: () => useTool("sign") },
   { id: "newSignature", title: "Create a new signature…", run: async () => { clearSignature(); if (await getSignature(true)) annot.setTool("sign"); } },
-  ...ENG_TOOLS.map((t) => ({ id: `tool-${t}`, title: `${eng.TOOL_INFO[t].label} tool`, run: () => startEng(t) })),
+  ...ENG_TOOLS.map((t) => ({ id: `tool-${t}`, title: `${eng.TOOL_INFO[t].label} tool`, keys: ENG_KEYS[t], run: () => startEng(t) })),
   { id: "setScale", title: "Set drawing scale…", run: () => void eng.setScale() },
   { id: "toggleSnap", title: "Snap to drawing (endpoints, intersections, midpoints): on/off", keys: "F9", run: () => eng.toggleSnap() },
   { id: "tool-link", title: "Link tool: add or edit links to pages, websites and email", run: () => navUI.startLinkTool() },
@@ -2227,6 +2242,19 @@ const commands: Command[] = [
   { id: "watchFolders", title: "Watch folders: process PDFs dropped into a folder automatically…", run: () => openWatchPanel() },
   { id: "palette", title: "Show all commands", keys: "Ctrl+K", run: () => openPalette() },
 ];
+// Remember what people use so the command palette lists it first.
+const USED_KEY = "hdfstudio.usedCommands";
+let usedCommands: string[] = JSON.parse(localStorage.getItem(USED_KEY) ?? "[]");
+for (const c of commands) {
+  const run = c.run;
+  c.run = () => {
+    if (c.id !== "palette") {
+      usedCommands = [c.id, ...usedCommands.filter((x) => x !== c.id)].slice(0, 12);
+      localStorage.setItem(USED_KEY, JSON.stringify(usedCommands));
+    }
+    return run();
+  };
+}
 const byId = Object.fromEntries(commands.map((c) => [c.id, c]));
 const ribbon = setupRibbon($("#tasks"), $("#ribbon"), {
   run: (id) => byId[id]?.run(),
@@ -2235,6 +2263,9 @@ const ribbon = setupRibbon($("#tasks"), $("#ribbon"), {
 });
 annot.setTool("hand");
 document.querySelectorAll<HTMLElement>("[data-cmd]").forEach((b) => (b.onclick = () => byId[b.dataset.cmd!]?.run()));
+onDocState = (has) => ribbon.setHasDocument(has);
+document.querySelectorAll('[data-cmd="toggleSnap"]').forEach((b) => b.classList.toggle("active", eng.snapOn));
+onDocState(!!active);
 
 function keyString(e: KeyboardEvent) {
   let key = e.key.length === 1 ? e.key.toUpperCase() : e.key;
@@ -2244,7 +2275,8 @@ function keyString(e: KeyboardEvent) {
   return [e.ctrlKey || e.metaKey ? "Ctrl" : "", shift ? "Shift" : "", e.altKey ? "Alt" : "", key].filter(Boolean).join("+");
 }
 document.addEventListener("keydown", (e) => {
-  const typing = e.target instanceof HTMLInputElement;
+  const tg = e.target as HTMLElement | null;
+  const typing = tg instanceof HTMLInputElement || tg instanceof HTMLTextAreaElement || tg instanceof HTMLSelectElement || !!tg?.isContentEditable;
   const ks = keyString(e);
   const cmd = commands.find((c) => c.keys === ks);
   if (e.key === "Escape") (pendingPlacement = null), chestUI?.release();
@@ -2282,10 +2314,15 @@ function matchScore(q: string, title: string) {
   return fuzzy(q.replace(/\s+/g, ""), t) ? 4 : -1;
 }
 function filteredCommands() {
+  // Recently used commands first: at the top of an empty search, and ahead of equal matches.
+  const recent = (id: string) => {
+    const k = usedCommands.indexOf(id);
+    return k < 0 ? 99 : k;
+  };
   return commands
     .map((c, i) => ({ c, i, s: c.id === "palette" ? -1 : matchScore(paletteInput.value, c.title) }))
     .filter((x) => x.s >= 0)
-    .sort((a, b) => a.s - b.s || a.i - b.i)
+    .sort((a, b) => a.s - b.s || recent(a.c.id) - recent(b.c.id) || a.i - b.i)
     .map((x) => x.c);
 }
 function renderPalette() {
@@ -2349,6 +2386,16 @@ void signIn.start();
   const openPaths = async (paths: string[]) =>
     paths.length && openFiles(await Promise.all(paths.map(async (p) => ({ name: baseName(p), path: p, data: await readFile(p) }))));
   await listen<string[]>("open-files", (e) => openPaths(e.payload));
+  // Don't lose work: closing the window with unsaved documents asks first.
+  const { getCurrentWindow } = await import("@tauri-apps/api/window");
+  const win = getCurrentWindow();
+  await win.onCloseRequested(async (e) => {
+    const unsaved = tabs.filter((t) => t.dirty);
+    if (!unsaved.length) return;
+    e.preventDefault();
+    const names = unsaved.slice(0, 3).map((t) => t.name).join(", ") + (unsaved.length > 3 ? ` and ${unsaved.length - 3} more` : "");
+    if (await confirmDialog(`Unsaved changes in ${names}. Close HDF Studio and lose them?`, "Close without saving")) await win.destroy();
+  });
   await openPaths(await invoke<string[]>("startup_files"));
 })().catch((e) => status(String(e)));
 
@@ -2359,6 +2406,7 @@ const STATIC_ICONS: Record<string, I.IconNode> = {
   rotl: I.RotateCcw, rotr: I.RotateCw, blank: I.FilePlus2, insert: I.FileInput, extract: I.FileOutput, trash: I.Trash2,
   left: I.ChevronLeft, right: I.ChevronRight, zoomin: I.ZoomIn, zoomout: I.ZoomOut, fitw: I.MoveHorizontal, fitp: I.Maximize,
   open: I.FolderOpen, create: I.FilePlus, merge: I.Merge, batch: I.Workflow, blankdoc: I.File, cert: I.FileKey, compare: I.GitCompare,
+  cloud: I.CloudDownload, scan: I.ScanLine, settings: I.Settings,
 };
 document.querySelectorAll<HTMLElement>("[data-icon]").forEach((el) => {
   const node = STATIC_ICONS[el.dataset.icon!];
@@ -2370,7 +2418,13 @@ document.querySelectorAll<HTMLElement>("[data-icon]").forEach((el) => {
 const RECENT_KEY = "hdfstudio.recent";
 const recentPaths = (): string[] => JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
 function remember(path: string) {
-  localStorage.setItem(RECENT_KEY, JSON.stringify([path, ...recentPaths().filter((p) => p !== path)].slice(0, 8)));
+  localStorage.setItem(RECENT_KEY, JSON.stringify([path, ...recentPaths().filter((p) => p !== path)].slice(0, 10)));
+}
+/** OneDrive/SharePoint files go in the same list, as "cloud:" + JSON. */
+function rememberCloud(ref: import("./cloud/graph").CloudRef) {
+  const key = (x: string) => (x.startsWith("cloud:") ? (JSON.parse(x.slice(6)) as { itemId: string }).itemId : x);
+  const entry = "cloud:" + JSON.stringify({ driveId: ref.driveId, itemId: ref.itemId, parentId: ref.parentId, name: ref.name, webUrl: ref.webUrl, where: ref.where });
+  localStorage.setItem(RECENT_KEY, JSON.stringify([entry, ...recentPaths().filter((p) => key(p) !== ref.itemId)].slice(0, 10)));
 }
 function renderRecent() {
   const list = isTauri ? recentPaths() : [];
@@ -2378,6 +2432,13 @@ function renderRecent() {
   $("#recentList").replaceChildren(
     ...list.map((p) => {
       const li = document.createElement("li");
+      if (p.startsWith("cloud:")) {
+        const ref = JSON.parse(p.slice(6)) as import("./cloud/graph").CloudRef;
+        li.append(icon(I.Cloud, 16), Object.assign(document.createElement("span"), { textContent: ref.name }), Object.assign(document.createElement("small"), { textContent: ref.where }));
+        li.title = `${ref.where} › ${ref.name}`;
+        li.onclick = () => openCloudItem(ref);
+        return li;
+      }
       li.append(icon(I.FileText, 16), Object.assign(document.createElement("span"), { textContent: baseName(p) }), Object.assign(document.createElement("small"), { textContent: p }));
       li.title = p;
       li.onclick = async () => {

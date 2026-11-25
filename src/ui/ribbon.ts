@@ -31,10 +31,8 @@ export const TASKS: Task[] = [
         { cmd: "save", label: "Save", icon: Save, big: true },
         { cmd: "print", label: "Print", icon: Printer, big: true },
         { cmd: "saveAs", label: "Save as", icon: SavePen },
-        { cmd: "createPdf", label: "Create PDF", icon: FilePlus },
-        { cmd: "scan", label: "Scan", icon: Printer, hint: "Scan from your scanner into a searchable PDF" },
-        { cmd: "compare", label: "Compare", icon: GitCompare },
-        { cmd: "settings", label: "Settings", icon: Settings },
+        { cmd: "createPdf", label: "Create PDF", icon: FilePlus, hint: "From Word, Excel, images, HTML and more" },
+        { cmd: "scan", label: "Scan", icon: ScanLine, hint: "Scan from your scanner into a searchable PDF" },
       ] },
       { label: "Microsoft 365", items: [
         { cmd: "openCloud", label: "Open from 365", icon: CloudDownload, hint: "Open from OneDrive or SharePoint (Ctrl+Alt+O)" },
@@ -44,6 +42,8 @@ export const TASKS: Task[] = [
         { cmd: "tool-hand", tool: "hand", label: "Hand", icon: Hand, big: true },
         { cmd: "tool-select", tool: "select", label: "Select", icon: TextCursor, big: true },
         { cmd: "tool-highlight", tool: "highlight", label: "Highlight", icon: Highlighter, big: true },
+        { cmd: "tool-cloud", tool: "cloud", label: "Cloud", icon: Cloud, big: true, hint: "Revision cloud: drag a box around the change" },
+        { cmd: "tool-m-length", tool: "m-length", label: "Measure", icon: Ruler, big: true, hint: "Measure a length at the drawing scale" },
         { cmd: "tool-edit", tool: "edit", label: "Edit", icon: SquarePen, big: true },
         { cmd: "tool-sign", tool: "sign", label: "Sign", icon: Signature, big: true },
       ] },
@@ -108,15 +108,17 @@ export const TASKS: Task[] = [
       { label: "Scale", items: [
         { cmd: "setScale", label: "Set scale", icon: Scaling, big: true, hint: "Pick the drawing scale, e.g. 1/4\" = 1'-0\"" },
         { cmd: "tool-m-calibrate", tool: "m-calibrate", label: "Calibrate", icon: Crosshair, big: true, hint: "Click both ends of a known dimension" },
-        { cmd: "toggleSnap", label: "Snap", icon: Magnet, hint: "Snap points to line ends, intersections and midpoints (F9). Hold Alt to place freely." },
       ] },
       { label: "Measure", items: [
         { cmd: "tool-m-length", tool: "m-length", label: "Length", icon: Ruler, big: true },
         { cmd: "tool-m-area", tool: "m-area", label: "Area", icon: LandPlot, big: true },
+        { cmd: "tool-m-count", tool: "m-count", label: "Count", icon: Hash, big: true, hint: "Click each item to count it (doors, fixtures, piles)" },
         { cmd: "tool-m-polylength", tool: "m-polylength", label: "Polylength", icon: Waypoints },
         { cmd: "tool-m-perimeter", tool: "m-perimeter", label: "Perimeter", icon: Pentagon },
         { cmd: "tool-m-angle", tool: "m-angle", label: "Angle", icon: DraftingCompass },
-        { cmd: "tool-m-count", tool: "m-count", label: "Count", icon: Hash },
+      ] },
+      { label: "Snap", items: [
+        { cmd: "toggleSnap", label: "Snap", icon: Magnet, big: true, hint: "Snap points to line ends, intersections and midpoints (F9). Hold Alt to place freely." },
       ] },
       { label: "Results", items: [
         { cmd: "exportMarkups", label: "Export totals", icon: Sheet, big: true, hint: "Every measurement with totals by type and page, to Excel or CSV" },
@@ -141,16 +143,7 @@ export const TASKS: Task[] = [
       { label: "Images", items: [
         { cmd: "insertImage", label: "Insert image", icon: ImagePlus, big: true },
         { cmd: "replaceImage", label: "Replace", icon: Replace },
-        { cmd: "saveImage", label: "Save image", icon: ImageDown },
-      ] },
-      { label: "Scans", items: [
-        { cmd: "scan", label: "Scan", icon: Printer, big: true, hint: "Scan from your scanner into a searchable PDF" },
-        { cmd: "ocr", label: "Recognize text", icon: ScanText, big: true, hint: "OCR: make scanned pages searchable and copyable" },
-        { cmd: "cleanScans", label: "Clean up", icon: Sparkles, hint: "Straighten, remove specks, delete blank pages" },
-        { cmd: "ocrPage", label: "This page", icon: ScanLine },
-      ] },
-      { label: "Page marks", items: [
-        { cmd: "recipeCurrent", label: "Watermark, numbers & Bates", icon: Stamp, big: true },
+        { cmd: "saveImage", label: "Extract image", icon: ImageDown, hint: "Save the selected image to a file" },
       ] },
     ],
   },
@@ -161,6 +154,7 @@ export const TASKS: Task[] = [
         { cmd: "insertFile", label: "From file", icon: FileInput, big: true, hint: "Insert all or some pages from another file at the start, the end, or before or after a page" },
         { cmd: "insertBlank", label: "Blank page", icon: FilePlus2 },
         { cmd: "duplicateSelected", label: "Duplicate", icon: Copy },
+        { cmd: "scan", label: "From scanner", icon: ScanLine, hint: "Scan pages into this document" },
       ] },
       { label: "Pages", items: [
         { cmd: "deleteSelected", label: "Delete", icon: Trash2, big: true },
@@ -173,6 +167,9 @@ export const TASKS: Task[] = [
         { cmd: "mergeFiles", label: "Merge files", icon: Merge, big: true },
         { cmd: "extractPages", label: "Extract", icon: FileOutput, big: true },
         { cmd: "splitDoc", label: "Split", icon: Scissors, big: true },
+      ] },
+      { label: "Page marks", items: [
+        { cmd: "recipeCurrent", label: "Watermark, numbers & Bates", icon: Stamp, big: true, hint: "Page numbers, Bates numbers, headers, footers and watermarks" },
       ] },
     ],
   },
@@ -233,7 +230,7 @@ export const TASKS: Task[] = [
         { cmd: "mergeFiles", label: "Combine files", icon: Merge, big: true },
       ] },
       { label: "Scans", items: [
-        { cmd: "scan", label: "Scan", icon: Printer, big: true, hint: "Scan from your scanner into a searchable PDF" },
+        { cmd: "scan", label: "Scan", icon: ScanLine, big: true, hint: "Scan from your scanner into a searchable PDF" },
         { cmd: "ocr", label: "Recognize text", icon: ScanText, big: true, hint: "OCR: make scanned pages searchable and copyable" },
         { cmd: "cleanScans", label: "Clean up", icon: Sparkles, hint: "Straighten, remove specks, delete blank pages" },
       ] },
@@ -259,6 +256,9 @@ export const TASKS: Task[] = [
     ],
   },
 ];
+
+/** Commands that work without an open document. */
+export const NO_DOC = new Set(["open", "openCloud", "createPdf", "scan", "mergeFiles", "newBlank", "batch", "watchFolders", "compare", "settings", "showChest", "toggleSnap"]);
 
 /** The ribbon task a command lives on (Home only if nowhere else), for labels in the palette. */
 export function taskOf(cmd: string) {
@@ -324,7 +324,21 @@ export function setupRibbon(tabsEl: HTMLElement, ribbonEl: HTMLElement, d: Ribbo
           stack.append(button(it));
         }
       }
-      group.append(body, Object.assign(document.createElement("div"), { className: "rgroup-label", textContent: g.label }));
+      group.append(body);
+      // Narrow windows: a compact form of the group with every button small, used when the panel overflows.
+      const btns = g.items.filter((i): i is Btn => "cmd" in i);
+      if (btns.some((b) => b.big) && btns.length === g.items.length) {
+        const compact = document.createElement("div");
+        compact.className = "rgroup-body compact-body";
+        for (let k = 0; k < btns.length; k += 3) {
+          const st = Object.assign(document.createElement("div"), { className: "rstack" });
+          for (const b of btns.slice(k, k + 3)) st.append(button({ ...b, big: false }));
+          compact.append(st);
+        }
+        group.append(compact);
+        group.dataset.compactable = "1";
+      }
+      group.append(Object.assign(document.createElement("div"), { className: "rgroup-label", textContent: g.label }));
       panel.append(group);
     }
     panels.set(task.id, panel);
@@ -339,6 +353,38 @@ export function setupRibbon(tabsEl: HTMLElement, ribbonEl: HTMLElement, d: Ribbo
       t.setAttribute("aria-selected", String(t.dataset.task === id));
     });
     for (const [k, p] of panels) p.classList.toggle("hidden", k !== id);
+    fit();
+  }
+
+  /** Squeeze groups (right to left) into their compact form until the panel fits the window. */
+  function fit() {
+    const panel = panels.get(current);
+    if (!panel) return;
+    const groups = [...panel.querySelectorAll<HTMLElement>(".rgroup")];
+    groups.forEach((g) => g.classList.remove("compact", "icons"));
+    const over = () => panel.scrollWidth > panel.clientWidth + 1;
+    // First make groups compact, right to left; if that isn't enough, show icons only (names stay in tooltips).
+    for (const g of [...groups].reverse()) {
+      if (!over()) break;
+      if (g.dataset.compactable) g.classList.add("compact");
+    }
+    for (const g of [...groups].reverse()) {
+      if (!over()) break;
+      g.classList.add("icons");
+    }
+    panel.scrollLeft = 0;
+  }
+  let resizeTimer = 0;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(fit, 80);
+  });
+
+  /** Grey out commands that need an open document while none is open. */
+  function setHasDocument(has: boolean) {
+    ribbonEl.querySelectorAll<HTMLButtonElement>("button[data-cmd]").forEach((b) => {
+      b.disabled = !has && !NO_DOC.has(b.dataset.cmd!);
+    });
   }
 
   /** Bring up the task that owns a tool, unless the current one already has it. */
@@ -350,5 +396,5 @@ export function setupRibbon(tabsEl: HTMLElement, ribbonEl: HTMLElement, d: Ribbo
   }
 
   show(current);
-  return { show, revealTool, get current() { return current; } };
+  return { show, revealTool, setHasDocument, fit, get current() { return current; } };
 }
