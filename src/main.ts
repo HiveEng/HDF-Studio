@@ -1,11 +1,12 @@
 import { createEngine } from "./engine/client";
-import type { DocInfo, OutlineNode, SearchHit } from "./engine/core";
-import { pickFiles, filesFromList, saveFile, saveMany, saveText, saveBytes, baseName, isTauri, tsaRequest, type OpenedFile } from "./platform";
+import type { DocInfo, SearchHit } from "./engine/core";
+import { pickFiles, filesFromList, saveFile, saveMany, saveText, saveBytes, baseName, isTauri, tsaRequest, openExternal, type OpenedFile } from "./platform";
 import { TSA_SERVERS } from "./engine/tsa-servers";
 import { OCR_LANGUAGES, BUNDLED_LANGS, langSource } from "./ocr/languages";
 import { setupAnnotate, type Tool } from "./ui/annotate";
 import { setupEngineering, ENG_TOOLS } from "./ui/engineering";
 import { openSettings } from "./ui/settings";
+import { setupNav } from "./ui/navpanels";
 import { showMenu, type MenuItem } from "./ui/contextmenu";
 import type { AnnotInfo } from "./engine/annotations";
 import { setupRibbon, icon, taskOf } from "./ui/ribbon";
@@ -184,7 +185,7 @@ function buildView() {
     thumbsEl.append(th);
     thumbObserver.observe(box);
   });
-  renderOutline(t.info.outline, outlineEl);
+  void navUI?.refresh();
   $("#pageCount").textContent = `/ ${t.info.pageCount}`;
   searchInput.value = t.query;
   applyZoom(t.zoom, false);
@@ -295,26 +296,6 @@ viewer.addEventListener(
   { passive: false },
 );
 new ResizeObserver(() => active?.fit && fit(active.fit)).observe(viewer);
-
-function renderOutline(nodes: OutlineNode[], parent: HTMLElement) {
-  if (!nodes.length && parent === outlineEl) {
-    parent.innerHTML = `<p class="muted">This document has no outline.</p>`;
-    return;
-  }
-  for (const n of nodes) {
-    const item = document.createElement("div");
-    item.className = "outline-item";
-    item.textContent = n.title;
-    if (n.page !== null) item.onclick = () => goToPage(n.page!);
-    parent.append(item);
-    if (n.children.length) {
-      const kids = document.createElement("div");
-      kids.className = "outline-children";
-      renderOutline(n.children, kids);
-      parent.append(kids);
-    }
-  }
-}
 
 // ---------- Search ----------
 async function runSearch(query: string) {
@@ -498,7 +479,7 @@ viewer.addEventListener("drop", async (e) => {
 });
 
 // ---------- Sidebar ----------
-const SIDE_TITLES: Record<string, string> = { thumbs: "Pages", outline: "Bookmarks", results: "Search results", comments: "Comments" };
+const SIDE_TITLES: Record<string, string> = { thumbs: "Pages", outline: "Bookmarks", results: "Search results", comments: "Comments", attach: "Attached files", layers: "Layers" };
 function showSidePanel(name: string) {
   $("main").classList.remove("no-sidebar");
   $("#thumb-tools").classList.toggle("hidden", name !== "thumbs");
@@ -514,6 +495,8 @@ document.querySelectorAll<HTMLElement>("#rail button").forEach(
       if (b.classList.contains("active") && !main.classList.contains("no-sidebar")) return main.classList.add("no-sidebar");
       showSidePanel(b.dataset.side!);
       if (b.dataset.side === "comments") annot.refreshComments();
+      if (b.dataset.side === "attach") void navUI.loadAttachments();
+      if (b.dataset.side === "layers") void navUI.loadLayers();
     }),
 );
 
@@ -1217,6 +1200,40 @@ const eng = setupEngineering({
   status,
 });
 
+// ---------- Bookmarks, links, attachments, layers ----------
+// eslint-disable-next-line prefer-const
+let navUI: ReturnType<typeof setupNav>;
+navUI = setupNav({
+  engine,
+  doc: () => active,
+  setInfo: (info) => active && (active.info = info),
+  pagesEl,
+  viewer,
+  outlineEl,
+  attachEl: $("#side-attach"),
+  layersEl: $("#side-layers"),
+  goToPage,
+  viewTop: () => {
+    if (!active) return 0;
+    const el = pageEl(active.page);
+    return el ? (viewer.scrollTop - el.offsetTop + PAGE_GAP) / active.zoom : 0;
+  },
+  refreshPage,
+  rebuild: () => buildView(),
+  changed: (label) => {
+    if (!active) return;
+    active.dirty = true;
+    renderTabs();
+    status(`${label}. Ctrl+Z to undo.`);
+  },
+  status,
+  tool: () => annot.tool,
+  setTool: (t) => useTool(t as Tool),
+  pickFiles: async () => await pickFiles(true, []),
+  saveBytes: async (name, data) => void (await saveBytes(name, data)),
+  openUrl: (url) => void openExternal(url),
+});
+
 // ---------- Edit text & images ----------
 const editUI = setupEdit({
   engine,
@@ -1426,6 +1443,37 @@ pagesEl.addEventListener("contextmenu", async (e) => {
     { label: "Print…", keys: "Ctrl+P", run: () => printDoc() },
   ], `Page ${page + 1}`);
 });
+// Hand tool: a click (not a drag) on a link follows it.
+let downAt: [number, number] | null = null;
+pagesEl.addEventListener("pointerdown", (e) => (downAt = [e.clientX, e.clientY]), true);
+pagesEl.addEventListener("click", async (e) => {
+  if (annot.tool !== "hand" || !active || !downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 4) return;
+  const el = (e.target as HTMLElement).closest?.(".page") as HTMLElement | null;
+  if (!el) return;
+  const page = Number(el.dataset.page);
+  const r = el.getBoundingClientRect();
+  const [pw, ph] = active.info.pageSizes[page];
+  const p = [((e.clientX - r.left) / r.width) * pw, ((e.clientY - r.top) / r.height) * ph];
+  if (annot.selected) return; // clicking a markup selects it instead
+  const l = (await engine.links(active.info.id, page)).find((k) => p[0] >= k.rect[0] && p[0] <= k.rect[2] && p[1] >= k.rect[1] && p[1] <= k.rect[3]);
+  if (!l) return;
+  if (l.url) {
+    if (await confirmDialog(`Open ${l.url}?`, "Open")) void openExternal(l.url);
+  } else if (l.page !== undefined) {
+    linkHistory.push([page, viewer.scrollTop]);
+    goToPage(l.page, l.y);
+    status(`Went to page ${l.page + 1}. Alt+Left goes back.`);
+  }
+});
+const linkHistory: [number, number][] = [];
+document.addEventListener("keydown", (e) => {
+  if (e.altKey && e.key === "ArrowLeft" && linkHistory.length && active) {
+    e.preventDefault();
+    const [, top] = linkHistory.pop()!;
+    viewer.scrollTop = top;
+  }
+});
+
 // [ and ] turn the selected image or signature.
 document.addEventListener("keydown", (e) => {
   if ((e.key !== "[" && e.key !== "]") || e.ctrlKey || e.metaKey || e.altKey || (e.target as HTMLElement).closest?.("input, textarea, select")) return;
@@ -1437,6 +1485,7 @@ document.addEventListener("keydown", (e) => {
 /** Select a tool and bring its ribbon task forward so its options are in view. */
 function useTool(t: Tool) {
   if (designUI.active && t !== "hand") designUI.exit();
+  if (t !== "link") navUI?.clearLinkBoxes();
   annot.setTool(t);
   if (t !== "hand" && t !== "select") ribbon.revealTool(t);
 }
@@ -1733,6 +1782,11 @@ const commands: Command[] = [
   { id: "newSignature", title: "Create a new signature…", run: async () => { clearSignature(); if (await getSignature(true)) annot.setTool("sign"); } },
   ...ENG_TOOLS.map((t) => ({ id: `tool-${t}`, title: `${eng.TOOL_INFO[t].label} tool`, run: () => void eng.start(t) })),
   { id: "setScale", title: "Set drawing scale…", run: () => void eng.setScale() },
+  { id: "tool-link", title: "Link tool: add or edit links to pages, websites and email", run: () => navUI.startLinkTool() },
+  { id: "addBookmark", title: "Bookmark the current view", keys: "Ctrl+D", run: () => (showSidePanel("outline"), navUI.addBookmarkHere()) },
+  { id: "attachFile", title: "Attach files to this PDF…", run: () => (showSidePanel("attach"), void navUI.loadAttachments().then(() => ($("#side-attach .nav-btn") as HTMLElement | null)?.click())) },
+  { id: "showAttachments", title: "Show attached files", run: () => (showSidePanel("attach"), void navUI.loadAttachments()) },
+  { id: "showLayers", title: "Show layers", run: () => (showSidePanel("layers"), void navUI.loadLayers()) },
   { id: "tool-edit", title: "Edit tool: change page text and images", keys: "E", run: () => useTool("edit") },
   { id: "insertImage", title: "Insert image…", run: () => (annot.setTool("edit"), editUI.insertImage()) },
   { id: "replaceImage", title: "Replace selected image…", run: () => editUI.replaceSelectedImage() },
@@ -1877,7 +1931,7 @@ paletteInput.addEventListener("blur", () => setTimeout(closePalette, 150));
 // ---------- Icons for the static chrome ----------
 const STATIC_ICONS: Record<string, I.IconNode> = {
   search: I.Search, up: I.ChevronUp, down: I.ChevronDown, command: I.Command,
-  pages: I.LayoutGrid, outline: I.ListTree, results: I.ScanSearch, comments: I.MessagesSquare,
+  pages: I.LayoutGrid, outline: I.ListTree, results: I.ScanSearch, comments: I.MessagesSquare, attach: I.Paperclip, layers: I.Layers2,
   rotl: I.RotateCcw, rotr: I.RotateCw, blank: I.FilePlus2, insert: I.FileInput, extract: I.FileOutput, trash: I.Trash2,
   left: I.ChevronLeft, right: I.ChevronRight, zoomin: I.ZoomIn, zoomout: I.ZoomOut, fitw: I.MoveHorizontal, fitp: I.Maximize,
   open: I.FolderOpen, create: I.FilePlus, merge: I.Merge, batch: I.Workflow, blankdoc: I.File, cert: I.FileKey, compare: I.GitCompare,

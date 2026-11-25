@@ -9,7 +9,7 @@ import { drawHandles, grabAt, cursorFor, beginDrag, updateDrag, changed as xfCha
 import { sizeDialog } from "./xfdialog";
 import { isEngTool, type EngTool } from "./engineering";
 
-export type Tool = "hand" | "select" | "highlight" | "underline" | "strike" | "squiggly" | "note" | "text" | "rect" | "ellipse" | "arrow" | "ink" | "redact" | "sign" | "edit" | EngTool;
+export type Tool = "hand" | "select" | "highlight" | "underline" | "strike" | "squiggly" | "note" | "text" | "rect" | "ellipse" | "arrow" | "ink" | "redact" | "sign" | "edit" | "link" | EngTool;
 
 export interface AnnotateDeps {
   engine: {
@@ -181,7 +181,7 @@ export function setupAnnotate(d: AnnotateDeps) {
   let drag: null | { el: HTMLElement; index: number; start: Pt; last: Pt; points: Pt[]; busy: boolean; pending: boolean; scroll?: [number, number, number, number] } = null;
 
   d.pagesEl.addEventListener("pointerdown", async (e) => {
-    if (e.button !== 0 || tool === "edit" || isEngTool(tool)) return; // the Edit tool has its own handlers
+    if (e.button !== 0 || tool === "edit" || tool === "link" || isEngTool(tool)) return; // the Edit tool has its own handlers
     const hit = pageOf(e);
     const doc = d.doc();
     if (!hit || !doc) return;

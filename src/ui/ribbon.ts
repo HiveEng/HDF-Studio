@@ -9,7 +9,7 @@ import {
   LayoutGrid, Merge, FileOutput, Scissors, Signature, PenLine, BadgeCheck, FileKey, ShieldCheck, Sheet,
   FileSpreadsheet, Eraser, SquareDashed, ScanSearch, Shredder, Lock, LockOpen, File, FileDown, Workflow, ListChecks,
   MoveHorizontal, Maximize, PanelLeft, Search, ScanText, ScanLine, GitCompare, FolderSync, ClipboardCheck, Archive, Languages, Users, Printer, FormInput, WandSparkles, Accessibility, Images,
-  Cloud, MessageSquareQuote, Spline, Pentagon, Ruler, RulerDimensionLine, DraftingCompass, Hash, Scaling, Crosshair, Waypoints, LandPlot, Settings, Split,
+  Cloud, MessageSquareQuote, Spline, Pentagon, Ruler, RulerDimensionLine, DraftingCompass, Hash, Scaling, Crosshair, Waypoints, LandPlot, Settings, Split, Link, BookmarkPlus, Paperclip, Layers2,
 } from "lucide";
 
 export function icon(node: IconNode, size = 18): SVGElement {
@@ -113,6 +113,12 @@ export const TASKS: Task[] = [
       { label: "Content", items: [
         { cmd: "tool-edit", tool: "edit", label: "Edit text & images", icon: SquarePen, big: true },
         { cmd: "textStyle", label: "Text style", icon: CaseSensitive },
+      ] },
+      { label: "Navigation", items: [
+        { cmd: "tool-link", tool: "link", label: "Link", icon: Link, big: true, hint: "Drag a box to link to a page, web address or email" },
+        { cmd: "addBookmark", label: "Bookmark", icon: BookmarkPlus, hint: "Bookmark the current view (Ctrl+D)" },
+        { cmd: "attachFile", label: "Attach file", icon: Paperclip, hint: "Attach calcs, specs, CAD or photos inside the PDF" },
+        { cmd: "showLayers", label: "Layers", icon: Layers2 },
       ] },
       { label: "Images", items: [
         { cmd: "insertImage", label: "Insert image", icon: ImagePlus, big: true },

@@ -2,6 +2,7 @@
 // Runs in a Web Worker in the app and directly in Node for the CLI and tests.
 import * as scale from "./scale";
 import * as overlay from "./overlay";
+import * as nav from "./navigation";
 import type { Scale } from "./measure";
 import type { Xf } from "./xform";
 import * as mupdf from "mupdf";
@@ -754,6 +755,44 @@ export class Engine {
     } finally {
       doc.destroy();
     }
+  }
+
+  // ---------- Bookmarks, links, attachments, layers ----------
+  bookmarks(id: number): nav.Bookmark[] {
+    return nav.getBookmarks(this.pdf(id));
+  }
+  setBookmarks(id: number, list: nav.Bookmark[]): DocInfo {
+    return this.op(id, "Edit bookmarks", () => (nav.setBookmarks(this.pdf(id), list), this.info(id)));
+  }
+  links(id: number, pageIndex: number): nav.PageLink[] {
+    return nav.getLinks(this.pdf(id), pageIndex);
+  }
+  addLink(id: number, pageIndex: number, rect: number[], target: nav.LinkTarget): void {
+    this.op(id, "Add link", () => nav.addLink(this.pdf(id), pageIndex, rect, target));
+  }
+  updateLink(id: number, pageIndex: number, index: number, target: nav.LinkTarget): void {
+    this.op(id, "Edit link", () => nav.updateLink(this.pdf(id), pageIndex, index, target));
+  }
+  deleteLink(id: number, pageIndex: number, index: number): void {
+    this.op(id, "Delete link", () => nav.deleteLink(this.pdf(id), pageIndex, index));
+  }
+  attachments(id: number): nav.Attachment[] {
+    return nav.listAttachments(this.pdf(id));
+  }
+  addAttachment(id: number, name: string, data: Uint8Array, description?: string): void {
+    this.op(id, "Attach file", () => nav.addAttachment(this.pdf(id), name, data, description));
+  }
+  getAttachment(id: number, name: string): Uint8Array {
+    return nav.getAttachment(this.pdf(id), name);
+  }
+  deleteAttachment(id: number, name: string): void {
+    this.op(id, "Remove attachment", () => nav.deleteAttachment(this.pdf(id), name));
+  }
+  layers(id: number): nav.Layer[] {
+    return nav.listLayers(this.pdf(id));
+  }
+  setLayerVisible(id: number, index: number, visible: boolean): void {
+    nav.setLayerVisible(this.pdf(id), index, visible);
   }
 
   /** Overlay two versions in two colours (vector), returns a new PDF. */

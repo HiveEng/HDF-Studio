@@ -13,7 +13,7 @@ export async function pickFiles(multiple = true, extensions = DOC_EXT): Promise<
   if (isTauri) {
     const { open } = await import("@tauri-apps/plugin-dialog");
     const { readFile } = await import("@tauri-apps/plugin-fs");
-    const sel = await open({ multiple, filters: [{ name: extensions.includes("pdf") ? "Documents" : extensions.join(", ").toUpperCase(), extensions }] });
+    const sel = await open({ multiple, filters: extensions.length ? [{ name: extensions.includes("pdf") ? "Documents" : extensions.join(", ").toUpperCase(), extensions }] : [] });
     if (!sel) return [];
     const paths = Array.isArray(sel) ? sel : [sel];
     return Promise.all(paths.map(async (p) => ({ name: baseName(p), path: p, data: await readFile(p) })));
@@ -106,3 +106,12 @@ export async function tsaRequest(url: string, body: Uint8Array): Promise<Uint8Ar
   return new Uint8Array(await res.arrayBuffer());
 }
 
+
+/** Open a web or email link in the user's browser / mail app. */
+export async function openExternal(url: string) {
+  if (!/^(https?:|mailto:)/i.test(url)) return;
+  if (isTauri) {
+    const { openUrl } = await import("@tauri-apps/plugin-opener");
+    await openUrl(url);
+  } else window.open(url, "_blank", "noopener");
+}
