@@ -78,6 +78,7 @@ npm run hdfstudio -- sign ./contracts --cert me.pfx --password **** --reason App
 npm run hdfstudio -- verify ./contracts
 npm run hdfstudio -- ocr ./scans -r -o ./searchable     # make scanned PDFs searchable
 npm run hdfstudio -- run "OCR scans, then redact" ./scans -o ./clean
+npm run hdfstudio -- compare contract-v1.pdf contract-v2.pdf -o changes.pdf
 npm run hdfstudio -- recipes          # list built-in recipes and step types
 ```
 
@@ -102,6 +103,7 @@ npm run hdfstudio -- recipes          # list built-in recipes and step types
 | Tools: sign, redact, edit page text & images | G, D, E |
 | Find and redact | Ctrl+Shift+R |
 | Recognize text (OCR) | Ctrl+Shift+O |
+| Compare files | Ctrl+Shift+C |
 | Select pages | Click, Ctrl+click, Shift+click; drag to reorder; drop PDFs between thumbnails to insert |
 
 ## Roadmap
@@ -117,6 +119,6 @@ npm run hdfstudio -- recipes          # list built-in recipes and step types
 | 7 | Edit text & images | Edit existing text blocks in place (font/size/colour matched), add text, move/resize/replace/insert/delete/export images | Done (custom font embedding next) |
 | 8 | Create & convert | Images, XPS, EPUB, HTML, text to PDF; PDF to Word, images, text, HTML, SVG; Office files via optional LibreOffice | Done |
 | 9 | OCR | Make scanned PDFs searchable (invisible text layer), offline English bundled, scan detection on open, batch and CLI OCR | Done (more languages next) |
-| 10 | Compare | Side-by-side text diff and visual (pixel) diff with change list | Engine text extraction + render diff |
+| 10 | Compare | Word-level diff across the whole document (reflowed text isn't flagged), pixel diff for images and drawings, changes marked as comments with a clickable list, CLI report | Done |
 | 11 | Compliance | PDF/A conversion and checks, accessibility checks, audit log of batch runs | Later phase |
 | 12 | Collaboration | Shared review threads on comments, review status | Later phase |

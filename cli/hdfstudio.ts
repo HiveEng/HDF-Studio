@@ -45,6 +45,8 @@ Usage:
                                                     PDF to images, Word, HTML, text or SVG
   hdfstudio ocr <files|folders...> [-o dir] [--all] [--lang eng] [--lang-path dir]
                                                     Make scanned PDFs searchable (adds an invisible text layer)
+  hdfstudio compare <old.pdf> <new.pdf> [-o report.pdf] [--json] [--text-only]
+                                                    List what changed (exit code 1 if they differ); -o writes the new file with every change marked
   hdfstudio recipes                                     List built-in recipes and step types
   hdfstudio run <recipe> <files|folders...> [options]   Apply a recipe to every PDF
       <recipe> is a built-in name (quotes or a unique prefix), a .json file, or "-" to use --step only
@@ -63,7 +65,7 @@ type Args = { _: string[]; flags: Record<string, string | boolean>; steps: strin
 function parseArgs(argv: string[]): Args {
   const a: Args = { _: [], flags: {}, steps: [] };
   const alias: Record<string, string> = { o: "out", r: "recursive", q: "quiet", h: "help" };
-  const bools = new Set(["recursive", "quiet", "help", "csv", "bookmarks", "dry-run", "continue-bates", "flatten", "each", "all"]);
+  const bools = new Set(["recursive", "quiet", "help", "csv", "bookmarks", "dry-run", "continue-bates", "flatten", "each", "all", "json", "text-only"]);
   for (let i = 0; i < argv.length; i++) {
     const t = argv[i];
     if (t.startsWith("-") && t !== "-") {
@@ -343,6 +345,30 @@ export async function main(argv: string[]): Promise<number> {
         await rec.terminate();
       }
       return failed ? 1 : 0;
+    }
+    case "compare": {
+      const [oldF, newF] = rest;
+      if (!oldF || !newF) throw new Error("usage: hdfstudio compare <old.pdf> <new.pdf> [-o report.pdf]");
+      const a = e.open(readFileSync(oldF), basename(oldF)), b = e.open(readFileSync(newF), basename(newF));
+      const o = { visual: !args.flags["text-only"] };
+      const { data, result } = e.compareReport(a.id, b.id, basename(oldF), o);
+      if (args.flags.json) console.log(JSON.stringify({ summary: result.summary, changes: result.changes.map(({ kind, oldText, newText, oldPage, newPage }) => ({ kind, oldText, newText, oldPage: oldPage + 1, newPage: newPage + 1 })) }, null, 2));
+      else {
+        for (const c of result.changes) {
+          const where = `p.${c.newPage + 1}`;
+          if (c.kind === "replaced") log(`${where}  ~ "${c.oldText}" -> "${c.newText}"`);
+          else if (c.kind === "inserted") log(`${where}  + "${c.newText}"`);
+          else if (c.kind === "deleted") log(`${where}  - "${c.oldText}"`);
+          else log(`${where}  * graphic changed at ${c.rect!.map((v) => Math.round(v)).join(",")}`);
+        }
+        const s = result.summary;
+        log(`${result.changes.length} change(s): ${s.replaced} replaced, ${s.inserted} inserted, ${s.deleted} deleted, ${s.visual} graphic`);
+      }
+      if (args.flags.out) {
+        writeFileSync(args.flags.out as string, data);
+        log(`Report: ${args.flags.out}`);
+      }
+      return result.changes.length ? 1 : 0;
     }
     case "recipes": {
       console.log("Built-in recipes:");

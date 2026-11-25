@@ -37,6 +37,8 @@ interface Tab {
   /** Pages without text, checked once on open (null = not checked yet); hidden once dismissed. */
   scanned?: number[] | null;
   scanNoticeDismissed?: boolean;
+  /** Summary shown on a compare report tab. */
+  compareNote?: string;
 }
 const tabs: Tab[] = [];
 let active: Tab | null = null;
@@ -658,6 +660,75 @@ async function mergeFiles() {
   }
 }
 
+// ---------- Compare ----------
+/**
+ * Compare two versions. The newer one is copied into a new tab with every change marked as a
+ * comment, so the Comments panel lists the changes and clicking one jumps to it.
+ */
+async function compareFiles() {
+  type Side = { name: string; id: number; temp: boolean };
+  const temps: number[] = [];
+  const openTemp = async (f: OpenedFile): Promise<Side> => {
+    const info = await engine.open(f.data, f.name);
+    temps.push(info.id);
+    if (info.needsPassword) throw new Error(`${f.name} is password protected; open it in a tab first`);
+    return { name: f.name, id: info.id, temp: true };
+  };
+  try {
+    let a: Side, b: Side, visual = true;
+    if (active) {
+      const others = tabs.filter((t) => t !== active);
+      const r = await ask(
+        `Compare ${active.name}`,
+        [
+          { name: "with", label: "Compare with", type: "select", value: others[0] ? "0" : "file", options: [...others.map((t, i): [string, string] => [String(i), t.name]), ["file", "Choose a file…"]] },
+          { name: "role", label: `${active.name} is the`, type: "select", value: "new", options: [["new", "Newer version (changes are marked on it)"], ["old", "Older version"]] },
+          { name: "visual", label: "Also compare images and drawings", type: "select", value: "yes", options: [["yes", "Yes, on pages whose text is unchanged"], ["no", "No, text only"]] },
+        ],
+        "Compare",
+      );
+      if (!r) return;
+      visual = r.visual === "yes";
+      let other: Side;
+      if (r.with === "file") {
+        const [f] = await pickFiles(false);
+        if (!f) return;
+        other = await openTemp(f);
+      } else other = { name: others[+r.with].name, id: others[+r.with].info.id, temp: false };
+      const me: Side = { name: active.name, id: active.info.id, temp: false };
+      [a, b] = r.role === "new" ? [other, me] : [me, other];
+    } else {
+      const files = await pickFiles(true);
+      if (files.length !== 2) return files.length && status("Choose exactly two files to compare: the older and the newer version");
+      const r = await ask("Compare files", [{ name: "old", label: "Older version", type: "select", value: "0", options: files.map((f, i): [string, string] => [String(i), f.name]) }], "Compare");
+      if (!r) return;
+      const [o, n] = r.old === "0" ? files : [files[1], files[0]];
+      a = await openTemp(o);
+      b = await openTemp(n);
+    }
+    status("Comparing…");
+    const started = performance.now();
+    const { data, result } = await engine.compareReport(a.id, b.id, a.name, { visual });
+    const s = result.summary;
+    const total = result.changes.length;
+    const info = await engine.open(data, "compare.pdf");
+    const stem = (n: string) => n.replace(/\.pdf$/i, "");
+    const tab = addTab(info, `Compare - ${stem(a.name)} vs ${stem(b.name)}.pdf`, null, true);
+    tab.compareNote = total
+      ? `${total} change${total === 1 ? "" : "s"} from ${a.name}: ${[s.replaced && `${s.replaced} replaced`, s.inserted && `${s.inserted} inserted`, s.deleted && `${s.deleted} deleted`, s.visual && `${s.visual} graphic`].filter(Boolean).join(", ")}.${result.coarse ? " The files differ a lot, so pages were compared one by one." : ""}`
+      : `No differences found between ${a.name} and ${b.name}.`;
+    tab.scanNoticeDismissed = true;
+    buildView();
+    showSidePanel("comments");
+    annot.refreshComments();
+    status(`Compared in ${((performance.now() - started) / 1000).toFixed(1)} s. Click a change in the Comments panel to jump to it.`);
+  } catch (e) {
+    status(`Compare failed: ${(e as Error).message}`);
+  } finally {
+    for (const id of temps) await engine.close(id);
+  }
+}
+
 async function extractPages(pages?: number[]) {
   if (!active) return;
   const t = active;
@@ -711,6 +782,15 @@ $("#sigbanner").after(scanBanner);
 async function showScanNotice() {
   scanBanner.classList.add("hidden");
   const t = active;
+  if (t?.compareNote) {
+    scanBanner.replaceChildren(
+      icon(I.GitCompare, 16),
+      Object.assign(document.createElement("span"), { textContent: t.compareNote }),
+      Object.assign(document.createElement("button"), { className: "primary", textContent: "Show changes", onclick: () => (showSidePanel("comments"), annot.refreshComments()) }),
+    );
+    scanBanner.classList.remove("hidden");
+    return;
+  }
   if (!t || t.scanNoticeDismissed) return;
   if (t.scanned == null) t.scanned = await engine.pagesWithoutText(t.info.id).catch(() => []);
   if (t !== active || !t.scanned.length) return;
@@ -1282,6 +1362,7 @@ const commands: Command[] = [
   { id: "flatten", title: "Flatten comments and form fields…", run: async () => { if (!active) return; const r = await ask("Flatten", [{ name: "w", label: "What to flatten", type: "select", value: "both", options: [["both", "Comments and form fields"], ["fields", "Form fields only"], ["comments", "Comments only"]] }], "Flatten"); if (!r) return; active.info = await engine.flatten(active.info.id, r.w !== "fields", r.w !== "comments"); active.dirty = true; buildView(); status("Flattened. Ctrl+Z to undo."); } },
   { id: "ocr", title: "Recognize text (OCR): make scanned pages searchable…", keys: "Ctrl+Shift+O", run: () => recognizeText() },
   { id: "ocrPage", title: "Recognize text on this page (OCR)", run: () => active && recognizeText([active.page]) },
+  { id: "compare", title: "Compare files: find what changed between two versions…", keys: "Ctrl+Shift+C", run: () => compareFiles() },
   { id: "palette", title: "Show all commands", keys: "Ctrl+K", run: () => openPalette() },
 ];
 const byId = Object.fromEntries(commands.map((c) => [c.id, c]));
@@ -1407,7 +1488,7 @@ const STATIC_ICONS: Record<string, I.IconNode> = {
   pages: I.LayoutGrid, outline: I.ListTree, results: I.ScanSearch, comments: I.MessagesSquare,
   rotl: I.RotateCcw, rotr: I.RotateCw, blank: I.FilePlus2, insert: I.FileInput, extract: I.FileOutput, trash: I.Trash2,
   left: I.ChevronLeft, right: I.ChevronRight, zoomin: I.ZoomIn, zoomout: I.ZoomOut, fitw: I.MoveHorizontal, fitp: I.Maximize,
-  open: I.FolderOpen, create: I.FilePlus, merge: I.Merge, batch: I.Workflow, blankdoc: I.File, cert: I.FileKey,
+  open: I.FolderOpen, create: I.FilePlus, merge: I.Merge, batch: I.Workflow, blankdoc: I.File, cert: I.FileKey, compare: I.GitCompare,
 };
 document.querySelectorAll<HTMLElement>("[data-icon]").forEach((el) => {
   const node = STATIC_ICONS[el.dataset.icon!];

@@ -10,6 +10,7 @@ import * as forms from "./forms";
 import * as digisign from "./digisign";
 import * as edit from "./edit";
 import * as ocr from "./ocr";
+import * as cmp from "./compare";
 import * as convert from "./convert";
 export { safeName };
 
@@ -552,6 +553,24 @@ export class Engine {
     const r = this.op(id, "Add text", () => edit.addText(this.pdf(id), pageIndex, at, text, style));
     this.dropTextCache(id);
     return r;
+  }
+
+  // ---------- Compare ----------
+  /** Compare two open documents (old first). */
+  compare(oldId: number, newId: number, o?: { visual?: boolean }): cmp.CompareResult {
+    return cmp.compare(this.get(oldId), this.get(newId), o);
+  }
+
+  /** A copy of the newer document with every change marked as a comment. */
+  compareReport(oldId: number, newId: number, oldName: string, o?: { visual?: boolean }): { data: Uint8Array; result: cmp.CompareResult } {
+    const result = this.compare(oldId, newId, o);
+    const doc = mupdf.Document.openDocument(this.get(newId).asPDF()!.saveToBuffer("").asUint8Array(), "pdf").asPDF()!;
+    try {
+      cmp.annotateChanges(doc, result, oldName);
+      return { data: doc.saveToBuffer("garbage,compress").asUint8Array(), result };
+    } finally {
+      doc.destroy();
+    }
   }
 
   // ---------- OCR ----------
