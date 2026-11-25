@@ -48,10 +48,17 @@ npm run tauri build     # Windows installers in src-tauri/target/release/bundle/
 
 ## Roadmap
 
-1. ~~Viewer and search~~
-2. Annotations: highlight, underline, notes, shapes, ink, stamps
-3. Page tools: merge, split, reorder, rotate, extract, delete
-4. Batch panel and `quire` CLI: run actions over whole folders, saved recipes
-5. Forms: fill, save, flatten
-6. Signatures: drawn/typed/image, then certificate-based
-7. Edit existing text and images; redaction; OCR
+| # | Area | What it covers | How |
+|---|---|---|---|
+| 1 | View & search | Tabs, thumbnails, outline, zoom, full-text search | Done |
+| 2 | Organize & combine | Merge, split, reorder, rotate, extract, delete, insert pages | MuPDF page grafting |
+| 3 | Automation | Batch panel, saved recipes, `quire` CLI, watch folders | Engine core shared by UI and CLI |
+| 4 | Comment & review | Highlight, notes, shapes, ink, stamps, replies, XFDF import/export | MuPDF annotations |
+| 5 | Redaction & security | Permanent redaction (text, images, vector art), search-and-redact, metadata scrub, passwords and permissions (AES-256) | MuPDF `applyRedactions`, encrypted save |
+| 6 | Forms & e-signatures | Fill/flatten forms, drawn/typed/image signatures, certificate (PKCS#7) digital signatures, signature validation | MuPDF widgets; certificate signing in the Rust shell |
+| 7 | Edit text & images | Edit existing text runs, add text, replace/move/insert images | Content-stream editing on MuPDF |
+| 8 | Create & convert | Images, XPS, EPUB, HTML, text to PDF; PDF to images, text, HTML; Office files via optional LibreOffice | MuPDF document writers |
+| 9 | OCR | Make scanned PDFs searchable (invisible text layer), batch OCR | Tesseract (Apache-2.0) |
+| 10 | Compare | Side-by-side text diff and visual (pixel) diff with change list | Engine text extraction + render diff |
+| 11 | Compliance | PDF/A conversion and checks, accessibility checks, audit log of batch runs | Later phase |
+| 12 | Collaboration | Shared review threads on comments, review status | Later phase |
