@@ -8,7 +8,9 @@ self.onmessage = (e: MessageEvent<Req>) => {
   const { seq, method, args } = e.data;
   try {
     const fn = engine[method] as (...a: unknown[]) => unknown;
-    const result = fn.apply(engine, args);
+    let result = fn.apply(engine, args);
+    // A view into WASM memory can't be transferred: send a copy of just those bytes.
+    if (result instanceof Uint8Array && result.byteLength !== result.buffer.byteLength) result = result.slice();
     const transfer: Transferable[] = [];
     if (result && typeof result === "object") {
       const r = result as { pixels?: Uint8ClampedArray };

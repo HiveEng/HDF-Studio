@@ -1,6 +1,7 @@
 // Engine core: thin, UI-agnostic wrapper over MuPDF (mupdf.js, AGPL-3.0).
 // Runs in a Web Worker in the app and directly in Node for the CLI and tests.
 import * as scale from "./scale";
+import * as overlay from "./overlay";
 import type { Scale } from "./measure";
 import type { Xf } from "./xform";
 import * as mupdf from "mupdf";
@@ -753,6 +754,16 @@ export class Engine {
     } finally {
       doc.destroy();
     }
+  }
+
+  /** Overlay two versions in two colours (vector), returns a new PDF. */
+  overlayCompare(oldId: number, newId: number, o: overlay.OverlayOptions = {}): { data: Uint8Array; shifts: [number, number][] } {
+    return overlay.overlayPdf(this.pdf(oldId), this.pdf(newId), o);
+  }
+
+  /** Two versions side by side on one sheet per page pair, returns a new PDF. */
+  sideBySide(oldId: number, newId: number, o: overlay.OverlayOptions = {}): Uint8Array {
+    return overlay.sideBySidePdf(this.pdf(oldId), this.pdf(newId), o);
   }
 
   // ---------- OCR ----------

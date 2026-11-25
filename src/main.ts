@@ -15,7 +15,7 @@ import { setupFormDesign } from "./ui/formdesign";
 import { setupEdit } from "./ui/edit";
 import { getSignature, clearSignature, pngSize } from "./ui/signature";
 import { parseRanges, formatRanges } from "./engine/ranges";
-import { ask, confirmDialog } from "./ui/dialog";
+import { ask, confirmDialog, type Field } from "./ui/dialog";
 import { openBatch, type BatchDeps } from "./ui/batch";
 import { showProgress } from "./ui/progress";
 import { ocrBytes, ocrStep } from "./ocr/pipeline";
@@ -680,6 +680,15 @@ async function mergeFiles() {
  * Compare two versions. The newer one is copied into a new tab with every change marked as a
  * comment, so the Comments panel lists the changes and clicking one jumps to it.
  */
+function compareModeFields(): Field[] {
+  const saved = JSON.parse(localStorage.getItem("hdfstudio.compare") ?? "{}") as Record<string, string>;
+  return [
+    { name: "mode", label: "Show the changes as", type: "select", value: saved.mode ?? "report", options: [["report", "Change report: changes marked on the newer version, with a list"], ["overlay", "Overlay: both versions on top of each other in two colours"], ["side", "Side by side: older and newer on one sheet, zoom and scroll together"]] },
+    { name: "align", label: "Overlay alignment", type: "select", value: saved.align ?? "auto", options: [["auto", "Automatic (lines up drawings that moved)"], ["corner", "Page corners"], ["center", "Page centres"]] },
+    { name: "colors", label: "Overlay colours", type: "select", value: saved.colors ?? "red-blue", options: [["red-blue", "Older red, newer blue"], ["red-green", "Older red, newer green"]] },
+  ];
+}
+
 async function compareFiles() {
   type Side = { name: string; id: number; temp: boolean };
   const temps: number[] = [];
@@ -691,6 +700,7 @@ async function compareFiles() {
   };
   try {
     let a: Side, b: Side, visual = true;
+    let mode = "report", align = "auto", colors = "red-blue";
     if (active) {
       const others = tabs.filter((t) => t !== active);
       const r = await ask(
@@ -698,12 +708,14 @@ async function compareFiles() {
         [
           { name: "with", label: "Compare with", type: "select", value: others[0] ? "0" : "file", options: [...others.map((t, i): [string, string] => [String(i), t.name]), ["file", "Choose a file…"]] },
           { name: "role", label: `${active.name} is the`, type: "select", value: "new", options: [["new", "Newer version (changes are marked on it)"], ["old", "Older version"]] },
-          { name: "visual", label: "Also compare images and drawings", type: "select", value: "yes", options: [["yes", "Yes, on pages whose text is unchanged"], ["no", "No, text only"]] },
+          ...compareModeFields(),
+          { name: "visual", label: "Report: also compare images and drawings", type: "select", value: "yes", options: [["yes", "Yes, on pages whose text is unchanged"], ["no", "No, text only"]] },
         ],
         "Compare",
       );
       if (!r) return;
       visual = r.visual === "yes";
+      ({ mode, align, colors } = r);
       let other: Side;
       if (r.with === "file") {
         const [f] = await pickFiles(false);
@@ -715,11 +727,27 @@ async function compareFiles() {
     } else {
       const files = await pickFiles(true);
       if (files.length !== 2) return files.length && status("Choose exactly two files to compare: the older and the newer version");
-      const r = await ask("Compare files", [{ name: "old", label: "Older version", type: "select", value: "0", options: files.map((f, i): [string, string] => [String(i), f.name]) }], "Compare");
+      const r = await ask("Compare files", [{ name: "old", label: "Older version", type: "select", value: "0", options: files.map((f, i): [string, string] => [String(i), f.name]) }, ...compareModeFields()], "Compare");
       if (!r) return;
+      ({ mode, align, colors } = r);
       const [o, n] = r.old === "0" ? files : [files[1], files[0]];
       a = await openTemp(o);
       b = await openTemp(n);
+    }
+    localStorage.setItem("hdfstudio.compare", JSON.stringify({ mode, align, colors }));
+    const stem = (n: string) => n.replace(/\.pdf$/i, "");
+    if (mode === "overlay" || mode === "side") {
+      status(mode === "overlay" ? "Building overlay…" : "Building side-by-side view…");
+      const o = { align: align as "corner" | "center" | "auto", colors: colors as "red-blue" | "red-green", oldName: a.name, newName: b.name };
+      const data = mode === "overlay" ? (await engine.overlayCompare(a.id, b.id, o)).data : await engine.sideBySide(a.id, b.id, o);
+      const info = await engine.open(data, "compare.pdf");
+      const tab = addTab(info, `${mode === "overlay" ? "Overlay" : "Side by side"} - ${stem(a.name)} vs ${stem(b.name)}.pdf`, null, true);
+      tab.compareNote = mode === "overlay"
+        ? `Overlay of ${a.name} (red, removed) and ${b.name} (${colors === "red-green" ? "green" : "blue"}, added). Dark lines are unchanged.`
+        : `${a.name} on the left, ${b.name} on the right. Zoom and scroll move both together.`;
+      tab.scanNoticeDismissed = true;
+      buildView();
+      return status(mode === "overlay" ? "Overlay ready. Red is only in the older version, " + (colors === "red-green" ? "green" : "blue") + " only in the newer one." : "Side-by-side view ready.");
     }
     status("Comparing…");
     const started = performance.now();
@@ -727,7 +755,6 @@ async function compareFiles() {
     const s = result.summary;
     const total = result.changes.length;
     const info = await engine.open(data, "compare.pdf");
-    const stem = (n: string) => n.replace(/\.pdf$/i, "");
     const tab = addTab(info, `Compare - ${stem(a.name)} vs ${stem(b.name)}.pdf`, null, true);
     tab.compareNote = total
       ? `${total} change${total === 1 ? "" : "s"} from ${a.name}: ${[s.replaced && `${s.replaced} replaced`, s.inserted && `${s.inserted} inserted`, s.deleted && `${s.deleted} deleted`, s.visual && `${s.visual} graphic`].filter(Boolean).join(", ")}.${result.coarse ? " The files differ a lot, so pages were compared one by one." : ""}`
@@ -842,7 +869,7 @@ async function showScanNotice() {
     scanBanner.replaceChildren(
       icon(I.GitCompare, 16),
       Object.assign(document.createElement("span"), { textContent: t.compareNote }),
-      Object.assign(document.createElement("button"), { className: "primary", textContent: "Show changes", onclick: () => (showSidePanel("comments"), annot.refreshComments()) }),
+      ...(t.name.startsWith("Compare -") ? [Object.assign(document.createElement("button"), { className: "primary", textContent: "Show changes", onclick: () => (showSidePanel("comments"), annot.refreshComments()) })] : []),
     );
     scanBanner.classList.remove("hidden");
     return;
