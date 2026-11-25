@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quire</title>
+  <link rel="icon" href="/icon.png" />
+  <link rel="stylesheet" href="/src/styles.css" />
+</head>
+<body>
+  <header id="toolbar">
+    <div class="group">
+      <button data-cmd="open" title="Open (Ctrl+O)">Open</button>
+      <button data-cmd="save" title="Save (Ctrl+S)">Save</button>
+      <button data-cmd="toggleSidebar" title="Toggle sidebar (F4)">☰</button>
+    </div>
+    <div class="group">
+      <button data-cmd="prevPage" title="Previous page">‹</button>
+      <input id="pageInput" type="text" inputmode="numeric" aria-label="Page number" /><span id="pageCount">/ 0</span>
+      <button data-cmd="nextPage" title="Next page">›</button>
+    </div>
+    <div class="group">
+      <button data-cmd="zoomOut" title="Zoom out (Ctrl+-)">−</button>
+      <span id="zoomLabel">100%</span>
+      <button data-cmd="zoomIn" title="Zoom in (Ctrl+=)">+</button>
+      <button data-cmd="fitWidth" title="Fit width (Ctrl+2)">Width</button>
+      <button data-cmd="fitPage" title="Fit page (Ctrl+0)">Page</button>
+    </div>
+    <div class="group grow">
+      <input id="searchInput" type="search" placeholder="Search (Ctrl+F)" aria-label="Search" />
+      <button data-cmd="prevHit" title="Previous match (Shift+Enter)">↑</button>
+      <button data-cmd="nextHit" title="Next match (Enter)">↓</button>
+      <span id="hitLabel"></span>
+    </div>
+    <div class="group">
+      <button data-cmd="palette" title="All commands (Ctrl+K)">Commands</button>
+      <button data-cmd="toggleTheme" title="Toggle dark mode">Theme</button>
+    </div>
+  </header>
+  <nav id="tabs"></nav>
+  <main>
+    <aside id="sidebar">
+      <div class="side-tabs">
+        <button data-side="thumbs" class="active">Pages</button>
+        <button data-side="outline">Outline</button>
+        <button data-side="results">Results</button>
+      </div>
+      <div id="side-thumbs" class="side-panel"></div>
+      <div id="side-outline" class="side-panel hidden"></div>
+      <div id="side-results" class="side-panel hidden"></div>
+    </aside>
+    <section id="viewer" tabindex="0">
+      <div id="empty">
+        <h1>Quire</h1>
+        <p>Drop PDFs here, or press <kbd>Ctrl</kbd>+<kbd>O</kbd>.</p>
+        <p class="muted">Press <kbd>Ctrl</kbd>+<kbd>K</kbd> for every command.</p>
+      </div>
+      <div id="pages"></div>
+    </section>
+  </main>
+  <footer id="status"></footer>
+  <div id="palette" class="hidden" role="dialog" aria-label="Command palette">
+    <input id="paletteInput" placeholder="Type a command…" />
+    <ul id="paletteList"></ul>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

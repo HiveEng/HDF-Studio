@@ -1,0 +1,26 @@
+{
+  "name": "quire",
+  "version": "0.1.0",
+  "description": "Open-source PDF reader and editor",
+  "scripts": {
+    "test": "node --import tsx --test test/*.test.ts",
+    "dev": "vite",
+    "build": "tsc -p . && vite build",
+    "tauri": "tauri"
+  },
+  "license": "AGPL-3.0-or-later",
+  "dependencies": {
+    "@tauri-apps/api": "^2.12.5",
+    "@tauri-apps/plugin-dialog": "^2.8.4",
+    "@tauri-apps/plugin-fs": "^2.7.1",
+    "mupdf": "^1.28.6"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.6",
+    "@types/node": "^26.6.10",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  },
+  "type": "module"
+}
