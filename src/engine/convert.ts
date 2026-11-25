@@ -28,6 +28,8 @@ export interface ToPdfOptions {
   margin?: number;
   /** Base font size for reflowable documents. */
   fontSize?: number;
+  /** Treat images as scanned at this resolution (page size = pixels / dpi), whatever the file says. */
+  imageDpi?: number;
 }
 
 /** Convert one or more documents/images into a single PDF, in order. */
@@ -54,6 +56,13 @@ export function toPdf(files: { name: string; data: Uint8Array }[], o: ToPdfOptio
         const s = Math.min((sw - 2 * margin) / bw, (sh - 2 * margin) / bh, 1e9);
         const dev = w.beginPage([0, 0, sw, sh]);
         page.run(dev, [s, 0, 0, s, (sw - bw * s) / 2 - b[0] * s, (sh - bh * s) / 2 - b[1] * s]);
+        w.endPage();
+      } else if (isImage && o.imageDpi) {
+        const img = new mupdf.Image(f.data);
+        const s = (img.getWidth() * 72) / o.imageDpi / bw;
+        img.destroy?.();
+        const dev = w.beginPage([0, 0, bw * s, bh * s]);
+        page.run(dev, [s, 0, 0, s, -b[0] * s, -b[1] * s]);
         w.endPage();
       } else {
         const dev = w.beginPage(b);

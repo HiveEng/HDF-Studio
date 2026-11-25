@@ -32,6 +32,7 @@ export const TASKS: Task[] = [
         { cmd: "print", label: "Print", icon: Printer, big: true },
         { cmd: "saveAs", label: "Save as", icon: SavePen },
         { cmd: "createPdf", label: "Create PDF", icon: FilePlus },
+        { cmd: "scan", label: "Scan", icon: Printer, hint: "Scan from your scanner into a searchable PDF" },
         { cmd: "compare", label: "Compare", icon: GitCompare },
         { cmd: "settings", label: "Settings", icon: Settings },
       ] },
@@ -135,6 +136,7 @@ export const TASKS: Task[] = [
         { cmd: "saveImage", label: "Save image", icon: ImageDown },
       ] },
       { label: "Scans", items: [
+        { cmd: "scan", label: "Scan", icon: Printer, big: true, hint: "Scan from your scanner into a searchable PDF" },
         { cmd: "ocr", label: "Recognize text", icon: ScanText, big: true, hint: "OCR: make scanned pages searchable and copyable" },
         { cmd: "ocrPage", label: "This page", icon: ScanLine },
       ] },
@@ -222,6 +224,7 @@ export const TASKS: Task[] = [
         { cmd: "mergeFiles", label: "Combine files", icon: Merge, big: true },
       ] },
       { label: "Scans", items: [
+        { cmd: "scan", label: "Scan", icon: Printer, big: true, hint: "Scan from your scanner into a searchable PDF" },
         { cmd: "ocr", label: "Recognize text", icon: ScanText, big: true, hint: "OCR: make scanned pages searchable and copyable" },
       ] },
       { label: "Archive", items: [

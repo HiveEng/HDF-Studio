@@ -951,6 +951,57 @@ async function recognizeText(pagesArg?: number[]) {
   }
 }
 
+// ---------- Scan from a scanner, straight into OCR ----------
+async function scanDocument() {
+  if (!isTauri) return status("Scanning works in the Windows app. Here you can open scanned images with Create PDF.");
+  const saved = JSON.parse(localStorage.getItem("hdfstudio.scan") ?? "{}");
+  const r = await ask("Scan", [
+    { name: "source", label: "Scan from", type: "select", value: saved.source ?? "flatbed", options: [["flatbed", "Glass (flatbed), page by page"], ["feeder", "Document feeder, all pages"], ["dialog", "The scanner's own window (preview and crop)"]] },
+    { name: "mode", label: "Colour", type: "select", value: saved.mode ?? "4", options: [["4", "Black and white (drawings, text): smallest file"], ["2", "Greyscale"], ["1", "Colour"]] },
+    { name: "dpi", label: "Resolution", type: "select", value: saved.dpi ?? "300", options: [["150", "150 dpi (draft)"], ["200", "200 dpi"], ["300", "300 dpi (best for OCR)"], ["400", "400 dpi"], ["600", "600 dpi (fine detail)"]] },
+    { name: "ocr", label: "Then", type: "select", value: saved.ocr ?? "ocr", options: [["ocr", "Recognize text so it can be searched and copied"], ["none", "Just make the PDF"]] },
+    { name: "dest", label: "Put the pages in", type: "select", value: active ? (saved.dest ?? "new") : "new", options: active ? [["new", "A new document"], ["append", `The end of ${active.name}`], ["after", `${active.name}, after page ${active.page + 1}`]] : [["new", "A new document"]] },
+  ], "Scan");
+  if (!r) return;
+  localStorage.setItem("hdfstudio.scan", JSON.stringify(r));
+  const { invoke } = await import("@tauri-apps/api/core");
+  const { readFile } = await import("@tauri-apps/plugin-fs");
+  const images: OpenedFile[] = [];
+  const dpi = +r.dpi;
+  for (;;) {
+    status(r.source === "feeder" ? "Scanning the feeder…" : "Scanning…");
+    let paths: string[];
+    try {
+      paths = await invoke<string[]>("scan_pages", { dpi, mode: +r.mode, feeder: r.source === "feeder", dialog: r.source === "dialog" });
+    } catch (e) {
+      status(String(e));
+      if (!images.length) return;
+      break;
+    }
+    for (const p of paths) images.push({ name: p.split(/[\\/]/).pop()!, path: null, data: await readFile(p) });
+    if (r.source === "feeder" || !paths.length) break;
+    const more = await confirmDialog(`Scanned ${images.length} page${images.length === 1 ? "" : "s"}. To add another, put it on the glass and choose Scan next page. Cancel finishes.`, "Scan next page");
+    if (!more) break;
+  }
+  if (!images.length) return status("Nothing was scanned.");
+  // The scanner's own window picks its own resolution; trust the image file then.
+  const pdf = await engine.toPdf(images.map((f) => ({ name: f.name, data: f.data })), { pageSize: "auto", imageDpi: r.source === "dialog" ? undefined : dpi });
+  let pages: number[];
+  if (r.dest === "new" || !active) {
+    const info = await engine.open(pdf, "scan.pdf");
+    const stamp = new Date().toISOString().slice(0, 16).replace("T", " ").replace(":", "");
+    addTab(info, `Scan ${stamp}.pdf`, null, true);
+    buildView();
+    pages = [...Array(info.pageCount).keys()];
+  } else {
+    const at = r.dest === "append" ? active.info.pageCount : active.page + 1;
+    await insertFiles([{ name: "Scan.pdf", path: null, data: pdf }], at);
+    pages = images.map((_, i) => at + i);
+  }
+  status(`Scanned ${images.length} page${images.length === 1 ? "" : "s"}.`);
+  if (r.ocr === "ocr") await recognizeText(pages);
+}
+
 // ---------- Digital (certificate) signatures ----------
 const sigBanner = $("#sigbanner");
 async function showSignatureStatus() {
@@ -1853,6 +1904,7 @@ const commands: Command[] = [
   { id: "exportForm", title: "Export form data (CSV)", run: () => exportFormData() },
   { id: "clearForm", title: "Clear all form fields", run: async () => { if (!active) return; await engine.clearForm(active.info.id); active.dirty = true; buildView(); } },
   { id: "flatten", title: "Flatten comments and form fields…", run: async () => { if (!active) return; const r = await ask("Flatten", [{ name: "w", label: "What to flatten", type: "select", value: "both", options: [["both", "Comments and form fields"], ["fields", "Form fields only"], ["comments", "Comments only"]] }], "Flatten"); if (!r) return; active.info = await engine.flatten(active.info.id, r.w !== "fields", r.w !== "comments"); active.dirty = true; buildView(); status("Flattened. Ctrl+Z to undo."); } },
+  { id: "scan", title: "Scan from scanner into a searchable PDF…", run: () => void scanDocument() },
   { id: "ocr", title: "Recognize text (OCR): make scanned pages searchable…", keys: "Ctrl+Shift+O", run: () => recognizeText() },
   { id: "ocrPage", title: "Recognize text on this page (OCR)", run: () => active && recognizeText([active.page]) },
   { id: "compare", title: "Compare files: find what changed between two versions…", keys: "Ctrl+Shift+C", run: () => compareFiles() },

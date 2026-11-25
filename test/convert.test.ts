@@ -36,3 +36,15 @@ test("export to images, text, html, svg and Word", () => {
   assert.match(xml, /Heading1/, "big title becomes a heading");
   assert.match(xml, /w:type="page"/);
 });
+
+test("toPdf imageDpi: a 300 dpi letter scan becomes a letter page", async () => {
+  const mupdf = await import("mupdf");
+  const { toPdf } = await import("../src/engine/convert");
+  const pix = new mupdf.Pixmap(mupdf.ColorSpace.DeviceGray, [0, 0, 2550, 3300], false);
+  pix.clear(255);
+  const png = new Uint8Array(pix.asPNG());
+  const out = toPdf([{ name: "page0001.png", data: png }], { pageSize: "auto", imageDpi: 300 });
+  const doc = mupdf.Document.openDocument(out, "application/pdf");
+  const b = doc.loadPage(0).getBounds();
+  assert.ok(Math.abs(b[2] - b[0] - 612) < 0.5 && Math.abs(b[3] - b[1] - 792) < 0.5, `got ${b}`);
+});
