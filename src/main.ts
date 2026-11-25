@@ -4,7 +4,8 @@ import { pickFiles, filesFromList, saveFile, saveMany, saveText, saveBytes, base
 import { TSA_SERVERS } from "./engine/tsa-servers";
 import { OCR_LANGUAGES, BUNDLED_LANGS, langSource } from "./ocr/languages";
 import { setupAnnotate, type Tool } from "./ui/annotate";
-import { setupEngineering, ENG_TOOLS } from "./ui/engineering";
+import { setupEngineering, ENG_TOOLS, type EngTool } from "./ui/engineering";
+import { setupChest } from "./ui/chest";
 import { openSettings } from "./ui/settings";
 import { setupNav } from "./ui/navpanels";
 import { showMenu, type MenuItem } from "./ui/contextmenu";
@@ -479,7 +480,7 @@ viewer.addEventListener("drop", async (e) => {
 });
 
 // ---------- Sidebar ----------
-const SIDE_TITLES: Record<string, string> = { thumbs: "Pages", outline: "Bookmarks", results: "Search results", comments: "Comments", attach: "Attached files", layers: "Layers" };
+const SIDE_TITLES: Record<string, string> = { thumbs: "Pages", outline: "Bookmarks", results: "Search results", comments: "Comments", attach: "Attached files", layers: "Layers", chest: "Tool chest" };
 function showSidePanel(name: string) {
   $("main").classList.remove("no-sidebar");
   $("#thumb-tools").classList.toggle("hidden", name !== "thumbs");
@@ -497,6 +498,7 @@ document.querySelectorAll<HTMLElement>("#rail button").forEach(
       if (b.dataset.side === "comments") annot.refreshComments();
       if (b.dataset.side === "attach") void navUI.loadAttachments();
       if (b.dataset.side === "layers") void navUI.loadLayers();
+      if (b.dataset.side === "chest") chestUI.render();
     }),
 );
 
@@ -1160,6 +1162,7 @@ function refreshPage(i: number) {
 }
 const annot = setupAnnotate({
   engine,
+  exportList: () => void exportMarkupList(),
   doc: () => active,
   pagesEl,
   viewer,
@@ -1233,6 +1236,50 @@ navUI = setupNav({
   saveBytes: async (name, data) => void (await saveBytes(name, data)),
   openUrl: (url) => void openExternal(url),
 });
+
+// ---------- Tool chest & markup list ----------
+function startEng(t: EngTool) {
+  chestUI?.release();
+  void eng.start(t);
+}
+// eslint-disable-next-line prefer-const
+let chestUI: ReturnType<typeof setupChest>;
+chestUI = setupChest({
+  el: $("#side-chest"),
+  start: (tool, stamp) => {
+    if ((ENG_TOOLS as readonly string[]).includes(tool)) void eng.start(tool as EngTool, stamp);
+    else {
+      if (designUI.active) designUI.exit();
+      annot.setTool(tool as Tool);
+    }
+  },
+  tool: () => annot.tool,
+  clearRibbonColor: () => annot.setColor(null),
+  saveText: async (name, text) => void (await saveText(name, text)),
+  pickText: async () => {
+    const [f] = await pickFiles(false, ["json"]);
+    return f ? new TextDecoder().decode(f.data) : null;
+  },
+  status,
+});
+function showChest() {
+  showSidePanel("chest");
+  chestUI.render();
+}
+
+async function exportMarkupList() {
+  if (!active) return status("Open a PDF first.");
+  const doc = active;
+  const r = await ask("Export markup list", [
+    { name: "fmt", label: "Format", type: "select", value: localStorage.getItem("hdfstudio.listfmt") ?? "xlsx", options: [["xlsx", "Excel workbook (.xlsx), with a Totals sheet"], ["csv", "CSV (.csv)"]], hint: "Lists every markup with its page, type, author, status, comment and measured value. Measurements are totalled by type and page." },
+  ], "Export");
+  if (!r) return;
+  localStorage.setItem("hdfstudio.listfmt", r.fmt);
+  const stem = doc.name.replace(/\.pdf$/i, "");
+  const data = await engine.exportMarkups(doc.info.id, r.fmt as "csv" | "xlsx", stem);
+  const saved = await saveBytes(`${stem} markups.${r.fmt}`, data);
+  if (saved !== null) status("Markup list saved.");
+}
 
 // ---------- Edit text & images ----------
 const editUI = setupEdit({
@@ -1417,7 +1464,7 @@ pagesEl.addEventListener("contextmenu", async (e) => {
     annot.selectAnnot(a);
     const items: MenuItem[] = [];
     if (a.xf) items.push(...imageMenu((by) => annot.rotateSelectedStamp(by), () => annot.sizeSelectedStamp(), []), { sep: true });
-    if (a.type === "FreeText") items.push({ label: "Add leader…", run: () => void eng.start("leader") });
+    if (a.type === "FreeText") items.push({ label: "Add leader…", run: () => startEng("leader") });
     if (!a.xf) items.push({ swatches: SWATCHES.map(([c, t]) => ({ color: c, title: t, run: () => void patchAnnot(a, { color: rgbOf(c) }, `Colour set to ${t.toLowerCase()}`) })) });
     items.push(
       { label: a.type === "FreeText" ? "Edit text…" : "Edit comment…", run: () => void annot.editSelected() },
@@ -1432,11 +1479,11 @@ pagesEl.addEventListener("contextmenu", async (e) => {
   showMenu(x, y, [
     { label: "Add sticky note", keys: "N", run: () => useTool("note") },
     { label: "Add text box", keys: "X", run: () => useTool("text") },
-    { label: "Add callout", run: () => void eng.start("callout") },
-    { label: "Add stamp…", run: () => void eng.start("stamp") },
+    { label: "Add callout", run: () => startEng("callout") },
+    { label: "Add stamp…", run: () => startEng("stamp") },
     { label: "Place signature", keys: "G", run: () => useTool("sign") },
     { sep: true },
-    { label: "Measure length", run: () => void eng.start("m-length") },
+    { label: "Measure length", run: () => startEng("m-length") },
     { label: "Set drawing scale…", run: () => void eng.setScale() },
     { sep: true },
     { label: "Rotate page right", run: () => mutate("Rotated", (t) => engine.rotatePages(t.info.id, [page], 90)) },
@@ -1484,6 +1531,7 @@ document.addEventListener("keydown", (e) => {
 
 /** Select a tool and bring its ribbon task forward so its options are in view. */
 function useTool(t: Tool) {
+  chestUI?.release();
   if (designUI.active && t !== "hand") designUI.exit();
   if (t !== "link") navUI?.clearLinkBoxes();
   annot.setTool(t);
@@ -1780,13 +1828,16 @@ const commands: Command[] = [
   { id: "unprotect", title: "Remove password protection", run: () => unprotectFlow() },
   { id: "tool-sign", title: "Sign: place your signature", keys: "G", run: () => useTool("sign") },
   { id: "newSignature", title: "Create a new signature…", run: async () => { clearSignature(); if (await getSignature(true)) annot.setTool("sign"); } },
-  ...ENG_TOOLS.map((t) => ({ id: `tool-${t}`, title: `${eng.TOOL_INFO[t].label} tool`, run: () => void eng.start(t) })),
+  ...ENG_TOOLS.map((t) => ({ id: `tool-${t}`, title: `${eng.TOOL_INFO[t].label} tool`, run: () => startEng(t) })),
   { id: "setScale", title: "Set drawing scale…", run: () => void eng.setScale() },
   { id: "tool-link", title: "Link tool: add or edit links to pages, websites and email", run: () => navUI.startLinkTool() },
   { id: "addBookmark", title: "Bookmark the current view", keys: "Ctrl+D", run: () => (showSidePanel("outline"), navUI.addBookmarkHere()) },
   { id: "attachFile", title: "Attach files to this PDF…", run: () => (showSidePanel("attach"), void navUI.loadAttachments().then(() => ($("#side-attach .nav-btn") as HTMLElement | null)?.click())) },
   { id: "showAttachments", title: "Show attached files", run: () => (showSidePanel("attach"), void navUI.loadAttachments()) },
   { id: "showLayers", title: "Show layers", run: () => (showSidePanel("layers"), void navUI.loadLayers()) },
+  { id: "showChest", title: "Tool chest: saved markup tools", run: () => showChest() },
+  { id: "saveToChest", title: "Save current tool to the tool chest…", run: () => (showChest(), chestUI.saveCurrent()) },
+  { id: "exportMarkups", title: "Export markup list to Excel or CSV…", run: () => void exportMarkupList() },
   { id: "tool-edit", title: "Edit tool: change page text and images", keys: "E", run: () => useTool("edit") },
   { id: "insertImage", title: "Insert image…", run: () => (annot.setTool("edit"), editUI.insertImage()) },
   { id: "replaceImage", title: "Replace selected image…", run: () => editUI.replaceSelectedImage() },
@@ -1831,7 +1882,7 @@ document.addEventListener("keydown", (e) => {
   const typing = e.target instanceof HTMLInputElement;
   const ks = keyString(e);
   const cmd = commands.find((c) => c.keys === ks);
-  if (e.key === "Escape") pendingPlacement = null;
+  if (e.key === "Escape") (pendingPlacement = null), chestUI?.release();
   if (!cmd) {
     if (e.key === "Escape") closePalette();
     return;
@@ -1931,7 +1982,7 @@ paletteInput.addEventListener("blur", () => setTimeout(closePalette, 150));
 // ---------- Icons for the static chrome ----------
 const STATIC_ICONS: Record<string, I.IconNode> = {
   search: I.Search, up: I.ChevronUp, down: I.ChevronDown, command: I.Command,
-  pages: I.LayoutGrid, outline: I.ListTree, results: I.ScanSearch, comments: I.MessagesSquare, attach: I.Paperclip, layers: I.Layers2,
+  pages: I.LayoutGrid, outline: I.ListTree, results: I.ScanSearch, comments: I.MessagesSquare, attach: I.Paperclip, layers: I.Layers2, chest: I.Toolbox,
   rotl: I.RotateCcw, rotr: I.RotateCw, blank: I.FilePlus2, insert: I.FileInput, extract: I.FileOutput, trash: I.Trash2,
   left: I.ChevronLeft, right: I.ChevronRight, zoomin: I.ZoomIn, zoomout: I.ZoomOut, fitw: I.MoveHorizontal, fitp: I.Maximize,
   open: I.FolderOpen, create: I.FilePlus, merge: I.Merge, batch: I.Workflow, blankdoc: I.File, cert: I.FileKey, compare: I.GitCompare,

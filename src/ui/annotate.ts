@@ -40,6 +40,7 @@ export interface AnnotateDeps {
   pickReviews(): Promise<{ name: string; data: Uint8Array }[]>;
   /** Shared review status bar for a document, if it's in one. */
   reviewBar?(id: number): HTMLElement | null;
+  exportList?(): void;
 }
 
 export const TOOLS: { id: Tool; label: string; key: string; title: string }[] = [
@@ -513,7 +514,7 @@ export function setupAnnotate(d: AnnotateDeps) {
     if (rb) el.append(rb);
     const head = document.createElement("div");
     head.className = "comment-tools";
-    head.innerHTML = `<button data-a="merge" class="primary" title="Bring in comments from reviewers' copies of this PDF, or from XFDF comment files. Comments already here are skipped.">Merge reviews…</button><button data-a="summary" title="Copy a text summary of all comments">Copy summary</button><button data-a="xfdf" title="Export comments as XFDF for other PDF apps">Export XFDF</button><button data-a="author" title="Name shown on your comments">Author: ${author().replace(/[<&]/g, "")}</button>`;
+    head.innerHTML = `<button data-a="merge" class="primary" title="Bring in comments from reviewers' copies of this PDF, or from XFDF comment files. Comments already here are skipped.">Merge reviews…</button><button data-a="summary" title="Copy a text summary of all comments">Copy summary</button><button data-a="list" title="Save every markup with its measurement, status and totals to Excel or CSV">Export list…</button><button data-a="xfdf" title="Export comments as XFDF for other PDF apps">Export XFDF</button><button data-a="author" title="Name shown on your comments">Author: ${author().replace(/[<&]/g, "")}</button>`;
     el.append(head);
     head.querySelector<HTMLElement>('[data-a="merge"]')!.onclick = () => mergeReviews();
     head.querySelector<HTMLElement>('[data-a="summary"]')!.onclick = async () => {
@@ -521,6 +522,7 @@ export function setupAnnotate(d: AnnotateDeps) {
       await navigator.clipboard.writeText(text).catch(() => {});
       d.status("Comment summary copied to the clipboard");
     };
+    head.querySelector<HTMLElement>('[data-a="list"]')!.onclick = () => d.exportList?.();
     head.querySelector<HTMLElement>('[data-a="xfdf"]')!.onclick = async () => d.saveText(doc.name.replace(/\.pdf$/i, "") + ".xfdf", await d.engine.exportXfdf(doc.info.id, doc.name));
     head.querySelector<HTMLElement>('[data-a="author"]')!.onclick = async () => {
       const r = await ask("Your name on comments", [{ name: "n", label: "Author", value: author() }], "Save");

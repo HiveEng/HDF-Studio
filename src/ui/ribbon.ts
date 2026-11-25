@@ -10,6 +10,7 @@ import {
   FileSpreadsheet, Eraser, SquareDashed, ScanSearch, Shredder, Lock, LockOpen, File, FileDown, Workflow, ListChecks,
   MoveHorizontal, Maximize, PanelLeft, Search, ScanText, ScanLine, GitCompare, FolderSync, ClipboardCheck, Archive, Languages, Users, Printer, FormInput, WandSparkles, Accessibility, Images,
   Cloud, MessageSquareQuote, Spline, Pentagon, Ruler, RulerDimensionLine, DraftingCompass, Hash, Scaling, Crosshair, Waypoints, LandPlot, Settings, Split, Link, BookmarkPlus, Paperclip, Layers2,
+  Toolbox,
 } from "lucide";
 
 export function icon(node: IconNode, size = 18): SVGElement {
@@ -82,10 +83,15 @@ export const TASKS: Task[] = [
         { cmd: "tool-polygon", tool: "polygon", label: "Polygon", icon: Pentagon },
       ] },
       { label: "Colour", items: [{ el: "color" }] },
+      { label: "Tool chest", items: [
+        { cmd: "showChest", label: "Tool chest", icon: Toolbox, big: true, hint: "Saved markup tools: one click for a red cloud, a stamp or a blue length. Share the chest with your team." },
+        { cmd: "saveToChest", label: "Save tool", icon: BookmarkPlus, hint: "Save the current tool's colour and size to the chest" },
+      ] },
       { label: "Review", items: [
         { cmd: "showComments", label: "Comments", icon: MessagesSquare, big: true },
         { cmd: "mergeReviews", label: "Merge reviews", icon: Users, big: true, hint: "Bring in comments from reviewers' copies or XFDF files" },
         { cmd: "compare", label: "Compare files", icon: GitCompare, big: true, hint: "Find every change between two versions" },
+        { cmd: "exportMarkups", label: "Export list", icon: Sheet, hint: "Every markup and measurement with totals, to Excel or CSV" },
         { cmd: "flatten", label: "Flatten", icon: Layers },
       ] },
     ],
@@ -104,6 +110,9 @@ export const TASKS: Task[] = [
         { cmd: "tool-m-perimeter", tool: "m-perimeter", label: "Perimeter", icon: Pentagon },
         { cmd: "tool-m-angle", tool: "m-angle", label: "Angle", icon: DraftingCompass },
         { cmd: "tool-m-count", tool: "m-count", label: "Count", icon: Hash },
+      ] },
+      { label: "Results", items: [
+        { cmd: "exportMarkups", label: "Export totals", icon: Sheet, big: true, hint: "Every measurement with totals by type and page, to Excel or CSV" },
       ] },
     ],
   },

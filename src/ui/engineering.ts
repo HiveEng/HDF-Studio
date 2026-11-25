@@ -490,7 +490,7 @@ export function setupEngineering(d: EngDeps) {
   }
 
   /** Called when a tool button is chosen. */
-  async function start(t: EngTool) {
+  async function start(t: EngTool, stamp?: { title: string; color: string }) {
     reset();
     if (t === "leader") {
       const sel = d.selected();
@@ -503,7 +503,10 @@ export function setupEngineering(d: EngDeps) {
       }
       return d.status(`${TOOL_INFO[t].label}: ${TOOL_INFO[t].how} Esc when done.`);
     }
-    if (t === "stamp" && !(await chooseStamp())) return;
+    if (t === "stamp") {
+      if (stamp) stampChoice = { ...stamp };
+      else if (!(await chooseStamp())) return;
+    }
     d.setTool(t);
     const doc = d.doc();
     let extra = "";

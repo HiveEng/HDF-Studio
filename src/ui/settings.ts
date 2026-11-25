@@ -1,6 +1,6 @@
 // Settings window: who you are (for comments and stamps), units and dates, and the default
 // colour / line width / opacity / text size for each markup tool. Kept on this computer.
-import { getPrefs, savePrefs, TOOL_GROUPS, type Prefs, type ToolGroup } from "./prefs";
+import { getPrefs, savePrefs, setToolOverride, TOOL_GROUPS, type Prefs, type ToolGroup } from "./prefs";
 import { UNITS, type Unit } from "../engine/measure";
 
 export interface SettingsDeps {
@@ -18,6 +18,7 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string,
 const OCR_LANGS: [string, string][] = [["eng", "English"], ["fra", "French"], ["spa", "Spanish"], ["deu", "German"], ["eng+fra", "English + French"]];
 
 export async function openSettings(d: SettingsDeps) {
+  setToolOverride(null); // edit the saved defaults, not a tool-chest preset in use
   const p = getPrefs();
   let version = "";
   try {

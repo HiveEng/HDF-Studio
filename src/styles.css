@@ -461,3 +461,10 @@ body.designing .page .field { display: none; }
 .page svg.link-ov .link-box { fill: rgba(5,199,242,.12); stroke: #05C7F2; stroke-width: 1.5; stroke-dasharray: 5 3; vector-effect: non-scaling-stroke; }
 #viewer[data-tool="link"] .page { cursor: crosshair; }
 #viewer:not([data-tool="link"]) .link-ov { display: none; }
+/* Tool chest */
+.chest-item { display: grid; grid-template-columns: 14px 1fr; grid-template-rows: auto auto; column-gap: 8px; width: 100%; text-align: left; padding: 6px 8px; border: 1px solid transparent; border-radius: 6px; background: none; cursor: pointer; }
+.chest-item:hover { background: var(--hover, rgba(5, 199, 242, .08)); }
+.chest-item.active { border-color: #05C7F2; background: rgba(5, 199, 242, .12); }
+.chest-swatch { grid-row: span 2; width: 14px; height: 14px; border-radius: 3px; align-self: center; border: 1px solid rgba(0, 0, 0, .2); }
+.chest-name { font-size: 13px; }
+.chest-item small { grid-column: 2; color: var(--muted, #777); font-size: 11px; }

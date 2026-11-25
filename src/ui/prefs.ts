@@ -39,6 +39,11 @@ export interface Prefs {
 
 const KEY = "hdfstudio.prefs";
 
+/** A tool-chest preset in use: its settings win over the saved defaults for that group. */
+let override: { group: ToolGroup; p: Partial<ToolPrefs> } | null = null;
+export const setToolOverride = (o: typeof override) => (override = o);
+export const toolOverride = () => override;
+
 export function getPrefs(): Prefs {
   let saved: Partial<Prefs> = {};
   try {
@@ -48,6 +53,7 @@ export function getPrefs(): Prefs {
   }
   const tools = { ...TOOL_DEFAULTS } as Record<ToolGroup, ToolPrefs>;
   for (const g of Object.keys(TOOL_DEFAULTS) as ToolGroup[]) tools[g] = { ...TOOL_DEFAULTS[g], ...(saved.tools?.[g] ?? {}) };
+  if (override) tools[override.group] = { ...tools[override.group], ...override.p };
   return {
     name: localStorage.getItem("hdfstudio.author") ?? "",
     company: saved.company ?? "",

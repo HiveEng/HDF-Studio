@@ -3,6 +3,7 @@
 import * as scale from "./scale";
 import * as overlay from "./overlay";
 import * as nav from "./navigation";
+import * as mlist from "./markuplist";
 import type { Scale } from "./measure";
 import type { Xf } from "./xform";
 import * as mupdf from "mupdf";
@@ -755,6 +756,15 @@ export class Engine {
     } finally {
       doc.destroy();
     }
+  }
+
+  // ---------- Markup list ----------
+  markupRows(id: number): mlist.MarkupRow[] {
+    return mlist.markupRows(this.pdf(id));
+  }
+  exportMarkups(id: number, format: "csv" | "xlsx", title?: string): Uint8Array {
+    const rows = mlist.markupRows(this.pdf(id));
+    return format === "csv" ? new TextEncoder().encode(mlist.toCsv(rows)) : mlist.toXlsx(rows, title);
   }
 
   // ---------- Bookmarks, links, attachments, layers ----------

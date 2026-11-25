@@ -1,0 +1,41 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { unzipSync, strFromU8 } from "fflate";
+import { Engine } from "../src/engine/core";
+import { makeSamplePdf } from "./fixtures";
+import { scaleFromRatio, measureDict } from "../src/engine/measure";
+import { summarize } from "../src/engine/markuplist";
+
+test("markup list: kinds, measurements in real units, status from replies, totals, CSV and XLSX", () => {
+  const e = new Engine();
+  const { id } = e.open(makeSamplePdf(2));
+  const s = scaleFromRatio(48, "ft-in", '1/4" = 1\'-0"'); // 1 pt = 48/72 in
+  e.setPageScale(id, [0, 1], s);
+  const m = measureDict(s);
+  e.addAnnotation(id, 0, { type: "Line", a: [72, 500], b: [432, 500], dimension: true, caption: "20'-0\"", contents: "Length: 20'-0\"", measure: m }, "Sean");
+  e.addAnnotation(id, 0, { type: "Polygon", vertices: [[100, 100], [244, 100], [244, 316], [100, 316]], fill: [0.8, 0.9, 1], intent: "PolygonDimension", measure: m, contents: "Area: 96 sq ft" }, "Sean");
+  e.addAnnotation(id, 1, { type: "Line", a: [72, 500], b: [252, 500], dimension: true, caption: "10'", contents: "Length: 10'-0\"", measure: m }, "Ana");
+  const cloud = e.addAnnotation(id, 1, { type: "Square", rect: [300, 300, 400, 400], cloud: true, contents: "Check beam" }, "Ana");
+  e.addReply(id, 1, cloud, "Fixed", "Sean", "Completed");
+  e.addAnnotation(id, 1, { type: "Circle", rect: [10, 10, 20, 20], contents: "Count 1" }, "Ana");
+  const rows = e.markupRows(id);
+  assert.deepEqual(rows.map((r) => r.kind), ["Length", "Area", "Length", "Revision cloud", "Count"]);
+  assert.equal(rows[0].length, 20);
+  assert.equal(rows[0].unit, "ft");
+  assert.equal(rows[1].area, 96);
+  assert.equal(rows[1].length, 40);
+  assert.equal(rows[3].status, "Completed");
+  assert.equal(rows[3].replies, 1);
+  const sum = summarize(rows);
+  const lenAll = sum.find((x) => x.kind === "Length" && x.page === "All")!;
+  assert.equal(lenAll.items, 2);
+  assert.equal(lenAll.length, 30);
+  const csv = new TextDecoder("utf-8", { ignoreBOM: true }).decode(e.exportMarkups(id, "csv"));
+  assert.match(csv, /^﻿Page,Kind,/);
+  assert.match(csv, /1,Length,"Length: 20'-0""",Sean/);
+  const files = unzipSync(e.exportMarkups(id, "xlsx", "Test"));
+  assert.ok(files["xl/workbook.xml"] && files["xl/worksheets/sheet2.xml"]);
+  const s1 = strFromU8(files["xl/worksheets/sheet1.xml"]);
+  assert.match(s1, /Revision cloud/);
+  assert.match(strFromU8(files["xl/worksheets/sheet2.xml"]), /<v>30<\/v>/);
+});
