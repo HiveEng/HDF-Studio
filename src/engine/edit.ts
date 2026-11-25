@@ -2,6 +2,7 @@
 // Text edits remove the original glyphs (text-only redaction, leaving images and drawings intact)
 // and write the new text in a matching standard font, size and colour.
 import * as mupdf from "mupdf";
+import { type Xf, imageMatrix, xfFromMatrix, xfFromRect } from "./xform";
 import { wrapContents, ensureDict } from "./stamp";
 
 export interface TextLine {
@@ -187,18 +188,20 @@ export interface ImageBlock {
   bbox: number[];
   width: number;
   height: number;
+  /** Centre, size and rotation on the page. */
+  xf: Xf;
 }
 
-function walkImages(page: mupdf.Page, fn: (bbox: mupdf.Rect, image: mupdf.Image, i: number) => void) {
+function walkImages(page: mupdf.Page, fn: (bbox: mupdf.Rect, image: mupdf.Image, i: number, m: mupdf.Matrix) => void) {
   const st = page.toStructuredText("preserve-images");
   let i = 0;
-  st.walk({ onImageBlock: (bbox, _m, image) => fn(bbox, image, i++) });
+  st.walk({ onImageBlock: (bbox, m, image) => fn(bbox, image, i++, m) });
   st.destroy();
 }
 
 export function imageBlocks(page: mupdf.Page): ImageBlock[] {
   const out: ImageBlock[] = [];
-  walkImages(page, (bbox, image, index) => out.push({ index, bbox: Array.from(bbox), width: image.getWidth(), height: image.getHeight() }));
+  walkImages(page, (bbox, image, index, m) => out.push({ index, bbox: Array.from(bbox), width: image.getWidth(), height: image.getHeight(), xf: xfFromMatrix(Array.from(m)) }));
   return out;
 }
 
@@ -210,7 +213,7 @@ function eraseImages(page: mupdf.PDFPage, rect: number[]) {
   a.applyRedaction(0, 1, 0, 1); // no box, remove images, keep line art, keep text
 }
 
-function drawImage(doc: mupdf.PDFDocument, page: mupdf.PDFPage, image: mupdf.Image, rect: number[]) {
+function drawImage(doc: mupdf.PDFDocument, page: mupdf.PDFPage, image: mupdf.Image, rect: number[] | Xf) {
   const obj = page.getObject();
   let res = obj.get("Resources");
   if (res.isNull()) {
@@ -222,10 +225,10 @@ function drawImage(doc: mupdf.PDFDocument, page: mupdf.PDFPage, image: mupdf.Ima
   const tag = `I${doc.countObjects()}`;
   ensureDict(doc, res, "XObject").put(tag, doc.addImage(image));
   const m = displayToUser(page);
-  const [x0, y0, x1, y1] = rect;
-  const f = (n: number) => +n.toFixed(3);
-  // Image space is the unit square, y-up; place it in the display rect (y-down).
-  wrapContents(doc, obj, `Q q ${m.map(f).join(" ")} cm ${f(x1 - x0)} 0 0 ${f(-(y1 - y0))} ${f(x0)} ${f(y1)} cm /${tag} Do Q`);
+  const f = (n: number) => +n.toFixed(4);
+  // Image space is the unit square, y-up; place it (and turn it) in display space (y-down).
+  const im = imageMatrix(Array.isArray(rect) ? xfFromRect(rect) : rect);
+  wrapContents(doc, obj, `Q q ${m.map(f).join(" ")} cm ${im.map(f).join(" ")} cm /${tag} Do Q`);
 }
 
 export function insertImage(doc: mupdf.PDFDocument, pageIndex: number, rect: number[], data: Uint8Array) {
@@ -256,6 +259,21 @@ export function moveImage(doc: mupdf.PDFDocument, pageIndex: number, index: numb
     const { bbox, image } = found as { bbox: number[]; image: mupdf.Image };
     eraseImages(page, shrink(bbox));
     drawImage(doc, page, replacement ? new mupdf.Image(replacement) : image, to);
+  } finally {
+    page.destroy();
+  }
+}
+
+/** Move, resize and/or rotate a page image to a new placement. */
+export function transformImage(doc: mupdf.PDFDocument, pageIndex: number, index: number, to: Xf) {
+  const page = doc.loadPage(pageIndex) as mupdf.PDFPage;
+  try {
+    let found: { bbox: number[]; image: mupdf.Image } | null = null;
+    walkImages(page, (bbox, image, i) => i === index && (found = { bbox: Array.from(bbox), image }));
+    if (!found) throw new Error("Image not found");
+    const { bbox, image } = found as { bbox: number[]; image: mupdf.Image };
+    eraseImages(page, shrink(bbox));
+    drawImage(doc, page, image, to);
   } finally {
     page.destroy();
   }

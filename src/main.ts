@@ -6,6 +6,8 @@ import { OCR_LANGUAGES, BUNDLED_LANGS, langSource } from "./ocr/languages";
 import { setupAnnotate, type Tool } from "./ui/annotate";
 import { setupEngineering, ENG_TOOLS } from "./ui/engineering";
 import { openSettings } from "./ui/settings";
+import { showMenu, type MenuItem } from "./ui/contextmenu";
+import type { AnnotInfo } from "./engine/annotations";
 import { setupRibbon, icon, taskOf } from "./ui/ribbon";
 import * as I from "lucide";
 import { setupForms } from "./ui/forms";
@@ -1174,6 +1176,7 @@ const eng = setupEngineering({
   pagesEl,
   viewer,
   tool: () => annot.tool,
+  selected: () => annot.selected,
   setTool: (t) => useTool(t as Tool),
   ribbonColor: () => annot.color,
   refreshPage,
@@ -1228,7 +1231,7 @@ async function placeSignature(page: number, at: [number, number], rect?: number[
   renderTabs();
   refreshPage(page);
   annot.refreshComments();
-  status("Signature placed. Drag isn't supported yet: Ctrl+Z to undo and click again to move it. Flatten to lock it in.");
+  status("Signature placed. With the Hand tool, click it to move, resize or rotate it, or right-click for more. Flatten to lock it in.");
 }
 const formsUI = setupForms({
   fields: (id) => engine.fields(id),
@@ -1302,6 +1305,108 @@ colorInput.oninput = () => annot.setColor(colorInput.value.match(/\w\w/g)!.map((
 const resetColor = Object.assign(document.createElement("button"), { textContent: "Default", title: "Use each tool's default colour" });
 resetColor.onclick = () => annot.setColor(null);
 colorSlot.append(colorInput, resetColor);
+// ---------- Right-click menu on the page ----------
+const SWATCHES: [string, string][] = [["#d91a1a", "Red"], ["#c25e00", "Orange"], ["#e0b000", "Yellow"], ["#1a7f37", "Green"], ["#0b6fd6", "Blue"], ["#6b3fd6", "Purple"], ["#000000", "Black"]];
+const rgbOf = (hex: string) => hex.match(/\w\w/g)!.map((h) => parseInt(h, 16) / 255) as [number, number, number];
+const hexOfRgb = (c: number[]) => "#" + c.slice(0, 3).map((v) => Math.round(v * 255).toString(16).padStart(2, "0")).join("");
+async function patchAnnot(a: AnnotInfo, patch: Parameters<typeof engine.updateAnnotation>[3], label: string) {
+  if (!active) return;
+  await engine.updateAnnotation(active.info.id, a.page, a.key, patch);
+  refreshPage(a.page);
+  active.dirty = true;
+  renderTabs();
+  status(`${label}. Ctrl+Z to undo.`);
+  annot.refreshComments();
+  const again = (await engine.allAnnotations(active.info.id)).find((x) => x.key === a.key);
+  annot.selectAnnot(again ?? null);
+}
+async function annotProperties(a: AnnotInfo) {
+  const isText = a.type === "FreeText";
+  const hasLine = ["Square", "Circle", "Line", "Ink", "Polygon", "PolyLine"].includes(a.type);
+  const r = await ask(`${a.type === "FreeText" ? "Text box" : a.type === "Stamp" ? "Stamp" : "Markup"} properties`, [
+    { name: "contents", label: isText ? "Text" : "Comment", value: a.contents },
+    { name: "author", label: "Author", value: a.author },
+    ...(a.xf ? [] : [{ name: "color", label: isText ? "Text colour" : "Colour", type: "color" as const, value: hexOfRgb(a.color.length >= 3 ? a.color : [0.85, 0.1, 0.1]) }]),
+    ...(hasLine ? [{ name: "width", label: "Line width (pt)", type: "number" as const, value: "" , placeholder: "unchanged" }] : []),
+    ...(isText ? [{ name: "fontSize", label: "Text size (pt)", type: "number" as const, value: "", placeholder: "unchanged" }] : []),
+    { name: "opacity", label: "Opacity (%)", type: "number", value: "", placeholder: "unchanged" },
+  ], "Apply");
+  if (!r) return;
+  const patch: Parameters<typeof engine.updateAnnotation>[3] = {};
+  if (r.contents !== a.contents) patch.contents = r.contents;
+  if (r.author !== a.author) patch.author = r.author;
+  if (r.color && r.color !== hexOfRgb(a.color.length >= 3 ? a.color : [0.85, 0.1, 0.1])) patch.color = rgbOf(r.color);
+  if (r.width && +r.width > 0) patch.width = +r.width;
+  if (r.fontSize && +r.fontSize > 0) patch.fontSize = +r.fontSize;
+  if (r.opacity && +r.opacity > 0) patch.opacity = +r.opacity / 100;
+  if (Object.keys(patch).length) await patchAnnot(a, patch, "Updated properties");
+}
+const imageMenu = (rotate: (by: number) => unknown, size: () => unknown, extra: MenuItem[]): MenuItem[] => [
+  { label: "Rotate right 90°", keys: "]", run: () => void rotate(90) },
+  { label: "Rotate left 90°", keys: "[", run: () => void rotate(-90) },
+  { label: "Rotate 180°", run: () => void rotate(180) },
+  { label: "Size and rotation…", run: () => void size() },
+  ...extra,
+];
+pagesEl.addEventListener("contextmenu", async (e) => {
+  const el = (e.target as HTMLElement).closest?.(".page") as HTMLElement | null;
+  if (!el || !active || (e.target as HTMLElement).closest("textarea, input")) return;
+  e.preventDefault();
+  const page = Number(el.dataset.page);
+  const r = el.getBoundingClientRect();
+  const [pw, ph] = active.info.pageSizes[page];
+  const p: [number, number] = [((e.clientX - r.left) / r.width) * pw, ((e.clientY - r.top) / r.height) * ph];
+  const x = e.clientX, y = e.clientY;
+  if (annot.tool === "edit") {
+    const img = await editUI.selectImageAt(page, p);
+    if (img) return showMenu(x, y, imageMenu((by) => editUI.rotateSelected(by), () => editUI.sizeSelected(), [
+      { sep: true },
+      { label: "Replace image…", keys: "Ctrl+R", run: () => editUI.replaceSelectedImage() },
+      { label: "Save image as…", run: () => editUI.saveSelectedImage() },
+      { sep: true },
+      { label: "Delete image", keys: "Del", danger: true, run: () => void editUI.deleteSelectedImage() },
+    ]), "Image");
+  }
+  const a = await engine.annotationAt(active.info.id, page, p);
+  if (a) {
+    if (annot.tool !== "hand") useTool("hand");
+    annot.selectAnnot(a);
+    const items: MenuItem[] = [];
+    if (a.xf) items.push(...imageMenu((by) => annot.rotateSelectedStamp(by), () => annot.sizeSelectedStamp(), []), { sep: true });
+    if (a.type === "FreeText") items.push({ label: "Add leader…", run: () => void eng.start("leader") });
+    if (!a.xf) items.push({ swatches: SWATCHES.map(([c, t]) => ({ color: c, title: t, run: () => void patchAnnot(a, { color: rgbOf(c) }, `Colour set to ${t.toLowerCase()}`) })) });
+    items.push(
+      { label: a.type === "FreeText" ? "Edit text…" : "Edit comment…", run: () => void annot.editSelected() },
+      { label: "Properties…", run: () => void annotProperties(a) },
+      { label: "Show in comments", run: () => (showSidePanel("comments"), annot.selectAnnot(a)) },
+      { sep: true },
+      { label: "Delete", keys: "Del", danger: true, run: () => void annot.deleteSelected() },
+    );
+    return showMenu(x, y, items, a.xf ? (a.contents?.startsWith("Signed") ? "Signature" : "Image") : a.type === "FreeText" ? "Text box" : "Markup");
+  }
+  annot.selectAnnot(null);
+  showMenu(x, y, [
+    { label: "Add sticky note", keys: "N", run: () => useTool("note") },
+    { label: "Add text box", keys: "X", run: () => useTool("text") },
+    { label: "Add callout", run: () => void eng.start("callout") },
+    { label: "Add stamp…", run: () => void eng.start("stamp") },
+    { label: "Place signature", keys: "G", run: () => useTool("sign") },
+    { sep: true },
+    { label: "Measure length", run: () => void eng.start("m-length") },
+    { label: "Set drawing scale…", run: () => void eng.setScale() },
+    { sep: true },
+    { label: "Rotate page right", run: () => mutate("Rotated", (t) => engine.rotatePages(t.info.id, [page], 90)) },
+    { label: "Print…", keys: "Ctrl+P", run: () => printDoc() },
+  ], `Page ${page + 1}`);
+});
+// [ and ] turn the selected image or signature.
+document.addEventListener("keydown", (e) => {
+  if ((e.key !== "[" && e.key !== "]") || e.ctrlKey || e.metaKey || e.altKey || (e.target as HTMLElement).closest?.("input, textarea, select")) return;
+  const by = e.key === "]" ? 90 : -90;
+  if (annot.tool === "edit" && editUI.selectedImage) (e.preventDefault(), void editUI.rotateSelected(by));
+  else if (annot.selected?.xf) (e.preventDefault(), void annot.rotateSelectedStamp(by));
+}, true);
+
 /** Select a tool and bring its ribbon task forward so its options are in view. */
 function useTool(t: Tool) {
   if (designUI.active && t !== "hand") designUI.exit();

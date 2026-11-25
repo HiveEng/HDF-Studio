@@ -4,16 +4,17 @@ import type { AnnotSpec, AnnotInfo, Pt, RGB } from "../engine/annotations";
 import type { DocInfo } from "../engine/core";
 import {
   type Scale, type Unit, UNITS, PRESET_SCALES, scaleFromRatio, scaleFromCalibration, parseLength, lengthText, areaText,
-  dist, pathLength, polygonArea, centroid, angleAt, measureDict,
+  dist, leaderStart, pathLength, polygonArea, centroid, angleAt, measureDict,
 } from "../engine/measure";
 import { ask } from "./dialog";
 import { getPrefs, hexToRgb, formatDate, REVIEW_STAMPS, type ToolGroup } from "./prefs";
 
-export const ENG_TOOLS = ["cloud", "cloudpoly", "callout", "polyline", "polygon", "dimension", "stamp", "m-length", "m-polylength", "m-area", "m-perimeter", "m-angle", "m-count", "m-calibrate"] as const;
+export const ENG_TOOLS = ["leader", "cloud", "cloudpoly", "callout", "polyline", "polygon", "dimension", "stamp", "m-length", "m-polylength", "m-area", "m-perimeter", "m-angle", "m-count", "m-calibrate"] as const;
 export type EngTool = (typeof ENG_TOOLS)[number];
 export const isEngTool = (t: string): t is EngTool => (ENG_TOOLS as readonly string[]).includes(t);
 
 const TOOL_INFO: Record<EngTool, { label: string; group: ToolGroup; how: string }> = {
+  leader: { label: "Leader", group: "callout", how: "Click a text box or callout, then click each point it should point to (several clicks make a multileader)." },
   cloud: { label: "Revision cloud", group: "cloud", how: "Drag a box around the change." },
   cloudpoly: { label: "Revision cloud (shape)", group: "cloud", how: "Click each corner; double-click or Enter to finish." },
   callout: { label: "Callout", group: "callout", how: "Press on the item, drag to where the text should go, then type." },
@@ -38,6 +39,8 @@ export interface EngDeps {
   engine: {
     addAnnotation(id: number, page: number, spec: AnnotSpec, author: string): Promise<number>;
     allAnnotations(id: number): Promise<AnnotInfo[]>;
+    annotationAt(id: number, page: number, p: Pt): Promise<AnnotInfo | null>;
+    addLeader(id: number, page: number, parentKey: number, target: Pt, author: string): Promise<number>;
     pageScale(id: number, page: number): Promise<Scale | null>;
     setPageScale(id: number, pages: number[], s: Scale | null): Promise<void>;
   };
@@ -45,6 +48,8 @@ export interface EngDeps {
   pagesEl: HTMLElement;
   viewer: HTMLElement;
   tool(): string;
+  /** The comment selected with the Hand tool, if any. */
+  selected(): AnnotInfo | null;
   setTool(t: string): void;
   /** The colour picked on the ribbon, if any (overrides the per-tool default). */
   ribbonColor(): RGB | null;
@@ -62,6 +67,7 @@ export function setupEngineering(d: EngDeps) {
   let pageIndex = -1;
   let hover: Pt | null = null;
   let downAt: Pt | null = null;
+  let leaderOf: AnnotInfo | null = null;
   let stampChoice: { title: string; color: string } | null = null;
   const scales = new Map<string, Scale | null>();
   const author = () => getPrefs().name || "Reviewer";
@@ -107,6 +113,7 @@ export function setupEngineering(d: EngDeps) {
   const clearPreview = () => d.pagesEl.querySelectorAll(".eng-preview").forEach((n) => n.remove());
   const reset = () => {
     pts = [];
+    leaderOf = null;
     pageEl = null;
     pageIndex = -1;
     hover = null;
@@ -138,6 +145,13 @@ export function setupEngineering(d: EngDeps) {
     const stroke = { stroke: c, "stroke-width": Math.max(1, prefsFor(t).width) , fill: "none", "vector-effect": "non-scaling-stroke" };
     const all = hover ? [...pts, hover] : pts;
     if (!all.length) return;
+    if (t === "leader") {
+      if (leaderOf && hover) {
+        const s0 = leaderStart(leaderOf.rect, hover);
+        svg.append(el("line", { x1: s0[0], y1: s0[1], x2: hover[0], y2: hover[1], ...stroke, "stroke-dasharray": "4 3" }));
+      }
+      return;
+    }
     if (t === "cloud" && all.length >= 2) {
       const [a, b] = [all[0], all[all.length - 1]];
       svg.append(el("rect", { x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), width: Math.abs(a[0] - b[0]), height: Math.abs(a[1] - b[1]), ...stroke, "stroke-dasharray": "6 4" }));
@@ -383,6 +397,7 @@ export function setupEngineering(d: EngDeps) {
     e.preventDefault();
     e.stopPropagation();
     const t = tool();
+    if (t === "leader") return void (await leaderClick(hit.el, hit.index, pointIn(hit.el, hit.index, e)));
     if (pageEl && hit.el !== pageEl) reset();
     if (!pageEl) {
       pageEl = hit.el;
@@ -434,7 +449,13 @@ export function setupEngineering(d: EngDeps) {
 
   document.addEventListener("keydown", (e) => {
     if (!active() || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
-    if (e.key === "Escape" && pts.length) {
+    if (tool() === "leader" && (e.key === "Escape" || e.key === "Enter") && leaderOf) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      reset();
+      d.setTool("hand");
+      d.status("Done adding leaders");
+    } else if (e.key === "Escape" && pts.length) {
       e.preventDefault();
       e.stopImmediatePropagation();
       reset();
@@ -452,9 +473,36 @@ export function setupEngineering(d: EngDeps) {
     }
   }, true);
 
+  async function leaderClick(el: HTMLElement, index: number, p: Pt) {
+    const doc = d.doc()!;
+    if (!leaderOf || leaderOf.page !== index) {
+      const a = await d.engine.annotationAt(doc.info.id, index, p);
+      if (a?.type !== "FreeText") return d.status("Click a text box or callout first, then the points its leaders should point to.");
+      leaderOf = a;
+      pageEl = el;
+      pageIndex = index;
+      return d.status("Now click each point to add a leader. Esc or Enter when done.");
+    }
+    await d.engine.addLeader(doc.info.id, index, leaderOf.key, p, author());
+    d.refreshPage(index);
+    d.changed("Added leader");
+    d.status("Leader added. Click to add another, or Esc / Enter when done.");
+  }
+
   /** Called when a tool button is chosen. */
   async function start(t: EngTool) {
     reset();
+    if (t === "leader") {
+      const sel = d.selected();
+      leaderOf = sel?.type === "FreeText" ? sel : null;
+      d.setTool(t);
+      if (leaderOf) {
+        pageIndex = leaderOf.page;
+        pageEl = d.pagesEl.querySelector<HTMLElement>(`.page[data-page="${leaderOf.page}"]`);
+        return d.status("Click each point the selected text box should point to. Esc or Enter when done.");
+      }
+      return d.status(`${TOOL_INFO[t].label}: ${TOOL_INFO[t].how} Esc when done.`);
+    }
     if (t === "stamp" && !(await chooseStamp())) return;
     d.setTool(t);
     const doc = d.doc();

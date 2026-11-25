@@ -9,7 +9,7 @@ import {
   LayoutGrid, Merge, FileOutput, Scissors, Signature, PenLine, BadgeCheck, FileKey, ShieldCheck, Sheet,
   FileSpreadsheet, Eraser, SquareDashed, ScanSearch, Shredder, Lock, LockOpen, File, FileDown, Workflow, ListChecks,
   MoveHorizontal, Maximize, PanelLeft, Search, ScanText, ScanLine, GitCompare, FolderSync, ClipboardCheck, Archive, Languages, Users, Printer, FormInput, WandSparkles, Accessibility, Images,
-  Cloud, MessageSquareQuote, Spline, Pentagon, Ruler, RulerDimensionLine, DraftingCompass, Hash, Scaling, Crosshair, Waypoints, LandPlot, Settings,
+  Cloud, MessageSquareQuote, Spline, Pentagon, Ruler, RulerDimensionLine, DraftingCompass, Hash, Scaling, Crosshair, Waypoints, LandPlot, Settings, Split,
 } from "lucide";
 
 export function icon(node: IconNode, size = 18): SVGElement {
@@ -75,6 +75,7 @@ export const TASKS: Task[] = [
         { cmd: "tool-cloud", tool: "cloud", label: "Cloud", icon: Cloud, big: true, hint: "Revision cloud: drag a box around the change" },
         { cmd: "tool-callout", tool: "callout", label: "Callout", icon: MessageSquareQuote, big: true },
         { cmd: "tool-stamp", tool: "stamp", label: "Stamp", icon: Stamp, big: true, hint: "Review stamps such as Approved as Noted" },
+        { cmd: "tool-leader", tool: "leader", label: "Leader", icon: Split, hint: "Add one or more leader arrows to a text box or callout" },
         { cmd: "tool-cloudpoly", tool: "cloudpoly", label: "Cloud shape", icon: Cloud },
         { cmd: "tool-dimension", tool: "dimension", label: "Dimension", icon: RulerDimensionLine },
         { cmd: "tool-polyline", tool: "polyline", label: "Polyline", icon: Spline },

@@ -1,6 +1,9 @@
 // Edit tool: change existing text in place, add new text, and move/resize/replace/delete images.
 import type { TextBlock, ImageBlock, TextStyle } from "../engine/edit";
 import { ask } from "./dialog";
+import { type Xf, corners, hitXf } from "../engine/xform";
+import { drawHandles, grabAt, cursorFor, beginDrag, updateDrag, changed as xfChanged, turned, ptPerPx, type XfDrag } from "./xfhandles";
+import { sizeDialog } from "./xfdialog";
 
 export interface EditDeps {
   engine: {
@@ -9,6 +12,7 @@ export interface EditDeps {
     replaceText(id: number, page: number, bbox: number[], text: string, style: TextStyle): Promise<void>;
     addText(id: number, page: number, at: [number, number], text: string, style: TextStyle): Promise<number[]>;
     moveImage(id: number, page: number, index: number, to: number[], replacement?: Uint8Array): Promise<void>;
+    transformImage(id: number, page: number, index: number, to: Xf): Promise<void>;
     deleteImage(id: number, page: number, bbox: number[]): Promise<void>;
     insertImage(id: number, page: number, rect: number[], data: Uint8Array): Promise<void>;
     extractImage(id: number, page: number, index: number): Promise<Uint8Array>;
@@ -89,16 +93,33 @@ export function setupEdit(d: EditDeps) {
     const c = await blocks(hit.index);
     const svg = overlay(hit.el, hit.index);
     svg.querySelectorAll(".hover").forEach((n) => n.remove());
-    const img = [...c.images].reverse().find((i) => inside(p, i.bbox));
+    const ppx = ptPerPx(hit.el, d.doc()!.info.pageSizes[hit.index][0]);
+    const sel = selectedImage?.page === hit.index ? selectedImage.img : null;
+    const selGrab = sel ? grabAt(sel.xf, p, ppx) : null;
+    if (sel && selGrab !== null) return void (hit.el.style.cursor = cursorFor(selGrab, sel.xf));
+    const img = imageAt(c.images, p);
     const tb = c.text.find((b) => inside(p, b.bbox, 2));
-    if (img) svg.append(rectEl(img.bbox, "hover"));
+    if (img) svg.append(polyEl(img.xf, "hover"));
     else if (tb) svg.append(rectEl(tb.bbox, "hover"));
-    hit.el.style.cursor = img ? (nearCorner(p, img.bbox) ? "nwse-resize" : "move") : tb ? "text" : "copy";
+    hit.el.style.cursor = img ? "move" : tb ? "text" : "copy";
   });
 
-  const nearCorner = (p: number[], r: number[]) => Math.hypot(p[0] - r[2], p[1] - r[3]) < 10;
+  const imageAt = (images: ImageBlock[], p: [number, number]) => [...images].reverse().find((i) => hitXf(i.xf, p, 0) === "move");
+  const polyEl = (t: Xf, cls: string) => {
+    const n = document.createElementNS(SVGNS, "polygon");
+    n.classList.add(cls);
+    n.setAttribute("points", corners(t).map((q) => q.join(",")).join(" "));
+    return n;
+  };
+  function showSelection() {
+    d.pagesEl.querySelectorAll(".edit-ov .edit-sel").forEach((n) => n.remove());
+    if (!selectedImage) return;
+    const el = d.pagesEl.querySelector<HTMLElement>(`.page[data-page="${selectedImage.page}"]`);
+    if (!el) return;
+    drawHandles(overlay(el, selectedImage.page), selectedImage.img.xf, ptPerPx(el, d.doc()!.info.pageSizes[selectedImage.page][0]), "edit-sel");
+  }
 
-  let drag: null | { page: number; el: HTMLElement; img: ImageBlock; start: [number, number]; mode: "move" | "resize"; rect: number[] } = null;
+  let drag: null | { page: number; el: HTMLElement; img: ImageBlock; x: XfDrag } = null;
 
   d.pagesEl.addEventListener("pointerdown", async (e) => {
     if (!active() || e.button !== 0) return;
@@ -108,15 +129,25 @@ export function setupEdit(d: EditDeps) {
     if (!hit || !doc) return;
     e.preventDefault();
     const p = pt(hit.el, hit.index, e);
+    const ppx = ptPerPx(hit.el, doc.info.pageSizes[hit.index][0]);
+    // A handle of the selected image (the rotate knob sits outside the image).
+    if (selectedImage?.page === hit.index) {
+      const g = grabAt(selectedImage.img.xf, p, ppx);
+      if (g !== null) {
+        hit.el.setPointerCapture(e.pointerId);
+        drag = { page: hit.index, el: hit.el, img: selectedImage.img, x: beginDrag(selectedImage.img.xf, g, p) };
+        return;
+      }
+    }
     const c = await blocks(hit.index);
-    const img = [...c.images].reverse().find((i) => inside(p, i.bbox));
+    const img = imageAt(c.images, p);
     clearSelection();
     if (img) {
       selectedImage = { page: hit.index, img };
-      overlay(hit.el, hit.index).append(rectEl(img.bbox, "selimg"));
+      showSelection();
       hit.el.setPointerCapture(e.pointerId);
-      drag = { page: hit.index, el: hit.el, img, start: p, mode: nearCorner(p, img.bbox) ? "resize" : "move", rect: img.bbox.slice() };
-      d.status("Image selected: drag to move, drag the corner to resize, Delete to remove, Ctrl+R to replace, Ctrl+Shift+S to save it.");
+      drag = { page: hit.index, el: hit.el, img, x: beginDrag(img.xf, "move", p) };
+      d.status("Image selected: drag to move, drag a corner to resize (Shift: free), drag the round knob to rotate. Right-click for more.");
       return;
     }
     const tb = c.text.find((b) => inside(p, b.bbox, 2));
@@ -125,46 +156,53 @@ export function setupEdit(d: EditDeps) {
 
   d.pagesEl.addEventListener("pointermove", (e) => {
     if (!drag) return;
-    const p = pt(drag.el, drag.page, e);
-    const [x0, y0, x1, y1] = drag.img.bbox;
-    if (drag.mode === "move") {
-      const dx = p[0] - drag.start[0], dy = p[1] - drag.start[1];
-      drag.rect = [x0 + dx, y0 + dy, x1 + dx, y1 + dy];
-    } else {
-      // keep aspect ratio unless Shift is held
-      let w = Math.max(10, p[0] - x0), h = Math.max(10, p[1] - y0);
-      if (!e.shiftKey) {
-        const ar = (x1 - x0) / (y1 - y0);
-        if (w / h > ar) h = w / ar;
-        else w = h * ar;
-      }
-      drag.rect = [x0, y0, x0 + w, y0 + h];
-    }
-    const svg = overlay(drag.el, drag.page);
-    svg.querySelectorAll(".selimg").forEach((n) => n.remove());
-    svg.append(rectEl(drag.rect, "selimg"));
+    const t = updateDrag(drag.x, pt(drag.el, drag.page, e), e.shiftKey);
+    drawHandles(overlay(drag.el, drag.page), t, ptPerPx(drag.el, d.doc()!.info.pageSizes[drag.page][0]), "edit-sel");
   });
 
   d.pagesEl.addEventListener("pointerup", async () => {
     const cur = drag;
     drag = null;
     if (!cur) return;
-    const moved = cur.rect.some((v, i) => Math.abs(v - cur.img.bbox[i]) > 1);
-    if (!moved) return;
-    const doc = d.doc()!;
-    await d.engine.moveImage(doc.info.id, cur.page, cur.img.index, cur.rect);
-    after(cur.page, cur.mode === "move" ? "Moved image" : "Resized image");
-    const c = await blocks(cur.page);
-    const img = c.images.find((i) => Math.abs(i.bbox[0] - cur.rect[0]) < 2 && Math.abs(i.bbox[1] - cur.rect[1]) < 2);
-    if (img) {
-      selectedImage = { page: cur.page, img };
-      overlay(cur.el, cur.page).append(rectEl(img.bbox, "selimg"));
-    }
+    if (!xfChanged(cur.x.t0, cur.x.t)) return showSelection();
+    const label = cur.x.grab === "move" ? "Moved image" : cur.x.grab === "rotate" ? "Rotated image" : "Resized image";
+    await placeSelected(cur.page, cur.img, cur.x.t, label);
   });
+
+  /** Apply a new placement to a page image and keep it selected. */
+  async function placeSelected(page: number, img: ImageBlock, t: Xf, label: string) {
+    const doc = d.doc()!;
+    await d.engine.transformImage(doc.info.id, page, img.index, t);
+    after(page, label);
+    const c = await blocks(page);
+    const again = c.images.find((i) => Math.abs(i.xf.cx - t.cx) < 2 && Math.abs(i.xf.cy - t.cy) < 2);
+    selectedImage = again ? { page, img: again } : null;
+    showSelection();
+  }
+
+  /** For the context menu and shortcuts: the image under a point, selected. */
+  async function selectImageAt(page: number, p: [number, number]) {
+    const img = imageAt((await blocks(page)).images, p);
+    clearSelection();
+    if (img) {
+      selectedImage = { page, img };
+      showSelection();
+    }
+    return img ?? null;
+  }
+  async function rotateSelected(by: number) {
+    if (!selectedImage) return d.status("Select an image with the Edit tool first");
+    await placeSelected(selectedImage.page, selectedImage.img, turned(selectedImage.img.xf, by), "Rotated image");
+  }
+  async function sizeSelected() {
+    if (!selectedImage) return d.status("Select an image with the Edit tool first");
+    const t = await sizeDialog(selectedImage.img.xf);
+    if (t) await placeSelected(selectedImage.page, selectedImage.img, t, "Resized image");
+  }
 
   function clearSelection() {
     selectedImage = null;
-    d.pagesEl.querySelectorAll(".edit-ov .selimg").forEach((n) => n.remove());
+    d.pagesEl.querySelectorAll(".edit-ov .selimg, .edit-ov .edit-sel").forEach((n) => n.remove());
   }
 
   function after(page: number, label: string) {
@@ -309,7 +347,7 @@ export function setupEdit(d: EditDeps) {
     after(hit.index, "Inserted image");
   }, true);
 
-  return { invalidate, deleteSelectedImage, replaceSelectedImage, saveSelectedImage, insertImage, setTextStyle, closeEditor };
+  return { invalidate, selectImageAt, rotateSelected, sizeSelected, get selectedImage() { return selectedImage; }, deleteSelectedImage, replaceSelectedImage, saveSelectedImage, insertImage, setTextStyle, closeEditor };
 }
 
 async function jpegSize(data: Uint8Array): Promise<[number, number]> {

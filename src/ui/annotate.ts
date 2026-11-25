@@ -4,6 +4,9 @@ import type { AnnotInfo, AnnotSpec, Pt, RGB } from "../engine/annotations";
 import type { DocInfo } from "../engine/core";
 import { ask } from "./dialog";
 import { getPrefs, hexToRgb } from "./prefs";
+import type { Xf } from "../engine/xform";
+import { drawHandles, grabAt, cursorFor, beginDrag, updateDrag, changed as xfChanged, turned, ptPerPx, type XfDrag } from "./xfhandles";
+import { sizeDialog } from "./xfdialog";
 import { isEngTool, type EngTool } from "./engineering";
 
 export type Tool = "hand" | "select" | "highlight" | "underline" | "strike" | "squiggly" | "note" | "text" | "rect" | "ellipse" | "arrow" | "ink" | "redact" | "sign" | "edit" | EngTool;
@@ -12,6 +15,7 @@ export interface AnnotateDeps {
   engine: {
     selectText(id: number, page: number, a: Pt, b: Pt, mode?: "chars" | "words" | "lines"): Promise<{ quads: number[][]; text: string }>;
     addAnnotation(id: number, page: number, spec: AnnotSpec, author: string): Promise<number>;
+    transformImageStamp(id: number, page: number, key: number, to: Xf): Promise<void>;
     updateAnnotation(id: number, page: number, key: number, patch: { contents?: string; color?: RGB }): Promise<void>;
     deleteAnnotation(id: number, page: number, key: number): Promise<void>;
     annotationAt(id: number, page: number, p: Pt): Promise<AnnotInfo | null>;
@@ -139,7 +143,8 @@ export function setupAnnotate(d: AnnotateDeps) {
     d.commentsEl.querySelectorAll(".comment.active").forEach((n) => n.classList.remove("active"));
     if (!a) return;
     const el = d.pagesEl.children[a.page] as HTMLElement | undefined;
-    if (el) {
+    if (el && a.xf) drawHandles(overlay(el, a.page), a.xf, ppxOf(el, a.page), "sel");
+    else if (el) {
       const [x0, y0, x1, y1] = a.rect;
       overlay(el, a.page).append(svgEl("rect", { x: x0 - 2, y: y0 - 2, width: x1 - x0 + 4, height: y1 - y0 + 4 }, "sel"));
     }
@@ -171,6 +176,8 @@ export function setupAnnotate(d: AnnotateDeps) {
   }
 
   // ----- pointer interaction -----
+  let xdrag: null | { el: HTMLElement; index: number; a: AnnotInfo; x: XfDrag } = null;
+  const ppxOf = (el: HTMLElement, index: number) => ptPerPx(el, d.doc()!.info.pageSizes[index][0]);
   let drag: null | { el: HTMLElement; index: number; start: Pt; last: Pt; points: Pt[]; busy: boolean; pending: boolean; scroll?: [number, number, number, number] } = null;
 
   d.pagesEl.addEventListener("pointerdown", async (e) => {
@@ -180,8 +187,25 @@ export function setupAnnotate(d: AnnotateDeps) {
     if (!hit || !doc) return;
     const p = pointIn(hit.el, hit.index, e);
     if (tool === "hand") {
+      // Handles of a selected signature or picture: move, resize, rotate.
+      if (selected?.xf && selected.page === hit.index) {
+        const g = grabAt(selected.xf, p, ppxOf(hit.el, hit.index));
+        if (g !== null) {
+          e.preventDefault();
+          hit.el.setPointerCapture(e.pointerId);
+          xdrag = { el: hit.el, index: hit.index, a: selected, x: beginDrag(selected.xf, g, p) };
+          return;
+        }
+      }
       const a = await d.engine.annotationAt(doc.info.id, hit.index, p);
       selectAnnot(a);
+      if (a?.xf) {
+        e.preventDefault();
+        hit.el.setPointerCapture(e.pointerId);
+        xdrag = { el: hit.el, index: hit.index, a, x: beginDrag(a.xf, "move", p) };
+        d.status("Drag to move, drag a corner to resize (Shift: free), drag the round knob to rotate. Right-click for more.");
+        return;
+      }
       if (!a) {
         drag = { el: hit.el, index: hit.index, start: p, last: p, points: [], busy: false, pending: false, scroll: [e.clientX, e.clientY, d.viewer.scrollLeft, d.viewer.scrollTop] };
         d.viewer.classList.add("panning");
@@ -194,6 +218,15 @@ export function setupAnnotate(d: AnnotateDeps) {
   });
 
   d.pagesEl.addEventListener("pointermove", (e) => {
+    if (xdrag) {
+      const t = updateDrag(xdrag.x, pointIn(xdrag.el, xdrag.index, e), e.shiftKey);
+      drawHandles(overlay(xdrag.el, xdrag.index), t, ppxOf(xdrag.el, xdrag.index), "sel");
+      return;
+    }
+    if (tool === "hand" && selected?.xf) {
+      const hit = pageOf(e);
+      if (hit && hit.index === selected.page) hit.el.style.cursor = cursorFor(grabAt(selected.xf, pointIn(hit.el, hit.index, e), ppxOf(hit.el, hit.index)), selected.xf);
+    }
     if (!drag) return;
     if (drag.scroll) {
       const [x, y, sl, st] = drag.scroll;
@@ -247,6 +280,33 @@ export function setupAnnotate(d: AnnotateDeps) {
       cur.pending = false;
       updateTextSelection(mode);
     }
+  }
+
+  d.pagesEl.addEventListener("pointerup", async () => {
+    const xd = xdrag;
+    xdrag = null;
+    if (!xd) return;
+    if (!xfChanged(xd.x.t0, xd.x.t)) return selectAnnot(xd.a);
+    const label = xd.x.grab === "move" ? "Moved" : xd.x.grab === "rotate" ? "Rotated" : "Resized";
+    await transformStamp(xd.a, xd.x.t, label);
+  });
+
+  async function transformStamp(a: AnnotInfo, t: Xf, label: string) {
+    const doc = d.doc();
+    if (!doc) return;
+    await d.engine.transformImageStamp(doc.info.id, a.page, a.key, t);
+    d.refreshPage(a.page);
+    d.changed(`${label} ${a.contents?.startsWith("Signed") ? "signature" : "image"}`);
+    const again = (await d.engine.allAnnotations(doc.info.id)).find((x) => x.key === a.key);
+    selectAnnot(again ?? null);
+  }
+  async function rotateSelectedStamp(by: number) {
+    if (selected?.xf) await transformStamp(selected, turned(selected.xf, by), "Rotated");
+  }
+  async function sizeSelectedStamp() {
+    if (!selected?.xf) return;
+    const t = await sizeDialog(selected.xf);
+    if (t) await transformStamp(selected, t, "Resized");
   }
 
   d.pagesEl.addEventListener("pointerup", async (e) => {
@@ -424,7 +484,7 @@ export function setupAnnotate(d: AnnotateDeps) {
     }
     let list: AnnotInfo[] = [];
     try {
-      list = await d.engine.allAnnotations(doc.info.id);
+      list = (await d.engine.allAnnotations(doc.info.id)).filter((a) => !a.groupOf);
     } catch {
       /* non-PDF */
     }
@@ -539,5 +599,5 @@ export function setupAnnotate(d: AnnotateDeps) {
     }
   }
 
-  return { onRedactions: (f: () => void) => (onRedactionsChanged = f), setTool, refreshComments, mergeReviews, get tool() { return tool; }, get color() { return color; }, setColor: (c: RGB | null) => (color = c), selectAnnot, deleteSelected, editSelected };
+  return { onRedactions: (f: () => void) => (onRedactionsChanged = f), setTool, refreshComments, mergeReviews, get tool() { return tool; }, get selected() { return selected; }, rotateSelectedStamp, sizeSelectedStamp, refreshSelection: () => selectAnnot(selected), get color() { return color; }, setColor: (c: RGB | null) => (color = c), selectAnnot, deleteSelected, editSelected };
 }

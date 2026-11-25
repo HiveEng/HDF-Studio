@@ -1,5 +1,7 @@
 // Comments & markup on top of MuPDF annotations. All coordinates are page space in points
 // (origin top-left, y down, after page rotation) — the same space as search results.
+import { leaderStart } from "./measure";
+import { type Xf, imageMatrix, bounds as xfBounds, xfFromRect } from "./xform";
 import * as mupdf from "mupdf";
 
 export type Pt = [number, number];
@@ -41,6 +43,10 @@ export interface AnnotInfo {
   /** Unique name (/NM), used to recognise the same comment in other copies of the file. */
   name?: string;
   hidden?: boolean;
+  /** Part of another markup's group (e.g. an extra leader on a text box): not a comment of its own. */
+  groupOf?: number;
+  /** An image stamp (signature, picture): its placement, for the move / resize / rotate handles. */
+  xf?: Xf;
 }
 
 export const REVIEW_STATES = ["Accepted", "Rejected", "Cancelled", "Completed", "None"] as const;
@@ -87,6 +93,7 @@ export function listAnnotations(doc: mupdf.PDFDocument, pageIndex: number): Anno
           modified,
           color: Array.from(a.getColor()),
           quads: a.hasQuadPoints() ? a.getQuadPoints().map((q) => Array.from(q)) : undefined,
+          xf: a.getType() === "Stamp" ? imageStampXf(a) : undefined,
           ...threadInfo(a),
         };
       });
@@ -266,6 +273,7 @@ function fontDict(doc: mupdf.PDFDocument, base: string) {
  */
 function decorate(doc: mupdf.PDFDocument, page: mupdf.PDFPage, a: mupdf.PDFAnnotation) {
   const o = a.getObject();
+  if (o.get("HDFImg").isArray()) return drawImageStamp(doc, page, a);
   const stamp = o.get("HDFStamp");
   const label = o.get("HDFLabel");
   if (!stamp.isArray() && !label.isArray()) return;
@@ -372,9 +380,14 @@ function decorate(doc: mupdf.PDFDocument, page: mupdf.PDFPage, a: mupdf.PDFAnnot
   }
 }
 
-function threadInfo(a: mupdf.PDFAnnotation): Pick<AnnotInfo, "inReplyTo" | "state" | "name" | "hidden"> {
+function threadInfo(a: mupdf.PDFAnnotation): Pick<AnnotInfo, "inReplyTo" | "state" | "name" | "hidden" | "groupOf"> {
   const o = a.getObject();
   const irt = o.get("IRT");
+  const rt = o.get("RT");
+  if (irt.isIndirect() && rt.isName() && rt.asName() === "Group") {
+    const nm = o.get("NM");
+    return { groupOf: irt.asIndirect(), name: nm.isString() ? nm.asString() : undefined, hidden: false };
+  }
   const st = o.get("State");
   const nm = o.get("NM");
   const f = o.get("F");
@@ -500,12 +513,23 @@ function findAnnot(page: mupdf.PDFPage, key: number) {
   return a;
 }
 
-export function updateAnnotation(doc: mupdf.PDFDocument, pageIndex: number, key: number, patch: { contents?: string; color?: RGB; rect?: number[] }) {
+export interface AnnotPatch { contents?: string; color?: RGB; rect?: number[]; author?: string; width?: number; opacity?: number; fontSize?: number }
+
+export function updateAnnotation(doc: mupdf.PDFDocument, pageIndex: number, key: number, patch: AnnotPatch) {
   const page = doc.loadPage(pageIndex) as mupdf.PDFPage;
   try {
     const a = findAnnot(page, key);
     if (patch.contents !== undefined) a.setContents(patch.contents);
-    if (patch.color) a.setColor(patch.color);
+    if (patch.author !== undefined) a.setAuthor(patch.author);
+    if (patch.width !== undefined && a.hasBorder()) a.setBorderWidth(patch.width);
+    if (patch.opacity !== undefined) a.setOpacity(Math.max(0.05, Math.min(1, patch.opacity)));
+    const isText = a.getType() === "FreeText";
+    if (isText && (patch.color || patch.fontSize)) {
+      // A text box's text colour and size live in its default appearance; /C is its background.
+      const da = a.getDefaultAppearance();
+      a.setDefaultAppearance(da.font || "Helv", patch.fontSize ?? da.size ?? 12, (patch.color ?? da.color ?? [0, 0, 0]) as RGB);
+    }
+    if (patch.color && !isText) a.setColor(patch.color);
     if (patch.rect) a.setRect(patch.rect as mupdf.Rect);
     if (patch.color && a.getObject().get("HDFStamp").isArray()) {
       const st = a.getObject().get("HDFStamp");
@@ -514,6 +538,7 @@ export function updateAnnotation(doc: mupdf.PDFDocument, pageIndex: number, key:
     a.setModificationDate(new Date());
     a.update();
     decorate(doc, page, a);
+    if (patch.color) for (const m of groupMembers(page, key)) (m.setColor(patch.color), m.update());
   } finally {
     page.destroy();
   }
@@ -522,7 +547,148 @@ export function updateAnnotation(doc: mupdf.PDFDocument, pageIndex: number, key:
 export function deleteAnnotation(doc: mupdf.PDFDocument, pageIndex: number, key: number) {
   const page = doc.loadPage(pageIndex) as mupdf.PDFPage;
   try {
+    for (const m of groupMembers(page, key)) page.deleteAnnotation(m);
     page.deleteAnnotation(findAnnot(page, key));
+  } finally {
+    page.destroy();
+  }
+}
+
+// ---------- Image stamps (signatures, pictures): move, resize, rotate ----------
+
+/** The image XObject inside a stamp's appearance (looks one form deep). */
+function stampImage(a: mupdf.PDFAnnotation): mupdf.PDFObject | null {
+  const o = a.getObject();
+  const own = o.get("HDFImgX");
+  if (!own.isNull()) return own;
+  const find = (xo: mupdf.PDFObject, depth: number): mupdf.PDFObject | null => {
+    const xobjs = xo.get("Resources").get("XObject");
+    if (!xobjs.isDictionary()) return null;
+    let hit: mupdf.PDFObject | null = null;
+    xobjs.forEach((v) => {
+      if (hit) return;
+      const st = v.get("Subtype");
+      if (st.isName() && st.asName() === "Image") hit = v;
+      else if (depth > 0 && st.isName() && st.asName() === "Form") hit = find(v, depth - 1);
+    });
+    return hit;
+  };
+  const n = o.get("AP").get("N");
+  return n.isStream() || n.isDictionary() ? find(n, 1) : null;
+}
+
+/** Placement of an image stamp in display space, or undefined if the stamp holds no image. */
+function imageStampXf(a: mupdf.PDFAnnotation): Xf | undefined {
+  const o = a.getObject();
+  const x = o.get("HDFImg");
+  if (x.isArray()) {
+    const [cx, cy, w, h, angle] = [0, 1, 2, 3, 4].map((i) => x.get(i).asNumber());
+    return { cx, cy, w, h, angle };
+  }
+  if (o.get("HDFStamp").isArray()) return undefined;
+  try {
+    return stampImage(a) ? xfFromRect(Array.from(a.getRect())) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function drawImageStamp(doc: mupdf.PDFDocument, page: mupdf.PDFPage, a: mupdf.PDFAnnotation) {
+  const o = a.getObject();
+  const img = o.get("HDFImgX");
+  const x = o.get("HDFImg");
+  if (img.isNull() || !x.isArray()) return;
+  const [cx, cy, w, h, angle] = [0, 1, 2, 3, 4].map((i) => x.get(i).asNumber());
+  // Draw in user space with BBox = Rect, so the form maps onto the page one-to-one.
+  const toUser = mupdf.Matrix.invert(page.getTransform());
+  const r = o.get("Rect");
+  const ur = [0, 1, 2, 3].map((i) => r.get(i).asNumber());
+  const f = (n: number) => n.toFixed(4);
+  const cs = `q ${Array.from(toUser).map(f).join(" ")} cm ${imageMatrix({ cx, cy, w, h, angle }).map(f).join(" ")} cm /Im Do Q`;
+  const sd = doc.newDictionary();
+  sd.put("Type", doc.newName("XObject"));
+  sd.put("Subtype", doc.newName("Form"));
+  sd.put("BBox", toPdfArray(doc, [Math.min(ur[0], ur[2]), Math.min(ur[1], ur[3]), Math.max(ur[0], ur[2]), Math.max(ur[1], ur[3])]));
+  const res = doc.newDictionary();
+  const xo = doc.newDictionary();
+  xo.put("Im", img);
+  res.put("XObject", xo);
+  sd.put("Resources", res);
+  const ap = doc.newDictionary();
+  ap.put("N", doc.addStream(latin1(cs), sd));
+  o.put("AP", ap);
+}
+
+/** Move, resize and/or rotate an image stamp such as a signature. */
+export function transformImageStamp(doc: mupdf.PDFDocument, pageIndex: number, key: number, t: Xf) {
+  const page = doc.loadPage(pageIndex) as mupdf.PDFPage;
+  try {
+    const a = findAnnot(page, key);
+    const o = a.getObject();
+    if (o.get("HDFImgX").isNull()) {
+      const img = stampImage(a);
+      if (!img) throw new Error("This stamp has no image to move or rotate");
+      o.put("HDFImgX", img);
+    }
+    o.put("HDFImg", toPdfArray(doc, [t.cx, t.cy, t.w, t.h, t.angle]));
+    a.setRect(xfBounds(t) as mupdf.Rect);
+    a.setModificationDate(new Date());
+    a.update();
+    drawImageStamp(doc, page, a);
+  } finally {
+    page.destroy();
+  }
+}
+
+/** Annotations grouped under a parent (/IRT parent, /RT /Group), such as a text box's extra leaders. */
+function groupMembers(page: mupdf.PDFPage, key: number) {
+  return page.getAnnotations().filter((x) => {
+    const o = x.getObject();
+    const rt = o.get("RT");
+    return o.get("IRT").isIndirect() && o.get("IRT").asIndirect() === key && rt.isName() && rt.asName() === "Group";
+  });
+}
+
+/** The text area of a text box or callout, in display space (a callout's /Rect also covers its leader; /RD gives the inset in PDF space). */
+function textBoxOf(a: mupdf.PDFAnnotation): number[] {
+  const r = Array.from(a.getRect()); // display space (top-left origin)
+  const rd = a.getObject().get("RD");
+  if (rd.isArray() && rd.length === 4) {
+    const [l, b, rr, t] = [0, 1, 2, 3].map((i) => rd.get(i).asNumber());
+    return [r[0] + l, r[1] + t, r[2] - rr, r[3] - b];
+  }
+  return r;
+}
+
+/**
+ * Add a leader line from a text box (or callout) to a point, grouped with the box so it moves
+ * colour and is deleted with it. Several leaders on one box make a multileader.
+ * Coordinates are in display space (top-left points), like every other spec here.
+ */
+export function addLeader(doc: mupdf.PDFDocument, pageIndex: number, parentKey: number, target: Pt, author: string): number {
+  const page = doc.loadPage(pageIndex) as mupdf.PDFPage;
+  try {
+    const parent = findAnnot(page, parentKey);
+    if (parent.getType() !== "FreeText") throw new Error("Leaders can only be added to text boxes and callouts");
+    const box = textBoxOf(parent);
+    let color: RGB = [0, 0, 0];
+    try {
+      const da = parent.getDefaultAppearance();
+      if (da.color && da.color.length === 3) color = da.color as RGB;
+    } catch { /* default black */ }
+    const a = page.createAnnotation("Line");
+    a.setLine(leaderStart(box, target), target);
+    a.setLineEndingStyles("None", "OpenArrow");
+    a.setBorderWidth(1);
+    a.setColor(color);
+    a.setAuthor(author);
+    a.setModificationDate(new Date());
+    const o = a.getObject();
+    o.put("IRT", parent.getObject());
+    o.put("RT", doc.newName("Group"));
+    o.put("NM", doc.newString(newName()));
+    a.update();
+    return keyOf(a);
   } finally {
     page.destroy();
   }
@@ -533,7 +699,7 @@ export function annotationAt(doc: mupdf.PDFDocument, pageIndex: number, p: Pt): 
   const all = listAnnotations(doc, pageIndex).filter((a) => !a.hidden);
   for (let i = all.length - 1; i >= 0; i--) {
     const [x0, y0, x1, y1] = all[i].rect;
-    if (p[0] >= x0 - 2 && p[0] <= x1 + 2 && p[1] >= y0 - 2 && p[1] <= y1 + 2) return all[i];
+    if (p[0] >= x0 - 2 && p[0] <= x1 + 2 && p[1] >= y0 - 2 && p[1] <= y1 + 2) return all[i].groupOf ? all.find((x) => x.key === all[i].groupOf) ?? all[i] : all[i];
   }
   return null;
 }
@@ -572,6 +738,7 @@ export function exportXfdf(doc: mupdf.PDFDocument, fileName: string): string {
       const nameOf = (k: number) => names.get(k) ?? `hdfstudio-${k}`;
       let attrs = `page="${i}" rect="${rectUser(a.rect)}" color="${hex(a.color.length === 3 ? a.color : [0, 0, 0])}" title="${esc(a.author)}" name="${esc(nameOf(a.key))}"`;
       if (a.inReplyTo) attrs += ` inreplyto="${esc(nameOf(a.inReplyTo))}"`;
+      if (a.groupOf) attrs += ` inreplyto="${esc(nameOf(a.groupOf))}" replyType="group"`;
       if (a.state) attrs += ` state="${esc(a.state)}" statemodel="Review"`;
       if (a.type === "Text" && a.hidden) attrs += ` flags="hidden,print,nozoom,norotate"`;
       if (a.modified) attrs += ` date="${pdfDate(a.modified)}"`;
@@ -617,7 +784,7 @@ export function summarizeComments(doc: mupdf.PDFDocument): string {
     const page = doc.loadPage(i);
     const st = page.toStructuredText("");
     for (const a of listAnnotations(doc, i)) {
-      if (a.inReplyTo) continue;
+      if (a.inReplyTo || a.groupOf) continue;
       let quoted = "";
       if (a.quads?.length) {
         const [x0, y0, x1, y1] = boundsOfQuads(a.quads);
@@ -750,6 +917,7 @@ export function importXfdf(doc: mupdf.PDFDocument, xml: string): { added: number
       if (x.attrs.subject) o.put("Subj", doc.newString(x.attrs.subject));
       if (/^D:\d{8}/.test(x.attrs.date ?? "")) o.put("M", doc.newString(x.attrs.date));
       if (x.attrs.inreplyto) pendingIrt.push([o, x.attrs.inreplyto]);
+      if (/^group$/i.test(x.attrs.replyType ?? x.attrs.replytype ?? "")) o.put("RT", doc.newName("Group"));
       if (x.attrs.name) existing.set(x.attrs.name, o);
       added++;
       const who = x.attrs.title || "Unknown";

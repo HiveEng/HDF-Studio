@@ -2,6 +2,7 @@
 // Runs in a Web Worker in the app and directly in Node for the CLI and tests.
 import * as scale from "./scale";
 import type { Scale } from "./measure";
+import type { Xf } from "./xform";
 import * as mupdf from "mupdf";
 import { runRecipe, type Recipe } from "./recipes";
 import { safeName } from "./util";
@@ -447,7 +448,11 @@ export class Engine {
     });
   }
 
-  updateAnnotation(id: number, pageIndex: number, key: number, patch: { contents?: string; color?: RGB; rect?: number[] }): void {
+  addLeader(id: number, pageIndex: number, parentKey: number, target: Pt, author: string): number {
+    return this.op(id, "Add leader", () => annots.addLeader(this.pdf(id), pageIndex, parentKey, target, author));
+  }
+
+  updateAnnotation(id: number, pageIndex: number, key: number, patch: annots.AnnotPatch): void {
     return this.op(id, "Edit comment", () => {
       annots.updateAnnotation(this.pdf(id), pageIndex, key, patch);
     });
@@ -782,6 +787,14 @@ export class Engine {
 
   deleteImage(id: number, pageIndex: number, bbox: number[]): void {
     this.op(id, "Delete image", () => edit.deleteImage(this.pdf(id), pageIndex, bbox));
+  }
+
+  transformImage(id: number, pageIndex: number, index: number, to: Xf): void {
+    this.op(id, "Move image", () => edit.transformImage(this.pdf(id), pageIndex, index, to));
+  }
+
+  transformImageStamp(id: number, pageIndex: number, key: number, to: Xf): void {
+    this.op(id, "Move image", () => annots.transformImageStamp(this.pdf(id), pageIndex, key, to));
   }
 
   moveImage(id: number, pageIndex: number, index: number, to: number[], replacement?: Uint8Array): void {

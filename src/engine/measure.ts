@@ -173,3 +173,11 @@ export function measureDict(s: Scale): { ratio: string; xUnit: string; xC: numbe
   const per = xUnit === "ft" ? 12 : xUnit === "in" ? 1 : IN_PER[xUnit as "m" | "mm" | "cm"];
   return { ratio: s.label, xUnit, xC: s.k / per, aUnit: `sq ${xUnit}` };
 }
+
+/** Where a leader to `t` leaves a box: the middle of the side facing the target. */
+export function leaderStart(box: number[], t: [number, number]): [number, number] {
+  const [x0, y0, x1, y1] = box;
+  if (t[0] < x0) return [x0, (y0 + y1) / 2];
+  if (t[0] > x1) return [x1, (y0 + y1) / 2];
+  return [(x0 + x1) / 2, t[1] < y0 ? y0 : y1];
+}

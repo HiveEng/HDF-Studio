@@ -1,6 +1,6 @@
 // Minimal modal dialogs (window.prompt/confirm are unreliable in desktop webviews).
 export type Field =
-  | { name: string; label: string; type?: "text" | "password" | "number"; value?: string; placeholder?: string; hint?: string }
+  | { name: string; label: string; type?: "text" | "password" | "number" | "color"; value?: string; placeholder?: string; hint?: string }
   | { name: string; label: string; type: "select"; options: [string, string][]; value?: string; hint?: string };
 
 export function ask(title: string, fields: Field[], okLabel = "OK"): Promise<Record<string, string> | null> {
@@ -25,6 +25,7 @@ export function ask(title: string, fields: Field[], okLabel = "OK"): Promise<Rec
         input.type = f.type ?? "text";
         input.value = f.value ?? "";
         input.placeholder = f.placeholder ?? "";
+        if (input.type === "number") input.step = "any";
       }
       input.name = f.name;
       label.append(span, input);
