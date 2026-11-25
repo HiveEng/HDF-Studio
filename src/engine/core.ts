@@ -7,6 +7,7 @@ import * as annots from "./annotations";
 import type { AnnotSpec, AnnotInfo, Pt, RGB } from "./annotations";
 import * as redact from "./redact";
 import * as forms from "./forms";
+import * as digisign from "./digisign";
 export { safeName };
 
 export interface OutlineNode {
@@ -37,6 +38,8 @@ export type SearchHit = { page: number; quads: number[][]; snippet: string };
 
 export class Engine {
   private docs = new Map<number, mupdf.Document>();
+  /** Bytes as opened, for signature validation (signatures cover the file as it was signed). */
+  private originals = new Map<number, Uint8Array>();
   private nextId = 1;
 
   open(data: Uint8Array, nameHint = "file.pdf"): DocInfo {
@@ -47,6 +50,7 @@ export class Engine {
     } catch { /* non-PDF documents have no journal */ }
     const id = this.nextId++;
     this.docs.set(id, doc);
+    this.originals.set(id, data);
     if (doc.needsPassword()) {
       return { id, pageCount: 0, pageSizes: [], title: null, outline: [], needsPassword: true };
     }
@@ -291,6 +295,7 @@ export class Engine {
     const doc = mupdf.Document.openDocument(data, "pdf");
     doc.asPDF()?.enableJournal();
     this.docs.set(id, doc);
+    this.originals.set(id, data);
     return this.info(id);
   }
 
@@ -444,10 +449,38 @@ export class Engine {
     return this.op(id, "Place signature", () => forms.placeImage(this.pdf(id), pageIndex, rect, png, label));
   }
 
+  // ---------- Digital signatures ----------
+
+  hasSignatures(id: number): boolean {
+    const o = this.originals.get(id);
+    return !!o && /\/ByteRange\s*\[/.test(new TextDecoder("latin1").decode(o));
+  }
+
+  verifySignatures(id: number): digisign.SignatureCheck[] {
+    const o = this.originals.get(id);
+    return o ? digisign.verifySignatures(o) : [];
+  }
+
+  /** Sign the document's current state; returns the signed file bytes (write them as-is) and reloads it. */
+  signDigital(id: number, o: digisign.SignOptions): { data: Uint8Array; info: DocInfo } {
+    const current = this.save(id, this.hasSignatures(id) ? "incremental" : "garbage,compress");
+    const data = digisign.signPdf(current, o);
+    return { data, info: this.replace(id, data) };
+  }
+
+  certificateInfo(p12: Uint8Array, password: string): digisign.Signer {
+    return digisign.readP12(p12, password).signer;
+  }
+
+  makeCertificate(name: string, password: string, email?: string): Uint8Array {
+    return digisign.makeSelfSignedP12(name, password, email);
+  }
+
   close(id: number): void {
     this.dropTextCache(id);
     this.docs.get(id)?.destroy();
     this.docs.delete(id);
+    this.originals.delete(id);
   }
 
   private depth = 0;

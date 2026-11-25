@@ -5,6 +5,7 @@ import { join, basename, dirname, resolve, extname } from "node:path";
 import { Engine } from "../src/engine/core";
 import { runRecipe, parseStep, BUILTIN_RECIPES, STEP_LABELS, type Recipe } from "../src/engine/recipes";
 import { parseRanges } from "../src/engine/ranges";
+import { signPdf, verifySignatures, makeSelfSignedP12 } from "../src/engine/digisign";
 
 const HELP = `quire - batch PDF tools (AGPL-3.0)
 
@@ -18,6 +19,12 @@ Usage:
   quire fill <form.pdf> <data.csv> [-o dir] [--name "{col} - {col}"] [--flatten]
                                                     Fill a form once per CSV row (mail merge)
   quire fields <form.pdf>                           List form fields and current values
+  quire sign <files|folders...> --cert me.pfx --password pw [-o dir]
+        [--reason ".."] [--location ".."] [--page N --rect "x0,y0,x1,y1"]  (points from top-left; omit for invisible)
+                                                    Digitally sign one or many PDFs
+  quire verify <files|folders...>                   Validate digital signatures
+  quire make-cert "Your Name" -o me.pfx --password pw [--email you@x.com]
+                                                    Create a self-signed certificate
   quire recipes                                     List built-in recipes and step types
   quire run <recipe> <files|folders...> [options]   Apply a recipe to every PDF
       <recipe> is a built-in name (quotes or a unique prefix), a .json file, or "-" to use --step only
@@ -176,6 +183,49 @@ export function main(argv: string[]): number {
     case "fields": {
       const d = e.open(readFileSync(rest[0]), basename(rest[0]));
       for (const f of e.fields(d.id)) console.log(`p${f.page + 1}\t${f.type}\t${f.name}\t${JSON.stringify(f.value)}${f.options.length ? `\t[${f.options.join(" | ")}]` : ""}${f.onState ? `\ton=${f.onState}` : ""}`);
+      return 0;
+    }
+    case "sign": {
+      const cert = args.flags.cert as string, password = (args.flags.password as string) ?? "";
+      if (!cert) throw new Error("sign needs --cert file.pfx --password ...");
+      const p12 = readFileSync(cert);
+      const rect = args.flags.rect ? (args.flags.rect as string).split(",").map(Number) : undefined;
+      if (rect && (rect.length !== 4 || rect.some(isNaN))) throw new Error('--rect must be "x0,y0,x1,y1"');
+      let ok = 0, failed = 0;
+      for (const f of collect(rest, recursive)) {
+        try {
+          const out = signPdf(readFileSync(f), { p12, password, page: args.flags.page ? Number(args.flags.page) - 1 : 0, rect, reason: args.flags.reason as string, location: args.flags.location as string });
+          const dir = (args.flags.out as string) ?? join(dirname(f), "quire-out");
+          mkdirSync(dir, { recursive: true });
+          const target = join(dir, `${basename(f, extname(f))} (signed).pdf`);
+          writeFileSync(target, out);
+          ok++;
+          log(`✓ ${f} -> ${target}`);
+        } catch (err) {
+          failed++;
+          console.error(`✗ ${f}: ${(err as Error).message}`);
+        }
+      }
+      log(`${ok} signed, ${failed} failed`);
+      return failed ? 1 : 0;
+    }
+    case "verify": {
+      let bad = 0;
+      for (const f of collect(rest, recursive)) {
+        const checks = verifySignatures(readFileSync(f));
+        if (!checks.length) console.log(`${f}: no signatures`);
+        for (const c of checks) {
+          if (!c.intact) bad++;
+          console.log(`${f}: ${c.field}: ${c.status}${c.signedAt ? ` (signed ${c.signedAt.toISOString()})` : ""}`);
+        }
+      }
+      return bad ? 1 : 0;
+    }
+    case "make-cert": {
+      const out = args.flags.out as string, password = args.flags.password as string;
+      if (!rest[0] || !out || !password) throw new Error('usage: quire make-cert "Your Name" -o me.pfx --password pw');
+      writeFileSync(out, makeSelfSignedP12(rest[0], password, args.flags.email as string | undefined));
+      log(`Wrote ${out}`);
       return 0;
     }
     case "recipes": {

@@ -58,6 +58,9 @@ npm run quire -- run - *.pdf --step 'stamp text="DRAFT" position=diagonal' --nam
 npm run quire -- merge -o binder.pdf ch1.pdf ch2.pdf ch3.pdf
 npm run quire -- split big.pdf --bookmarks
 npm run quire -- search "invoice 1042" ./archive -r --csv > hits.csv
+npm run quire -- fill form.pdf people.csv --name "{Last} - {First}" --flatten
+npm run quire -- sign ./contracts --cert me.pfx --password **** --reason Approved --page 1 --rect "350,700,570,760"
+npm run quire -- verify ./contracts
 npm run quire -- recipes          # list built-in recipes and step types
 ```
 
@@ -77,6 +80,10 @@ npm run quire -- recipes          # list built-in recipes and step types
 | Merge files | Ctrl+Shift+M |
 | Rotate selected pages left/right | Ctrl+[ / Ctrl+] |
 | Delete selected pages (in thumbnails) | Delete |
+| Tools: hand, select text, highlight, underline, strikeout | V, T, H, U, K |
+| Tools: note, text box, rectangle, ellipse, arrow, pen | N, X, R, O, A, P |
+| Tools: sign, redact | G, D |
+| Find and redact | Ctrl+Shift+R |
 | Select pages | Click, Ctrl+click, Shift+click; drag to reorder; drop PDFs between thumbnails to insert |
 
 ## Roadmap
@@ -87,8 +94,8 @@ npm run quire -- recipes          # list built-in recipes and step types
 | 2 | Organize & combine | Merge, split, reorder, rotate, extract, delete, insert pages | Done |
 | 3 | Automation | Batch panel, saved recipes, `quire` CLI, stamps/Bates/watermarks; watch folders next | Done (watch folders pending) |
 | 4 | Comment & review | Highlight, notes, shapes, ink, stamps, replies, XFDF import/export | MuPDF annotations |
-| 5 | Redaction & security | Permanent redaction (text, images, vector art), search-and-redact, metadata scrub, passwords and permissions (AES-256) | MuPDF `applyRedactions`, encrypted save |
-| 6 | Forms & e-signatures | Fill/flatten forms, drawn/typed/image signatures, certificate (PKCS#7) digital signatures, signature validation | MuPDF widgets; certificate signing in the Rust shell |
+| 5 | Redaction & security | Permanent redaction (text, images, vector art), find-and-redact by text/regex/patterns, hidden-data removal, AES-256 passwords and permissions | Done |
+| 6 | Forms & e-signatures | Fill/flatten forms, CSV mail merge, drawn/typed/image signatures, certificate (PKCS#7, .pfx) digital signatures, validation, batch signing | Done (form designer and timestamps next) |
 | 7 | Edit text & images | Edit existing text runs, add text, replace/move/insert images | Content-stream editing on MuPDF |
 | 8 | Create & convert | Images, XPS, EPUB, HTML, text to PDF; PDF to images, text, HTML; Office files via optional LibreOffice | MuPDF document writers |
 | 9 | OCR | Make scanned PDFs searchable (invisible text layer), batch OCR | Tesseract (Apache-2.0) |

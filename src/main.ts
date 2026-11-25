@@ -1,6 +1,6 @@
 import { createEngine } from "./engine/client";
 import type { DocInfo, OutlineNode, SearchHit } from "./engine/core";
-import { pickFiles, filesFromList, saveFile, saveMany, saveText, baseName, isTauri, type OpenedFile } from "./platform";
+import { pickFiles, filesFromList, saveFile, saveMany, saveText, saveBytes, baseName, isTauri, type OpenedFile } from "./platform";
 import { setupAnnotate, TOOLS } from "./ui/annotate";
 import { setupForms } from "./ui/forms";
 import { getSignature, clearSignature, pngSize } from "./ui/signature";
@@ -169,7 +169,15 @@ function buildView() {
   updateCurrentPage();
   annot.refreshComments();
   updateRedactButton();
-  formsUI.render().then((n) => n && status(`This document has ${n} form field${n === 1 ? "" : "s"}. Tab moves between them.`));
+  showSignatureStatus();
+  const shown = active;
+  formsUI.render().then(() => {
+    const n = formsUI.fields.filter((f) => f.type !== "signature" && f.type !== "button").length;
+    if (n && shown && !(shown as Tab & { announced?: boolean }).announced) {
+      (shown as Tab & { announced?: boolean }).announced = true;
+      status(`This document has ${n} form field${n === 1 ? "" : "s"}. Tab moves between them.`);
+    }
+  });
 }
 
 function applyZoom(z: number, keepCenter = true) {
@@ -429,7 +437,9 @@ function renderTabs() {
 async function save(saveAs: boolean) {
   if (!active) return;
   const t = active;
-  const bytes = await engine.save(t.info.id, ["garbage", "compress", ...t.saveExtra].join(","));
+  // Signed files must be saved incrementally, or the existing signatures would break.
+  const signed = await engine.hasSignatures(t.info.id);
+  const bytes = await engine.save(t.info.id, signed ? "incremental" : ["garbage", "compress", ...t.saveExtra].join(","));
   const p = await saveFile(bytes, t.name, t.path, saveAs);
   if (p) {
     t.path = p;
@@ -663,6 +673,91 @@ async function rangeOp(title: string, okLabel: string, run: (pages: number[]) =>
   }
 }
 
+
+// ---------- Digital (certificate) signatures ----------
+const sigBanner = $("#sigbanner");
+async function showSignatureStatus() {
+  sigBanner.classList.add("hidden");
+  if (!active || !(await engine.hasSignatures(active.info.id))) return;
+  const checks = await engine.verifySignatures(active.info.id);
+  if (!checks.length) return;
+  const bad = checks.filter((c) => !c.intact);
+  sigBanner.className = bad.length ? "bad" : "good";
+  sigBanner.textContent = bad.length
+    ? `⚠ ${bad.length} of ${checks.length} signature${checks.length > 1 ? "s are" : " is"} invalid. The document may have been altered. Click for details.`
+    : `✓ Signed by ${[...new Set(checks.map((c) => c.signer?.name))].join(", ")}. ${checks.length} signature${checks.length > 1 ? "s" : ""} valid. Click for details.`;
+  sigBanner.onclick = () => showSignatureDetails(checks);
+}
+async function showSignatureDetails(checks?: Awaited<ReturnType<typeof engine.verifySignatures>>) {
+  if (!active) return;
+  checks ??= await engine.verifySignatures(active.info.id);
+  if (!checks.length) return status("This document has no digital signatures");
+  await ask(
+    "Signatures",
+    checks.map((c, i) => ({
+      name: `s${i}`,
+      label: `${i + 1}. ${c.status}`,
+      value: [c.signer && `Signer: ${c.signer.name}${c.signer.email ? ` <${c.signer.email}>` : ""}`, c.signer && `Issued by: ${c.signer.issuer}${c.signer.selfSigned ? " (self-signed)" : ""}`, c.signedAt && `Signed: ${c.signedAt.toLocaleString()}`, c.reason && `Reason: ${c.reason}`].filter(Boolean).join(" · "),
+    })),
+    "Close",
+  );
+}
+async function signWithCertificate() {
+  if (!active) return;
+  const t = active;
+  const [pfx] = await pickFiles(false, ["pfx", "p12"]);
+  if (!pfx) return;
+  const r = await ask("Sign with certificate", [
+    { name: "pw", label: `Password for ${pfx.name}`, type: "password" },
+    { name: "reason", label: "Reason (optional)", placeholder: "e.g. Approved" },
+    { name: "location", label: "Location (optional)" },
+    { name: "visible", label: "Signature box", type: "select", value: "visible", options: [["visible", "Visible: click on the page to place it"], ["invisible", "Invisible (signature panel only)"]] },
+    { name: "image", label: "Include my handwritten signature", type: "select", value: "no", options: [["no", "No"], ["yes", "Yes"]] },
+  ], "Continue");
+  if (!r) return;
+  let signer;
+  try {
+    signer = await engine.certificateInfo(pfx.data.slice(), r.pw);
+  } catch (e) {
+    return status((e as Error).message);
+  }
+  const image = r.image === "yes" ? (await getSignature()) ?? undefined : undefined;
+  const finish = async (page?: number, rect?: number[]) => {
+    try {
+      const { data, info } = await engine.signDigital(t.info.id, { p12: pfx.data.slice(), password: r.pw, page, rect, reason: r.reason || undefined, location: r.location || undefined, image });
+      t.info = info;
+      const suggested = t.name.replace(/\.pdf$/i, "") + " (signed).pdf";
+      const p = await saveFile(data, suggested, null, true);
+      if (p) (t.path = p), (t.name = baseName(p));
+      t.dirty = false;
+      buildView();
+      status(`Signed as ${signer.name}${p ? ` and saved to ${p}` : " and downloaded"}. Any later change is saved as a new revision so this signature stays valid.`);
+    } catch (e) {
+      status(`Signing failed: ${(e as Error).message}`);
+    }
+  };
+  if (r.visible === "invisible") return finish();
+  annot.setTool("sign");
+  status("Click on the page where the signature box should go (Esc to cancel).");
+  pendingPlacement = async (page, at) => {
+    pendingPlacement = null;
+    annot.setTool("hand");
+    await finish(page, [at[0] - 110, at[1] - 30, at[0] + 110, at[1] + 30]);
+  };
+}
+async function createCertificate() {
+  const r = await ask("Create a self-signed certificate", [
+    { name: "name", label: "Your name", value: localStorage.getItem("quire.author") ?? "" },
+    { name: "email", label: "Email (optional)" },
+    { name: "pw", label: "Password to protect the certificate file", type: "password" },
+  ], "Create");
+  if (!r?.name || !r.pw) return;
+  status("Creating a 2048-bit key…");
+  const pfx = await engine.makeCertificate(r.name, r.pw, r.email || undefined);
+  await saveBytes(`${r.name}.pfx`, pfx);
+  status("Certificate created. Self-signed certificates prove the file wasn't changed, but not who you are; use one from your organization or a certificate authority for that.");
+}
+
 // ---------- Batch ----------
 const batchDeps: BatchDeps = {
   runRecipe: (data, name, recipe, ctx) => engine.runRecipe(data, name, recipe, ctx),
@@ -705,10 +800,11 @@ const annot = setupAnnotate({
   goToPage,
   status,
   saveText: async (name, text) => void (await saveText(name, text)),
-  sign: (page, at) => placeSignature(page, at),
+  sign: (page, at) => (pendingPlacement ? pendingPlacement(page, at) : placeSignature(page, at)),
 });
 
 // ---------- Forms & signatures ----------
+let pendingPlacement: ((page: number, at: [number, number]) => Promise<void>) | null = null;
 async function placeSignature(page: number, at: [number, number], rect?: number[]) {
   if (!active) return;
   const t = active;
@@ -960,6 +1056,9 @@ const commands: Command[] = [
   { id: "unprotect", title: "Remove password protection", run: () => unprotectFlow() },
   { id: "tool-sign", title: "Sign: place your signature", keys: "G", run: () => annot.setTool("sign") },
   { id: "newSignature", title: "Create a new signature…", run: async () => { clearSignature(); if (await getSignature(true)) annot.setTool("sign"); } },
+  { id: "signCert", title: "Sign with a certificate (.pfx / .p12)…", run: () => signWithCertificate() },
+  { id: "verifySigs", title: "Validate signatures", run: () => showSignatureDetails() },
+  { id: "makeCert", title: "Create a self-signed certificate…", run: () => createCertificate() },
   { id: "fillCsv", title: "Fill form from a spreadsheet (CSV), one file per row…", run: () => fillFromCsv() },
   { id: "exportForm", title: "Export form data (CSV)", run: () => exportFormData() },
   { id: "clearForm", title: "Clear all form fields", run: async () => { if (!active) return; await engine.clearForm(active.info.id); active.dirty = true; buildView(); } },
@@ -980,6 +1079,7 @@ document.addEventListener("keydown", (e) => {
   const typing = e.target instanceof HTMLInputElement;
   const ks = keyString(e);
   const cmd = commands.find((c) => c.keys === ks);
+  if (e.key === "Escape") pendingPlacement = null;
   if (!cmd) {
     if (e.key === "Escape") closePalette();
     return;

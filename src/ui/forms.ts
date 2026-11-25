@@ -25,7 +25,7 @@ export function setupForms(d: FormDeps) {
 
   function place(docId: number, sizes: [number, number][], f: FieldInfo) {
     const pageEl = d.pageEl(f.page);
-    if (!pageEl || f.type === "button") return;
+    if (!pageEl || f.type === "button" || (f.type === "signature" && f.value)) return; // signed: show its own appearance
     const [pw, ph] = sizes[f.page];
     const [x0, y0, x1, y1] = f.rect;
     let el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement;

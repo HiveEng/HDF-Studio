@@ -36,7 +36,7 @@ export function listFields(doc: mupdf.PDFDocument): FieldInfo[] {
         page: i,
         name: w.getName(),
         type,
-        value: w.getValue() ?? "",
+        value: type === "signature" ? (w.getObject().get("V").isNull() ? "" : "signed") : w.getValue() ?? "",
         options: w.isChoice() ? w.getOptions() : [],
         onState: w.isCheckbox() || w.isRadioButton() ? onStateOf(w) : null,
         rect: Array.from(w.getBounds()),

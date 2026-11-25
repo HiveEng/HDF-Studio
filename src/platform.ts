@@ -70,7 +70,11 @@ export async function saveMany(files: { name: string; data: Uint8Array }[]): Pro
 
 /** Save a text file (e.g. XFDF export). */
 export async function saveText(name: string, text: string): Promise<string | null> {
-  const data = new TextEncoder().encode(text);
+  return saveBytes(name, new TextEncoder().encode(text));
+}
+
+/** Save any file with a Save dialog filtered to its extension. */
+export async function saveBytes(name: string, data: Uint8Array): Promise<string | null> {
   const ext = name.split(".").pop() ?? "txt";
   if (isTauri) {
     const { save } = await import("@tauri-apps/plugin-dialog");
@@ -80,7 +84,7 @@ export async function saveText(name: string, text: string): Promise<string | nul
     await writeFile(target, data);
     return target;
   }
-  const url = URL.createObjectURL(new Blob([data], { type: "text/plain" }));
+  const url = URL.createObjectURL(new Blob([data as BlobPart], { type: "application/octet-stream" }));
   Object.assign(document.createElement("a"), { href: url, download: name }).click();
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
   return null;
