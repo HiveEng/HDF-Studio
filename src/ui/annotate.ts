@@ -4,7 +4,7 @@ import type { AnnotInfo, AnnotSpec, Pt, RGB } from "../engine/annotations";
 import type { DocInfo } from "../engine/core";
 import { ask } from "./dialog";
 
-export type Tool = "hand" | "select" | "highlight" | "underline" | "strike" | "squiggly" | "note" | "text" | "rect" | "ellipse" | "arrow" | "ink" | "redact";
+export type Tool = "hand" | "select" | "highlight" | "underline" | "strike" | "squiggly" | "note" | "text" | "rect" | "ellipse" | "arrow" | "ink" | "redact" | "sign";
 
 export interface AnnotateDeps {
   engine: {
@@ -26,6 +26,7 @@ export interface AnnotateDeps {
   goToPage(page: number, y?: number): void;
   status(msg: string): void;
   saveText(name: string, text: string): Promise<void>;
+  sign(page: number, at: Pt): Promise<void>;
 }
 
 export const TOOLS: { id: Tool; label: string; key: string; title: string }[] = [
@@ -40,6 +41,7 @@ export const TOOLS: { id: Tool; label: string; key: string; title: string }[] = 
   { id: "ellipse", label: "◯", key: "O", title: "Ellipse (O)" },
   { id: "arrow", label: "↗", key: "A", title: "Arrow (A)" },
   { id: "ink", label: "Pen", key: "P", title: "Freehand pen (P)" },
+  { id: "sign", label: "Sign", key: "G", title: "Place your signature (G). Click on the page where it should go." },
   { id: "redact", label: "Redact", key: "D", title: "Mark text or an area for redaction (D). Nothing is removed until you apply." },
 ];
 
@@ -266,6 +268,10 @@ export function setupAnnotate(d: AnnotateDeps) {
     }
     clear();
     switch (tool) {
+      case "sign":
+        await d.sign(cur.index, b);
+        refreshComments();
+        break;
       case "note": {
         // Dialogs open on pointer-up so the click that placed the note can't dismiss them.
         const r = await ask("Add a note", [{ name: "c", label: "Note", placeholder: "Type your comment" }], "Add note");

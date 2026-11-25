@@ -2,6 +2,8 @@ import { createEngine } from "./engine/client";
 import type { DocInfo, OutlineNode, SearchHit } from "./engine/core";
 import { pickFiles, filesFromList, saveFile, saveMany, saveText, baseName, isTauri, type OpenedFile } from "./platform";
 import { setupAnnotate, TOOLS } from "./ui/annotate";
+import { setupForms } from "./ui/forms";
+import { getSignature, clearSignature, pngSize } from "./ui/signature";
 import { parseRanges, formatRanges } from "./engine/ranges";
 import { ask, confirmDialog } from "./ui/dialog";
 import { openBatch, type BatchDeps } from "./ui/batch";
@@ -167,6 +169,7 @@ function buildView() {
   updateCurrentPage();
   annot.refreshComments();
   updateRedactButton();
+  formsUI.render().then((n) => n && status(`This document has ${n} form field${n === 1 ? "" : "s"}. Tab moves between them.`));
 }
 
 function applyZoom(z: number, keepCenter = true) {
@@ -177,6 +180,7 @@ function applyZoom(z: number, keepCenter = true) {
     el.style.width = `${active!.info.pageSizes[Number(el.dataset.page)][0] * active!.zoom}px`;
   });
   $("#zoomLabel").textContent = `${Math.round(active.zoom * 100)}%`;
+  pagesEl.style.setProperty("--z", String(active.zoom));
   if (keepCenter) viewer.scrollTop = ratio * viewer.scrollHeight - viewer.clientHeight / 2;
   rerenderVisible();
 }
@@ -701,7 +705,75 @@ const annot = setupAnnotate({
   goToPage,
   status,
   saveText: async (name, text) => void (await saveText(name, text)),
+  sign: (page, at) => placeSignature(page, at),
 });
+
+// ---------- Forms & signatures ----------
+async function placeSignature(page: number, at: [number, number], rect?: number[]) {
+  if (!active) return;
+  const t = active;
+  const png = await getSignature();
+  if (!png) return;
+  const [pw, ph] = pngSize(png);
+  if (!rect) {
+    const w = 150, h = (w * ph) / pw;
+    rect = [at[0] - w / 2, at[1] - h / 2, at[0] + w / 2, at[1] + h / 2];
+  } else {
+    // fit inside the field, keeping the aspect ratio
+    const [x0, y0, x1, y1] = rect;
+    const s = Math.min((x1 - x0) / pw, (y1 - y0) / ph);
+    const w = pw * s, h = ph * s;
+    rect = [x0 + (x1 - x0 - w) / 2, y0 + (y1 - y0 - h) / 2, x0 + (x1 - x0 + w) / 2, y0 + (y1 - y0 + h) / 2];
+  }
+  await engine.placeImage(t.info.id, page, rect, png, `Signed by ${localStorage.getItem("quire.author") || "Reviewer"} on ${new Date().toLocaleDateString()}`);
+  t.dirty = true;
+  renderTabs();
+  refreshPage(page);
+  annot.refreshComments();
+  status("Signature placed. Drag isn't supported yet: Ctrl+Z to undo and click again to move it. Flatten to lock it in.");
+}
+const formsUI = setupForms({
+  fields: (id) => engine.fields(id),
+  setField: (id, page, key, value) => engine.setField(id, page, key, value),
+  doc: () => active,
+  pageEl,
+  refreshPage,
+  changed: (label) => {
+    if (!active) return;
+    active.dirty = true;
+    renderTabs();
+    status(`${label}. Ctrl+Z to undo.`);
+  },
+  signField: (f) => placeSignature(f.page, [0, 0], f.rect),
+});
+async function fillFromCsv() {
+  if (!active) return;
+  const t = active;
+  const [csv] = await pickFiles(false, ["csv", "txt"]);
+  if (!csv) return;
+  const r = await ask("Fill this form from a spreadsheet", [
+    { name: "name", label: "Output file names", value: "{row}", hint: "Use column names in braces, e.g. {Last name} - {Invoice}" },
+    { name: "flatten", label: "Flatten (lock the filled values)", type: "select", value: "no", options: [["no", "No"], ["yes", "Yes"]] },
+  ], "Create files");
+  if (!r) return;
+  try {
+    const template = await engine.save(t.info.id);
+    const out = await engine.mailMerge(template, new TextDecoder().decode(csv.data), { name: r.name, flatten: r.flatten === "yes" });
+    const missing = new Set(out.flatMap((o) => o.missing));
+    const dir = await saveMany(out);
+    status(`Created ${out.length} filled form${out.length === 1 ? "" : "s"}${dir ? ` in ${dir}` : ""}.${missing.size ? ` Columns with no matching field: ${[...missing].join(", ")}` : ""}`);
+  } catch (e) {
+    status(`Fill from spreadsheet failed: ${(e as Error).message}`);
+  }
+}
+async function exportFormData() {
+  if (!active) return;
+  const data = await engine.formData(active.info.id);
+  const keys = Object.keys(data);
+  if (!keys.length) return status("This document has no form fields");
+  const q = (v: string) => `"${v.replace(/"/g, '""')}"`;
+  await saveText(active.name.replace(/\.pdf$/i, "") + " - data.csv", keys.map(q).join(",") + "\n" + keys.map((k) => q(data[k])).join(",") + "\n");
+}
 const toolsEl = $("#tools");
 for (const t of TOOLS) {
   const b = document.createElement("button");
@@ -886,6 +958,12 @@ const commands: Command[] = [
   { id: "sanitize", title: "Remove hidden data (metadata, scripts, attachments)…", run: () => sanitizeFlow() },
   { id: "protect", title: "Protect with password and permissions…", run: () => protectFlow() },
   { id: "unprotect", title: "Remove password protection", run: () => unprotectFlow() },
+  { id: "tool-sign", title: "Sign: place your signature", keys: "G", run: () => annot.setTool("sign") },
+  { id: "newSignature", title: "Create a new signature…", run: async () => { clearSignature(); if (await getSignature(true)) annot.setTool("sign"); } },
+  { id: "fillCsv", title: "Fill form from a spreadsheet (CSV), one file per row…", run: () => fillFromCsv() },
+  { id: "exportForm", title: "Export form data (CSV)", run: () => exportFormData() },
+  { id: "clearForm", title: "Clear all form fields", run: async () => { if (!active) return; await engine.clearForm(active.info.id); active.dirty = true; buildView(); } },
+  { id: "flatten", title: "Flatten comments and form fields…", run: async () => { if (!active) return; const r = await ask("Flatten", [{ name: "w", label: "What to flatten", type: "select", value: "both", options: [["both", "Comments and form fields"], ["fields", "Form fields only"], ["comments", "Comments only"]] }], "Flatten"); if (!r) return; active.info = await engine.flatten(active.info.id, r.w !== "fields", r.w !== "comments"); active.dirty = true; buildView(); status("Flattened. Ctrl+Z to undo."); } },
   { id: "palette", title: "Show all commands", keys: "Ctrl+K", run: () => openPalette() },
 ];
 const byId = Object.fromEntries(commands.map((c) => [c.id, c]));

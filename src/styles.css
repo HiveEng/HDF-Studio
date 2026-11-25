@@ -145,7 +145,7 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 #viewer[data-tool="hand"] .page { cursor: grab; }
 #viewer.panning .page { cursor: grabbing; }
 #viewer[data-tool="select"] .page, #viewer[data-tool="highlight"] .page, #viewer[data-tool="underline"] .page, #viewer[data-tool="strike"] .page { cursor: text; }
-#viewer[data-tool="note"] .page, #viewer[data-tool="text"] .page, #viewer[data-tool="rect"] .page, #viewer[data-tool="ellipse"] .page, #viewer[data-tool="arrow"] .page, #viewer[data-tool="ink"] .page { cursor: crosshair; }
+#viewer[data-tool="note"] .page, #viewer[data-tool="text"] .page, #viewer[data-tool="rect"] .page, #viewer[data-tool="ellipse"] .page, #viewer[data-tool="arrow"] .page, #viewer[data-tool="ink"] .page, #viewer[data-tool="sign"] .page, #viewer[data-tool="redact"] .page { cursor: crosshair; }
 #viewer .page { user-select: none; touch-action: none; }
 .comment-tools { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-bottom: 8px; }
 .comment-tools button { font-size: 12px; padding: 2px 6px; border-color: var(--border); }
@@ -154,3 +154,12 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 .comment .meta { display: flex; justify-content: space-between; gap: 6px; font-size: 12px; }
 .comment .body { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 2px; }
 .comment .body:empty { display: none; }
+.page .field { position: absolute; box-sizing: border-box; margin: 0; padding: 0 3px; font: calc(var(--z, 1) * 11px) / 1.1 Helvetica, Arial, sans-serif; color: #000; background: rgba(214, 233, 255, .92); border: 1px solid rgba(15, 139, 141, .45); border-radius: 2px; }
+.page .field:focus { outline: 2px solid var(--accent); background: #fff; }
+.page textarea.field { resize: none; }
+.page input.field-checkbox, .page input.field-radiobutton { accent-color: var(--accent); padding: 0; }
+.page button.field-signature { background: rgba(255, 236, 179, .95); border: 1px dashed #b7791f; color: #7a4d00; font-size: calc(var(--z, 1) * 10px); cursor: pointer; }
+.sig canvas { width: 100%; aspect-ratio: 560 / 180; border: 1px dashed var(--border); border-radius: 8px; background: #fff; touch-action: none; cursor: crosshair; }
+.sig .sig-type { display: flex; gap: 6px; }
+.sig .sig-type input { flex: 1; }
+.modal.sig { width: min(620px, 94vw); }

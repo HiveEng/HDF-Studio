@@ -15,6 +15,9 @@ Usage:
   quire extract <file> <pages> -o out.pdf           e.g. quire extract a.pdf "1-3,7" -o part.pdf
   quire text <file> [-o out.txt]                    Extract text
   quire search <text> <files|folders...> [--csv]    Find text across many PDFs
+  quire fill <form.pdf> <data.csv> [-o dir] [--name "{col} - {col}"] [--flatten]
+                                                    Fill a form once per CSV row (mail merge)
+  quire fields <form.pdf>                           List form fields and current values
   quire recipes                                     List built-in recipes and step types
   quire run <recipe> <files|folders...> [options]   Apply a recipe to every PDF
       <recipe> is a built-in name (quotes or a unique prefix), a .json file, or "-" to use --step only
@@ -33,7 +36,7 @@ type Args = { _: string[]; flags: Record<string, string | boolean>; steps: strin
 function parseArgs(argv: string[]): Args {
   const a: Args = { _: [], flags: {}, steps: [] };
   const alias: Record<string, string> = { o: "out", r: "recursive", q: "quiet", h: "help" };
-  const bools = new Set(["recursive", "quiet", "help", "csv", "bookmarks", "dry-run", "continue-bates"]);
+  const bools = new Set(["recursive", "quiet", "help", "csv", "bookmarks", "dry-run", "continue-bates", "flatten"]);
   for (let i = 0; i < argv.length; i++) {
     const t = argv[i];
     if (t.startsWith("-") && t !== "-") {
@@ -156,6 +159,23 @@ export function main(argv: string[]): number {
         e.close(d.id);
       }
       if (!csv) log(`${total} matches`);
+      return 0;
+    }
+    case "fill": {
+      const [form, csv] = rest;
+      if (!form || !csv) throw new Error("usage: quire fill <form.pdf> <data.csv> [-o dir]");
+      const out = e.mailMerge(readFileSync(form), readFileSync(csv, "utf8"), { name: (args.flags.name as string) ?? `${basename(form, extname(form))} - {row}`, flatten: !!args.flags.flatten });
+      const dir = (args.flags.out as string) ?? join(dirname(form), "quire-out");
+      mkdirSync(dir, { recursive: true });
+      for (const o of out) writeFileSync(join(dir, o.name), o.data);
+      const missing = new Set(out.flatMap((o) => o.missing));
+      log(`Created ${out.length} filled forms in ${dir}`);
+      if (missing.size) console.error(`Columns with no matching field: ${[...missing].join(", ")}`);
+      return 0;
+    }
+    case "fields": {
+      const d = e.open(readFileSync(rest[0]), basename(rest[0]));
+      for (const f of e.fields(d.id)) console.log(`p${f.page + 1}\t${f.type}\t${f.name}\t${JSON.stringify(f.value)}${f.options.length ? `\t[${f.options.join(" | ")}]` : ""}${f.onState ? `\ton=${f.onState}` : ""}`);
       return 0;
     }
     case "recipes": {

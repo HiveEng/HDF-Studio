@@ -7,11 +7,13 @@ export interface OpenedFile {
   data: Uint8Array;
 }
 
-export async function pickFiles(multiple = true): Promise<OpenedFile[]> {
+const DOC_EXT = ["pdf", "xps", "epub", "cbz", "png", "jpg", "jpeg"];
+
+export async function pickFiles(multiple = true, extensions = DOC_EXT): Promise<OpenedFile[]> {
   if (isTauri) {
     const { open } = await import("@tauri-apps/plugin-dialog");
     const { readFile } = await import("@tauri-apps/plugin-fs");
-    const sel = await open({ multiple, filters: [{ name: "Documents", extensions: ["pdf", "xps", "epub", "cbz", "png", "jpg", "jpeg"] }] });
+    const sel = await open({ multiple, filters: [{ name: extensions.includes("pdf") ? "Documents" : extensions.join(", ").toUpperCase(), extensions }] });
     if (!sel) return [];
     const paths = Array.isArray(sel) ? sel : [sel];
     return Promise.all(paths.map(async (p) => ({ name: baseName(p), path: p, data: await readFile(p) })));
@@ -20,7 +22,7 @@ export async function pickFiles(multiple = true): Promise<OpenedFile[]> {
     const input = document.createElement("input");
     input.type = "file";
     input.multiple = multiple;
-    input.accept = ".pdf,.xps,.epub,.cbz,.png,.jpg,.jpeg";
+    input.accept = extensions.map((e) => "." + e).join(",");
     input.onchange = async () => resolve(await filesFromList(input.files));
     input.click();
   });

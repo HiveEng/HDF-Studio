@@ -6,6 +6,7 @@ import { safeName } from "./util";
 import * as annots from "./annotations";
 import type { AnnotSpec, AnnotInfo, Pt, RGB } from "./annotations";
 import * as redact from "./redact";
+import * as forms from "./forms";
 export { safeName };
 
 export interface OutlineNode {
@@ -399,6 +400,48 @@ export class Engine {
   isEncrypted(id: number): boolean {
     const t = this.pdf(id).getTrailer();
     return !t.get("Encrypt").isNull();
+  }
+
+  // ---------- Forms & signatures ----------
+
+  fields(id: number): forms.FieldInfo[] {
+    const doc = this.get(id).asPDF();
+    return doc ? forms.listFields(doc) : [];
+  }
+
+  setField(id: number, pageIndex: number, key: number, value: string): forms.FieldInfo[] {
+    return this.op(id, "Fill field", () => {
+      forms.setField(this.pdf(id), pageIndex, key, value);
+      return forms.listFields(this.pdf(id));
+    });
+  }
+
+  fillForm(id: number, data: Record<string, string>) {
+    return this.op(id, "Fill form", () => forms.fillByName(this.pdf(id), data));
+  }
+
+  formData(id: number): Record<string, string> {
+    return forms.formData(this.pdf(id));
+  }
+
+  clearForm(id: number): void {
+    this.op(id, "Clear form", () => forms.clearForm(this.pdf(id)));
+  }
+
+  /** Burn comments and/or form fields into the page content so they can't be changed. */
+  flatten(id: number, comments = true, fields = true): DocInfo {
+    return this.op(id, "Flatten", () => {
+      this.pdf(id).bake(comments, fields);
+      return this.info(id);
+    });
+  }
+
+  mailMerge(template: Uint8Array, csv: string, o?: { name?: string; flatten?: boolean }) {
+    return forms.mailMerge(template, forms.parseCsv(csv), o);
+  }
+
+  placeImage(id: number, pageIndex: number, rect: number[], png: Uint8Array, label?: string): number {
+    return this.op(id, "Place signature", () => forms.placeImage(this.pdf(id), pageIndex, rect, png, label));
   }
 
   close(id: number): void {
