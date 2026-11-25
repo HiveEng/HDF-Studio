@@ -5,6 +5,7 @@ import { setupAnnotate, type Tool } from "./ui/annotate";
 import { setupRibbon, icon, taskOf } from "./ui/ribbon";
 import * as I from "lucide";
 import { setupForms } from "./ui/forms";
+import { setupFormDesign } from "./ui/formdesign";
 import { setupEdit } from "./ui/edit";
 import { getSignature, clearSignature, pngSize } from "./ui/signature";
 import { parseRanges, formatRanges } from "./engine/ranges";
@@ -190,6 +191,7 @@ function buildView() {
   showScanNotice();
   const shown = active;
   formsUI.render().then(() => {
+    designUI.refresh();
     const n = formsUI.fields.filter((f) => f.type !== "signature" && f.type !== "button").length;
     if (n && shown && !(shown as Tab & { announced?: boolean }).announced) {
       (shown as Tab & { announced?: boolean }).announced = true;
@@ -1139,6 +1141,30 @@ const formsUI = setupForms({
   },
   signField: (f) => placeSignature(f.page, [0, 0], f.rect),
 });
+const designUI = setupFormDesign({
+  engine,
+  doc: () => active,
+  pagesEl,
+  viewer,
+  pageEl,
+  refreshPage,
+  changed: (label) => {
+    if (!active) return;
+    active.dirty = true;
+    renderTabs();
+    status(`${label}. Ctrl+Z to undo.`);
+  },
+  status,
+  onEnter: () => {
+    annot.setTool("hand");
+    ribbon.show("sign");
+  },
+  onExit: () => {
+    formsUI.render();
+    const n = formsUI.fields.length;
+    status(n ? "Form ready. Click a field to fill it in." : "Closed form designer");
+  },
+});
 async function fillFromCsv() {
   if (!active) return;
   const t = active;
@@ -1175,6 +1201,7 @@ resetColor.onclick = () => annot.setColor(null);
 colorSlot.append(colorInput, resetColor);
 /** Select a tool and bring its ribbon task forward so its options are in view. */
 function useTool(t: Tool) {
+  if (designUI.active && t !== "hand") designUI.exit();
   annot.setTool(t);
   if (t !== "hand" && t !== "select") ribbon.revealTool(t);
 }
@@ -1402,6 +1429,8 @@ const commands: Command[] = [
   { id: "tool-ellipse", title: "Ellipse tool", keys: "O", run: () => useTool("ellipse") },
   { id: "tool-arrow", title: "Arrow tool", keys: "A", run: () => useTool("arrow") },
   { id: "tool-ink", title: "Pen tool", keys: "P", run: () => useTool("ink") },
+  { id: "prepareForm", title: "Prepare form: add, move and edit form fields", keys: "Ctrl+Shift+F", run: () => designUI.toggle() },
+  { id: "detectFields", title: "Detect form fields: make a flat form fillable automatically", run: () => designUI.detect() },
   { id: "showComments", title: "Show comments", run: () => (showSidePanel("comments"), annot.refreshComments()) },
   { id: "mergeReviews", title: "Merge reviewers' comments (from their PDF copies or XFDF files)…", run: () => (showSidePanel("comments"), annot.mergeReviews()) },
   { id: "tool-redact", title: "Redact tool (mark text or area)", keys: "D", run: () => useTool("redact") },

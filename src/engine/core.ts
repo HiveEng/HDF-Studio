@@ -7,6 +7,7 @@ import * as annots from "./annotations";
 import type { AnnotSpec, AnnotInfo, Pt, RGB } from "./annotations";
 import * as redact from "./redact";
 import * as forms from "./forms";
+import * as design from "./formdesign";
 import * as digisign from "./digisign";
 import * as edit from "./edit";
 import * as ocr from "./ocr";
@@ -489,6 +490,40 @@ export class Engine {
   }
 
   // ---------- Forms & signatures ----------
+
+  // Form designer
+  addField(id: number, pageIndex: number, spec: design.FieldSpec): number {
+    return this.op(id, `Add ${spec.type} field`, () => design.addField(this.pdf(id), pageIndex, spec));
+  }
+
+  /** Add many fields at once (e.g. accepted detections) as one undo step. Returns their keys. */
+  addFields(id: number, specs: (design.FieldSpec & { page: number })[]): number[] {
+    return this.op(id, `Add ${specs.length} form field${specs.length === 1 ? "" : "s"}`, () => specs.map((s) => design.addField(this.pdf(id), s.page, s)));
+  }
+
+  fieldProps(id: number, pageIndex: number, key: number): design.FieldProps {
+    return design.fieldProps(this.pdf(id), pageIndex, key);
+  }
+
+  updateField(id: number, pageIndex: number, key: number, patch: design.FieldPatch): void {
+    this.op(id, "Edit field", () => design.updateField(this.pdf(id), pageIndex, key, patch));
+  }
+
+  deleteField(id: number, pageIndex: number, key: number): void {
+    this.op(id, "Delete field", () => design.deleteField(this.pdf(id), pageIndex, key));
+  }
+
+  detectFields(id: number, pages?: number[]): design.DetectedField[] {
+    return design.detectFields(this.pdf(id), pages);
+  }
+
+  suggestFieldName(id: number, pageIndex: number, rect: number[], type: design.NewFieldType) {
+    return design.suggestName(this.pdf(id), pageIndex, rect, type);
+  }
+
+  fieldNames(id: number): string[] {
+    return [...design.fieldNames(this.pdf(id))];
+  }
 
   fields(id: number): forms.FieldInfo[] {
     const doc = this.get(id).asPDF();

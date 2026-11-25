@@ -8,7 +8,7 @@ import {
   ImagePlus, Replace, ImageDown, Stamp, FileInput, FilePlus2, Copy, Trash2, RotateCcw, RotateCw, ArrowUpDown,
   LayoutGrid, Merge, FileOutput, Scissors, Signature, PenLine, BadgeCheck, FileKey, ShieldCheck, Sheet,
   FileSpreadsheet, Eraser, SquareDashed, ScanSearch, Shredder, Lock, LockOpen, File, FileDown, Workflow, ListChecks,
-  MoveHorizontal, Maximize, PanelLeft, Search, ScanText, ScanLine, GitCompare, FolderSync, ClipboardCheck, Archive, Languages, Users,
+  MoveHorizontal, Maximize, PanelLeft, Search, ScanText, ScanLine, GitCompare, FolderSync, ClipboardCheck, Archive, Languages, Users, FormInput, WandSparkles,
 } from "lucide";
 
 export function icon(node: IconNode, size = 18): SVGElement {
@@ -131,6 +131,10 @@ export const TASKS: Task[] = [
         { cmd: "signCert", label: "Certify", icon: FileKey, big: true },
         { cmd: "verifySigs", label: "Validate", icon: BadgeCheck },
         { cmd: "makeCert", label: "New digital ID", icon: ShieldCheck },
+      ] },
+      { label: "Prepare", items: [
+        { cmd: "prepareForm", label: "Prepare form", icon: FormInput, big: true, hint: "Add, move and edit form fields" },
+        { cmd: "detectFields", label: "Detect fields", icon: WandSparkles, big: true, hint: "Make a flat form fillable automatically" },
       ] },
       { label: "Forms", items: [
         { cmd: "fillCsv", label: "Fill from CSV", icon: FileSpreadsheet, big: true },

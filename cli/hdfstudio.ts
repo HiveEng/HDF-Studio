@@ -44,6 +44,8 @@ Usage:
   hdfstudio fill <form.pdf> <data.csv> [-o dir] [--name "{col} - {col}"] [--flatten]
                                                     Fill a form once per CSV row (mail merge)
   hdfstudio fields <form.pdf>                           List form fields and current values
+  hdfstudio make-fillable <files|folders...> [-o dir] [--dry-run]
+                                                    Detect blanks, lines and boxes on flat forms and add fields
   hdfstudio sign <files|folders...> --cert me.pfx --password pw [-o dir]
         [--reason ".."] [--location ".."] [--page N --rect "x0,y0,x1,y1"]  (points from top-left; omit for invisible)
                                                     Digitally sign one or many PDFs
@@ -361,6 +363,35 @@ export async function main(argv: string[]): Promise<number> {
         log(`✓ ${f} -> ${dir}`);
       }
       return 0;
+    }
+    case "make-fillable": {
+      const files = collect(rest, recursive);
+      if (!files.length) throw new Error("usage: hdfstudio make-fillable <files|folders...> [-o dir]");
+      let failed = 0;
+      for (const f of files) {
+        try {
+          const d = e.open(readFileSync(f), basename(f));
+          if (d.needsPassword) throw new Error("password protected");
+          const found = e.detectFields(d.id);
+          if (args.flags["dry-run"]) {
+            log(`${f}: ${found.length} field(s)`);
+            for (const x of found) log(`  p.${x.page + 1}  ${x.type.padEnd(8)} ${x.name}  (${x.reason})`);
+          } else if (found.length) {
+            e.addFields(d.id, found);
+            const dir = (args.flags.out as string) ?? join(dirname(f), "hdfstudio-out");
+            mkdirSync(dir, { recursive: true });
+            const target = join(dir, basename(f));
+            if (resolve(target) === resolve(f)) throw new Error("output would overwrite the input; use -o");
+            writeFileSync(target, e.save(d.id));
+            log(`✓ ${f}: ${found.length} field(s) -> ${target}`);
+          } else log(`- ${f}: no fields found`);
+          e.close(d.id);
+        } catch (err) {
+          failed++;
+          console.error(`✗ ${f}: ${(err as Error).message}`);
+        }
+      }
+      return failed ? 1 : 0;
     }
     case "ocr": {
       const files = collect(rest, recursive);

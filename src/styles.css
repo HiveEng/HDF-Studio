@@ -361,3 +361,32 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 .issue.warning i { color: #b7791f; }
 .issue span { flex: 1; }
 .issue button { flex: none; border-color: var(--border-strong); font-size: 12px; padding: 3px 9px; }
+
+/* ---------- Form designer ---------- */
+#designbar { position: sticky; top: 0; z-index: 6; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 10px; background: var(--panel); border-bottom: 1px solid var(--border); box-shadow: var(--shadow-1); }
+#designbar .db-title { font-weight: 600; margin-right: 4px; }
+#designbar .db-types { display: flex; gap: 2px; padding: 2px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; }
+#designbar .db-types button { border: 0; background: transparent; padding: 3px 9px; font-size: 12.5px; border-radius: 4px; }
+#designbar .db-types button:hover { background: var(--hover); }
+#designbar .db-types button.active { background: var(--accent-fill); color: var(--on-accent); }
+#designbar .db-sep { width: 1px; height: 20px; background: var(--border); }
+#designbar .db-hint { flex: 1; font-size: 12.5px; display: flex; align-items: center; gap: 6px; min-width: 200px; }
+#designbar .db-hint button { font-size: 12px; padding: 2px 8px; white-space: nowrap; flex: none; }
+body.designing .page .field { display: none; }
+.fd-layer { position: absolute; inset: 0; z-index: 4; cursor: default; }
+.fd-drawing .fd-layer { cursor: crosshair; }
+.fd-box { position: absolute; box-sizing: border-box; border: 1.5px solid #0389a8; background: rgba(5, 199, 242, .10); border-radius: 2px; cursor: move; touch-action: none; }
+.fd-box:hover { background: rgba(5, 199, 242, .18); }
+.fd-box.selected { border-color: var(--hive-ink); box-shadow: 0 0 0 2px var(--hive-lime); background: rgba(197, 217, 50, .18); }
+.fd-box .fd-name { position: absolute; left: -1px; bottom: 100%; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 10.5px/1.5 system-ui, sans-serif; padding: 0 5px; color: #fff; background: #0389a8; border-radius: 3px 3px 0 0; pointer-events: none; }
+.fd-box.selected .fd-name { background: var(--hive-ink); }
+.fd-checkbox .fd-name, .fd-radiobutton .fd-name { display: none; border-radius: 3px; }
+.fd-checkbox:hover .fd-name, .fd-radiobutton:hover .fd-name, .fd-checkbox.selected .fd-name, .fd-radiobutton.selected .fd-name { display: block; z-index: 1; }
+.fd-radiobutton { border-radius: 50%; }
+.fd-box .fd-handle { position: absolute; right: -5px; bottom: -5px; width: 9px; height: 9px; background: #fff; border: 1.5px solid var(--hive-ink); border-radius: 2px; cursor: nwse-resize; display: none; }
+.fd-box.selected .fd-handle { display: block; }
+.fd-suggest { border-style: dashed; border-color: #8a9a12; background: rgba(197, 217, 50, .22); cursor: pointer; }
+.fd-suggest .fd-name { background: #6f7c0e; }
+.fd-suggest.off { border-color: var(--border-strong); background: rgba(128, 128, 128, .06); }
+.fd-suggest.off .fd-name { background: #8a8c8e; text-decoration: line-through; }
+.fd-ghost { border-style: dashed; pointer-events: none; }
