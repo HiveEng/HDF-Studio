@@ -116,6 +116,24 @@ export class Engine {
     }
   }
 
+  /** A page as PNG for printing. `markups` false leaves out comments and form fields. Large sheets are capped near 60 megapixels. */
+  printImage(id: number, pageIndex: number, dpi: number, markups = true): { png: Uint8Array; dpi: number } {
+    const page = this.get(id).loadPage(pageIndex);
+    try {
+      const [, , w, h] = page.getBounds();
+      const want = dpi / 72;
+      const scale = Math.min(want, Math.sqrt(60e6 / Math.max(1, w * h)));
+      const pix = page.toPixmap(mupdf.Matrix.scale(scale, scale), mupdf.ColorSpace.DeviceRGB, false, markups);
+      try {
+        return { png: new Uint8Array(pix.asPNG()), dpi: Math.round(scale * 72) };
+      } finally {
+        pix.destroy();
+      }
+    } finally {
+      page.destroy();
+    }
+  }
+
   /** Full-document search. Case-insensitive (MuPDF default). */
   search(id: number, needle: string): SearchHit[] {
     if (!needle) return [];

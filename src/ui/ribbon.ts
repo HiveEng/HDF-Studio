@@ -8,7 +8,7 @@ import {
   ImagePlus, Replace, ImageDown, Stamp, FileInput, FilePlus2, Copy, Trash2, RotateCcw, RotateCw, ArrowUpDown,
   LayoutGrid, Merge, FileOutput, Scissors, Signature, PenLine, BadgeCheck, FileKey, ShieldCheck, Sheet,
   FileSpreadsheet, Eraser, SquareDashed, ScanSearch, Shredder, Lock, LockOpen, File, FileDown, Workflow, ListChecks,
-  MoveHorizontal, Maximize, PanelLeft, Search, ScanText, ScanLine, GitCompare, FolderSync, ClipboardCheck, Archive, Languages, Users, FormInput, WandSparkles, Accessibility, Images,
+  MoveHorizontal, Maximize, PanelLeft, Search, ScanText, ScanLine, GitCompare, FolderSync, ClipboardCheck, Archive, Languages, Users, Printer, FormInput, WandSparkles, Accessibility, Images,
 } from "lucide";
 
 export function icon(node: IconNode, size = 18): SVGElement {
@@ -27,6 +27,7 @@ export const TASKS: Task[] = [
       { label: "File", items: [
         { cmd: "open", label: "Open", icon: FolderOpen, big: true },
         { cmd: "save", label: "Save", icon: Save, big: true },
+        { cmd: "print", label: "Print", icon: Printer, big: true },
         { cmd: "saveAs", label: "Save as", icon: SavePen },
         { cmd: "createPdf", label: "Create PDF", icon: FilePlus },
         { cmd: "compare", label: "Compare", icon: GitCompare },

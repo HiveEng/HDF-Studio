@@ -18,6 +18,7 @@ import { ocrBytes, ocrStep } from "./ocr/pipeline";
 import { startWatching, openWatchPanel } from "./ui/watch";
 import { showCheckReport } from "./ui/check";
 import { showAltTextDialog } from "./ui/accessibility";
+import { printPages } from "./ui/print";
 import type { WatchFs } from "./automation/watch";
 
 const engine = createEngine();
@@ -734,6 +735,47 @@ async function compareFiles() {
     status(`Compare failed: ${(e as Error).message}`);
   } finally {
     for (const id of temps) await engine.close(id);
+  }
+}
+
+// ---------- Print ----------
+async function printDoc() {
+  if (!active) return;
+  const t = active;
+  const saved = JSON.parse(localStorage.getItem("hdfstudio.print") ?? "{}") as Record<string, string>;
+  const r = await ask(`Print ${t.name}`, [
+    { name: "which", label: "Pages", type: "select", value: t.selected.size > 1 ? "selected" : "all", options: [["all", `All pages (${t.info.pageCount})`], ["current", `Current page (${t.page + 1})`], ...(t.selected.size > 1 ? [["selected", `Selected pages (${formatRanges(targetPages())})`] as [string, string]] : []), ["range", "Page range…"]] },
+    { name: "range", label: "Or a page range", value: "", placeholder: 'e.g. "1-3, 7, 10-", "odd", "even"' },
+    { name: "fit", label: "Size", type: "select", value: saved.fit ?? "actual", options: [["actual", "Actual size (keeps drawings to scale)"], ["fit", "Fit to paper"]], hint: "Actual size prints each page at its own size, so use paper that matches (e.g. 11x17 or ARCH D for drawings). Choose the printer, paper, copies and colour in the next window." },
+    { name: "markups", label: "Include", type: "select", value: saved.markups ?? "yes", options: [["yes", "Document and markups"], ["no", "Document only (no comments or form fields)"]] },
+    { name: "dpi", label: "Quality", type: "select", value: saved.dpi ?? "300", options: [["150", "Draft (150 dpi, faster)"], ["300", "Standard (300 dpi)"], ["600", "High (600 dpi, for fine drawing detail)"]] },
+  ], "Print…");
+  if (!r) return;
+  localStorage.setItem("hdfstudio.print", JSON.stringify({ fit: r.fit, markups: r.markups, dpi: r.dpi }));
+  let pages: number[];
+  try {
+    if (r.range.trim() && r.which === "all") r.which = "range";
+    pages = r.which === "all" ? [...Array(t.info.pageCount).keys()] : r.which === "current" ? [t.page] : r.which === "selected" ? targetPages() : parseRanges(r.range, t.info.pageCount);
+  } catch (e) {
+    return status(`Print: ${(e as Error).message}`);
+  }
+  if (!pages.length) return status("Print: no pages in that range");
+  const prog = showProgress("Preparing to print");
+  try {
+    const ok = await printPages({
+      pages,
+      sizes: t.info.pageSizes,
+      dpi: +r.dpi,
+      markups: r.markups === "yes",
+      fit: r.fit === "fit" ? "fit" : "actual",
+      render: (page, dpi, markups) => engine.printImage(t.info.id, page, dpi, markups),
+      progress: prog,
+    });
+    status(ok ? `Sent ${pages.length} page${pages.length === 1 ? "" : "s"} to the print dialog` : "Printing cancelled");
+  } catch (e) {
+    status(`Print failed: ${(e as Error).message}`);
+  } finally {
+    prog.close();
   }
 }
 
@@ -1466,6 +1508,7 @@ interface Command { id: string; title: string; keys?: string; run: () => void }
 const commands: Command[] = [
   { id: "open", title: "Open files…", keys: "Ctrl+O", run: async () => openFiles(await pickFiles()) },
   { id: "save", title: "Save", keys: "Ctrl+S", run: () => save(false) },
+  { id: "print", title: "Print…", keys: "Ctrl+P", run: () => printDoc() },
   { id: "saveAs", title: "Save as…", keys: "Ctrl+Shift+S", run: () => save(true) },
   { id: "closeTab", title: "Close tab", keys: "Ctrl+W", run: () => active && closeTab(active) },
   { id: "nextTab", title: "Next tab", keys: "Ctrl+Tab", run: () => tabs.length > 1 && switchTab(tabs[(tabs.indexOf(active!) + 1) % tabs.length]) },
