@@ -1,7 +1,9 @@
 import { createEngine } from "./engine/client";
 import type { DocInfo, OutlineNode, SearchHit } from "./engine/core";
 import { pickFiles, filesFromList, saveFile, saveMany, saveText, saveBytes, baseName, isTauri, type OpenedFile } from "./platform";
-import { setupAnnotate, TOOLS } from "./ui/annotate";
+import { setupAnnotate, type Tool } from "./ui/annotate";
+import { setupRibbon, icon, taskOf } from "./ui/ribbon";
+import * as I from "lucide";
 import { setupForms } from "./ui/forms";
 import { setupEdit } from "./ui/edit";
 import { getSignature, clearSignature, pngSize } from "./ui/signature";
@@ -127,6 +129,9 @@ function buildView() {
   thumbsEl.replaceChildren();
   outlineEl.replaceChildren();
   $("#empty").classList.toggle("hidden", !!active);
+  $("#viewbar").classList.toggle("hidden", !active);
+  document.body.classList.toggle("nodoc", !active);
+  if (!active) renderRecent();
   renderTabs();
   if (!active) {
     $("#pageCount").textContent = "/ 0";
@@ -391,6 +396,7 @@ async function openFiles(files: OpenedFile[]) {
         info = (await engine.unlock(info.id, pw)) ?? info;
       }
             addTab(info, f.name, f.path);
+      if (f.path) remember(f.path);
       status(`${f.name}: ${info.pageCount} pages`);
     } catch (e) {
       if ((e as Error).message !== "cancelled") status(`Could not open ${f.name}: ${(e as Error).message}`);
@@ -446,6 +452,7 @@ async function save(saveAs: boolean) {
   if (p) {
     t.path = p;
     t.name = baseName(p);
+    remember(p);
   }
   t.dirty = false;
   renderTabs();
@@ -469,12 +476,24 @@ viewer.addEventListener("drop", async (e) => {
 });
 
 // ---------- Sidebar ----------
+const SIDE_TITLES: Record<string, string> = { thumbs: "Pages", outline: "Bookmarks", results: "Search results", comments: "Comments" };
 function showSidePanel(name: string) {
+  $("main").classList.remove("no-sidebar");
   $("#thumb-tools").classList.toggle("hidden", name !== "thumbs");
-  document.querySelectorAll<HTMLElement>(".side-tabs button").forEach((b) => b.classList.toggle("active", b.dataset.side === name));
+  $("#sideTitle").textContent = SIDE_TITLES[name] ?? "";
+  document.querySelectorAll<HTMLElement>("#rail button").forEach((b) => b.classList.toggle("active", b.dataset.side === name));
   document.querySelectorAll<HTMLElement>(".side-panel").forEach((p) => p.classList.toggle("hidden", p.id !== `side-${name}`));
 }
-document.querySelectorAll<HTMLElement>(".side-tabs button").forEach((b) => (b.onclick = () => showSidePanel(b.dataset.side!)));
+// Clicking the open panel's icon again folds the sidebar away.
+document.querySelectorAll<HTMLElement>("#rail button").forEach(
+  (b) =>
+    (b.onclick = () => {
+      const main = $("main");
+      if (b.classList.contains("active") && !main.classList.contains("no-sidebar")) return main.classList.add("no-sidebar");
+      showSidePanel(b.dataset.side!);
+      if (b.dataset.side === "comments") annot.refreshComments();
+    }),
+);
 
 // ---------- Organize pages ----------
 /** Run a document-changing operation with undo support, then refresh the view. */
@@ -966,24 +985,20 @@ async function exportFormData() {
   const q = (v: string) => `"${v.replace(/"/g, '""')}"`;
   await saveText(active.name.replace(/\.pdf$/i, "") + " - data.csv", keys.map(q).join(",") + "\n" + keys.map((k) => q(data[k])).join(",") + "\n");
 }
-const toolsEl = $("#tools");
-for (const t of TOOLS) {
-  const b = document.createElement("button");
-  b.dataset.tool = t.id;
-  b.textContent = t.label;
-  b.title = t.title;
-  b.onclick = () => annot.setTool(t.id);
-  toolsEl.append(b);
-}
-const colorInput = Object.assign(document.createElement("input"), { type: "color", value: "#d62828", title: "Markup colour (leave as is for each tool's default)" });
+const colorSlot = Object.assign(document.createElement("div"), { className: "color-slot" });
+const colorInput = Object.assign(document.createElement("input"), { type: "color", value: "#d62828", title: "Markup colour for new comments" });
 colorInput.oninput = () => annot.setColor(colorInput.value.match(/\w\w/g)!.map((h) => parseInt(h, 16) / 255) as [number, number, number]);
-const resetColor = Object.assign(document.createElement("button"), { textContent: "Default colours", title: "Use each tool's default colour" });
+const resetColor = Object.assign(document.createElement("button"), { textContent: "Default", title: "Use each tool's default colour" });
 resetColor.onclick = () => annot.setColor(null);
-toolsEl.append(Object.assign(document.createElement("span"), { className: "sep" }), colorInput, resetColor);
-annot.setTool("hand");
+colorSlot.append(colorInput, resetColor);
+/** Select a tool and bring its ribbon task forward so its options are in view. */
+function useTool(t: Tool) {
+  annot.setTool(t);
+  if (t !== "hand" && t !== "select") ribbon.revealTool(t);
+}
 
 // ---------- Redaction & security ----------
-const redactBtn = Object.assign(document.createElement("button"), { className: "primary hidden", title: "Permanently remove everything marked for redaction" });
+const redactBtn = $("#redactApply");
 redactBtn.onclick = () => applyRedactionsFlow();
 async function updateRedactButton() {
   if (!active) return redactBtn.classList.add("hidden");
@@ -1079,11 +1094,11 @@ async function unprotectFlow() {
   status((await engine.isEncrypted(active.info.id)) ? "Password protection will be removed when you save." : "This document isn't password protected.");
 }
 annot.onRedactions(updateRedactButton);
-toolsEl.append(redactBtn);
 
 // ---------- Theme ----------
 function setTheme(dark: boolean) {
   document.documentElement.classList.toggle("dark", dark);
+  $("#themeBtn").replaceChildren(icon(dark ? I.Sun : I.Moon, 17));
   localStorage.setItem("hdfstudio.theme", dark ? "dark" : "light");
 }
 setTheme((localStorage.getItem("hdfstudio.theme") ?? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")) === "dark");
@@ -1110,7 +1125,7 @@ const commands: Command[] = [
   { id: "firstPage", title: "First page", keys: "Home", run: () => goToPage(0) },
   { id: "lastPage", title: "Last page", keys: "End", run: () => active && goToPage(active.info.pageCount - 1) },
   { id: "goto", title: "Go to page…", keys: "Ctrl+G", run: () => (pageInput.focus(), pageInput.select()) },
-  { id: "toggleSidebar", title: "Toggle sidebar", keys: "F4", run: () => $("main").classList.toggle("no-sidebar") },
+  { id: "toggleSidebar", title: "Show or hide the sidebar", keys: "F4", run: () => $("main").classList.toggle("no-sidebar") },
   { id: "showOutline", title: "Show outline", run: () => showSidePanel("outline") },
   { id: "showThumbs", title: "Show page thumbnails", run: () => showSidePanel("thumbs") },
   { id: "toggleTheme", title: "Toggle dark mode", run: () => setTheme(!document.documentElement.classList.contains("dark")) },
@@ -1132,27 +1147,27 @@ const commands: Command[] = [
   { id: "selectAll", title: "Select all pages", run: () => { if (!active) return; active.selected = new Set(active.info.pageSizes.keys()); [...thumbsEl.children].forEach((el) => el.classList.add("selected")); showSidePanel("thumbs"); } },
   { id: "batch", title: "Batch: run a recipe on many files…", keys: "Ctrl+B", run: () => openBatch(batchDeps) },
   { id: "recipeCurrent", title: "Apply a recipe to this document (stamp, Bates, watermark, protect…)", run: async () => active && openBatch(batchDeps, { files: [{ name: active.name, path: active.path, data: await engine.save(active.info.id) }] }) },
-  { id: "tool-hand", title: "Hand tool / select comments", keys: "V", run: () => annot.setTool("hand") },
-  { id: "tool-select", title: "Select text tool", keys: "T", run: () => annot.setTool("select") },
-  { id: "tool-highlight", title: "Highlight tool", keys: "H", run: () => annot.setTool("highlight") },
-  { id: "tool-underline", title: "Underline tool", keys: "U", run: () => annot.setTool("underline") },
-  { id: "tool-strike", title: "Strikeout tool", keys: "K", run: () => annot.setTool("strike") },
-  { id: "tool-note", title: "Sticky note tool", keys: "N", run: () => annot.setTool("note") },
-  { id: "tool-text", title: "Text box tool", keys: "X", run: () => annot.setTool("text") },
-  { id: "tool-rect", title: "Rectangle tool", keys: "R", run: () => annot.setTool("rect") },
-  { id: "tool-ellipse", title: "Ellipse tool", keys: "O", run: () => annot.setTool("ellipse") },
-  { id: "tool-arrow", title: "Arrow tool", keys: "A", run: () => annot.setTool("arrow") },
-  { id: "tool-ink", title: "Pen tool", keys: "P", run: () => annot.setTool("ink") },
+  { id: "tool-hand", title: "Hand tool / select comments", keys: "V", run: () => useTool("hand") },
+  { id: "tool-select", title: "Select text tool", keys: "T", run: () => useTool("select") },
+  { id: "tool-highlight", title: "Highlight tool", keys: "H", run: () => useTool("highlight") },
+  { id: "tool-underline", title: "Underline tool", keys: "U", run: () => useTool("underline") },
+  { id: "tool-strike", title: "Strikeout tool", keys: "K", run: () => useTool("strike") },
+  { id: "tool-note", title: "Sticky note tool", keys: "N", run: () => useTool("note") },
+  { id: "tool-text", title: "Text box tool", keys: "X", run: () => useTool("text") },
+  { id: "tool-rect", title: "Rectangle tool", keys: "R", run: () => useTool("rect") },
+  { id: "tool-ellipse", title: "Ellipse tool", keys: "O", run: () => useTool("ellipse") },
+  { id: "tool-arrow", title: "Arrow tool", keys: "A", run: () => useTool("arrow") },
+  { id: "tool-ink", title: "Pen tool", keys: "P", run: () => useTool("ink") },
   { id: "showComments", title: "Show comments", run: () => (showSidePanel("comments"), annot.refreshComments()) },
-  { id: "tool-redact", title: "Redact tool (mark text or area)", keys: "D", run: () => annot.setTool("redact") },
+  { id: "tool-redact", title: "Redact tool (mark text or area)", keys: "D", run: () => useTool("redact") },
   { id: "findRedact", title: "Find and redact (text, emails, phone numbers, regex)…", keys: "Ctrl+Shift+R", run: () => findAndRedact() },
   { id: "applyRedactions", title: "Apply redactions permanently…", run: () => applyRedactionsFlow() },
   { id: "sanitize", title: "Remove hidden data (metadata, scripts, attachments)…", run: () => sanitizeFlow() },
   { id: "protect", title: "Protect with password and permissions…", run: () => protectFlow() },
   { id: "unprotect", title: "Remove password protection", run: () => unprotectFlow() },
-  { id: "tool-sign", title: "Sign: place your signature", keys: "G", run: () => annot.setTool("sign") },
+  { id: "tool-sign", title: "Sign: place your signature", keys: "G", run: () => useTool("sign") },
   { id: "newSignature", title: "Create a new signature…", run: async () => { clearSignature(); if (await getSignature(true)) annot.setTool("sign"); } },
-  { id: "tool-edit", title: "Edit tool: change page text and images", keys: "E", run: () => annot.setTool("edit") },
+  { id: "tool-edit", title: "Edit tool: change page text and images", keys: "E", run: () => useTool("edit") },
   { id: "insertImage", title: "Insert image…", run: () => (annot.setTool("edit"), editUI.insertImage()) },
   { id: "replaceImage", title: "Replace selected image…", run: () => editUI.replaceSelectedImage() },
   { id: "saveImage", title: "Save selected image as PNG…", run: () => editUI.saveSelectedImage() },
@@ -1170,6 +1185,12 @@ const commands: Command[] = [
   { id: "palette", title: "Show all commands", keys: "Ctrl+K", run: () => openPalette() },
 ];
 const byId = Object.fromEntries(commands.map((c) => [c.id, c]));
+const ribbon = setupRibbon($("#tasks"), $("#ribbon"), {
+  run: (id) => byId[id]?.run(),
+  describe: (id) => byId[id],
+  slots: { color: colorSlot },
+});
+annot.setTool("hand");
 document.querySelectorAll<HTMLElement>("[data-cmd]").forEach((b) => (b.onclick = () => byId[b.dataset.cmd!]?.run()));
 
 function keyString(e: KeyboardEvent) {
@@ -1191,7 +1212,10 @@ document.addEventListener("keydown", (e) => {
   // Plain navigation keys shouldn't fire while typing in a field.
   if (typing && ((!ks.includes("Ctrl") && !ks.startsWith("F")) || cmd.id === "undo" || cmd.id === "redo")) return;
   e.preventDefault();
-  setTimeout(() => cmd.run(), 0);
+  // Focus-moving commands run at once so the next keystrokes land in the right box;
+  // the rest wait a tick so this keystroke can't leak into a dialog they open.
+  if (cmd.id === "palette" || cmd.id === "find" || cmd.id === "goto") cmd.run();
+  else setTimeout(() => cmd.run(), 0);
 });
 
 const palette = $("#palette"), paletteInput = $<HTMLInputElement>("#paletteInput"), paletteList = $("#paletteList");
@@ -1203,8 +1227,23 @@ function fuzzy(q: string, s: string) {
   for (const ch of s) if (ch === q[i]) i++;
   return i === q.length;
 }
+/** Lower is better: whole phrase at a word start, then anywhere, then all words, then loose letters. */
+function matchScore(q: string, title: string) {
+  q = q.trim().toLowerCase();
+  const t = title.toLowerCase();
+  if (!q) return 0;
+  const i = t.indexOf(q);
+  if (i === 0 || (i > 0 && /\W/.test(t[i - 1]))) return 1;
+  if (i > 0) return 2;
+  if (q.split(/\s+/).every((w) => t.includes(w))) return 3;
+  return fuzzy(q.replace(/\s+/g, ""), t) ? 4 : -1;
+}
 function filteredCommands() {
-  return commands.filter((c) => c.id !== "palette" && fuzzy(paletteInput.value, c.title));
+  return commands
+    .map((c, i) => ({ c, i, s: c.id === "palette" ? -1 : matchScore(paletteInput.value, c.title) }))
+    .filter((x) => x.s >= 0)
+    .sort((a, b) => a.s - b.s || a.i - b.i)
+    .map((x) => x.c);
 }
 function renderPalette() {
   const list = filteredCommands();
@@ -1213,8 +1252,9 @@ function renderPalette() {
     ...list.map((c, i) => {
       const li = document.createElement("li");
       li.className = i === paletteSel ? "sel" : "";
-      li.innerHTML = `<span></span><kbd></kbd>`;
+      li.innerHTML = `<span></span><small class="task-tag"></small><kbd></kbd>`;
       li.firstElementChild!.textContent = c.title;
+      li.querySelector(".task-tag")!.textContent = taskOf(c.id);
       li.lastElementChild!.textContent = c.keys ?? "";
       if (!c.keys) li.lastElementChild!.remove();
       li.onclick = () => (closePalette(), c.run());
@@ -1260,6 +1300,49 @@ paletteInput.addEventListener("blur", () => setTimeout(closePalette, 150));
   await listen<string[]>("open-files", (e) => openPaths(e.payload));
   await openPaths(await invoke<string[]>("startup_files"));
 })().catch((e) => status(String(e)));
+
+// ---------- Icons for the static chrome ----------
+const STATIC_ICONS: Record<string, I.IconNode> = {
+  search: I.Search, up: I.ChevronUp, down: I.ChevronDown, command: I.Command,
+  pages: I.LayoutGrid, outline: I.ListTree, results: I.ScanSearch, comments: I.MessagesSquare,
+  rotl: I.RotateCcw, rotr: I.RotateCw, blank: I.FilePlus2, insert: I.FileInput, extract: I.FileOutput, trash: I.Trash2,
+  left: I.ChevronLeft, right: I.ChevronRight, zoomin: I.ZoomIn, zoomout: I.ZoomOut, fitw: I.MoveHorizontal, fitp: I.Maximize,
+  open: I.FolderOpen, create: I.FilePlus, merge: I.Merge, batch: I.Workflow, blankdoc: I.File, cert: I.FileKey,
+};
+document.querySelectorAll<HTMLElement>("[data-icon]").forEach((el) => {
+  const node = STATIC_ICONS[el.dataset.icon!];
+  const big = el.closest(".card") ? 22 : el.closest("#rail") ? 20 : 16;
+  if (node) el.prepend(icon(node, big));
+});
+
+// ---------- Recent files (desktop only: needs a path to reopen) ----------
+const RECENT_KEY = "hdfstudio.recent";
+const recentPaths = (): string[] => JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
+function remember(path: string) {
+  localStorage.setItem(RECENT_KEY, JSON.stringify([path, ...recentPaths().filter((p) => p !== path)].slice(0, 8)));
+}
+function renderRecent() {
+  const list = isTauri ? recentPaths() : [];
+  $("#recent").classList.toggle("hidden", !list.length);
+  $("#recentList").replaceChildren(
+    ...list.map((p) => {
+      const li = document.createElement("li");
+      li.append(icon(I.FileText, 16), Object.assign(document.createElement("span"), { textContent: baseName(p) }), Object.assign(document.createElement("small"), { textContent: p }));
+      li.title = p;
+      li.onclick = async () => {
+        try {
+          const { readFile } = await import("@tauri-apps/plugin-fs");
+          await openFiles([{ name: baseName(p), path: p, data: await readFile(p) }]);
+        } catch {
+          localStorage.setItem(RECENT_KEY, JSON.stringify(recentPaths().filter((x) => x !== p)));
+          status(`${p} is no longer available`);
+          renderRecent();
+        }
+      };
+      return li;
+    }),
+  );
+}
 
 // Exposed for tests and future modules.
 Object.assign(window, { hdfStudio: { openFiles, runSearch, goToPage, commands, get active() { return active; } } });

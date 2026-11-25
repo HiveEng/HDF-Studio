@@ -8,72 +8,93 @@
   <link rel="stylesheet" href="/src/styles.css" />
 </head>
 <body>
-  <header id="toolbar">
-    <div class="group">
-      <button data-cmd="open" title="Open (Ctrl+O)">Open</button>
-      <button data-cmd="save" title="Save (Ctrl+S)">Save</button>
-      <button data-cmd="toggleSidebar" title="Toggle sidebar (F4)">☰</button>
+  <header id="appbar">
+    <div class="brand" title="HDF Studio by Hive Engineering">
+      <svg class="mark" viewBox="0 0 40 32" aria-hidden="true">
+        <path d="M13 3h10l5 8.7-5 8.6H13L8 11.7z" fill="none" stroke="#C5D932" stroke-width="2.6" stroke-linejoin="round"/>
+        <path d="M23 15h7l3.5 6-3.5 6h-7l-3.5-6z" fill="none" stroke="#05C7F2" stroke-width="2.4" stroke-linejoin="round"/>
+        <path d="M32.5 6.5h3.4l1.7 3-1.7 3h-3.4l-1.7-3z" fill="#F2CB05"/>
+      </svg>
+      <span class="name">HDF <b>Studio</b></span>
     </div>
-    <div class="group">
-      <button data-cmd="prevPage" title="Previous page">‹</button>
-      <input id="pageInput" type="text" inputmode="numeric" aria-label="Page number" /><span id="pageCount">/ 0</span>
-      <button data-cmd="nextPage" title="Next page">›</button>
-    </div>
-    <div class="group">
-      <button data-cmd="zoomOut" title="Zoom out (Ctrl+-)">−</button>
-      <span id="zoomLabel">100%</span>
-      <button data-cmd="zoomIn" title="Zoom in (Ctrl+=)">+</button>
-      <button data-cmd="fitWidth" title="Fit width (Ctrl+2)">Width</button>
-      <button data-cmd="fitPage" title="Fit page (Ctrl+0)">Page</button>
-    </div>
-    <div class="group grow">
-      <input id="searchInput" type="search" placeholder="Search (Ctrl+F)" aria-label="Search" />
-      <button data-cmd="prevHit" title="Previous match (Shift+Enter)">↑</button>
-      <button data-cmd="nextHit" title="Next match (Enter)">↓</button>
-      <span id="hitLabel"></span>
-    </div>
-    <div class="group">
-      <button data-cmd="batch" title="Batch process many files (Ctrl+B)">Batch</button>
-      <button data-cmd="palette" title="All commands (Ctrl+K)">Commands</button>
-      <button data-cmd="toggleTheme" title="Toggle dark mode">Theme</button>
+    <nav id="tasks" role="tablist" aria-label="Tasks"></nav>
+    <div class="appbar-right">
+      <div class="search" role="search">
+        <span class="search-icon" data-icon="search"></span>
+        <input id="searchInput" type="search" placeholder="Search document" aria-label="Search document (Ctrl+F)" />
+        <span id="hitLabel"></span>
+        <button data-cmd="prevHit" class="icon-btn" title="Previous match (Shift+F3)" data-icon="up"></button>
+        <button data-cmd="nextHit" class="icon-btn" title="Next match (F3)" data-icon="down"></button>
+      </div>
+      <button id="redactApply" class="primary danger hidden" title="Permanently remove everything marked for redaction"></button>
+      <button data-cmd="palette" class="cmd-pill" title="Search every tool and command (Ctrl+K)"><span data-icon="command"></span><span>Tools</span><kbd>Ctrl K</kbd></button>
+      <button data-cmd="toggleTheme" class="icon-btn" id="themeBtn" title="Switch light / dark theme"></button>
     </div>
   </header>
-  <div id="tools" role="toolbar" aria-label="Comment and markup tools"></div>
+  <div id="ribbon"></div>
   <nav id="tabs"></nav>
   <main>
+    <nav id="rail" aria-label="Panels">
+      <button data-side="thumbs" class="active" title="Pages" data-icon="pages"></button>
+      <button data-side="outline" title="Bookmarks" data-icon="outline"></button>
+      <button data-side="results" title="Search results" data-icon="results"></button>
+      <button data-side="comments" title="Comments" data-icon="comments"></button>
+    </nav>
     <aside id="sidebar">
-      <div class="side-tabs">
-        <button data-side="thumbs" class="active">Pages</button>
-        <button data-side="outline">Outline</button>
-        <button data-side="results">Results</button>
-        <button data-side="comments">Comments</button>
-      </div>
-      <div id="thumb-tools" class="thumb-tools">
-        <button data-cmd="rotateLeft" title="Rotate selected left (Ctrl+[)">⟲</button>
-        <button data-cmd="rotateRight" title="Rotate selected right (Ctrl+])">⟳</button>
-        <button data-cmd="deleteSelected" title="Delete selected pages (Delete)">Delete</button>
-        <button data-cmd="extractSelected" title="Extract selected pages to a new tab">Extract</button>
-        <button data-cmd="insertBlank" title="Insert blank page after current">+ Blank</button>
-        <button data-cmd="insertFile" title="Insert pages from files after current">+ File</button>
+      <div class="side-head"><span id="sideTitle">Pages</span>
+        <div id="thumb-tools" class="thumb-tools">
+          <button data-cmd="rotateLeft" class="icon-btn" title="Rotate selected left (Ctrl+[)" data-icon="rotl"></button>
+          <button data-cmd="rotateRight" class="icon-btn" title="Rotate selected right (Ctrl+])" data-icon="rotr"></button>
+          <button data-cmd="insertBlank" class="icon-btn" title="Insert blank page after current" data-icon="blank"></button>
+          <button data-cmd="insertFile" class="icon-btn" title="Insert pages from files after current" data-icon="insert"></button>
+          <button data-cmd="extractSelected" class="icon-btn" title="Extract selected pages to a new tab" data-icon="extract"></button>
+          <button data-cmd="deleteSelected" class="icon-btn" title="Delete selected pages (Delete)" data-icon="trash"></button>
+        </div>
       </div>
       <div id="side-thumbs" class="side-panel" tabindex="0"></div>
       <div id="side-outline" class="side-panel hidden"></div>
       <div id="side-results" class="side-panel hidden"></div>
       <div id="side-comments" class="side-panel hidden"></div>
     </aside>
+    <div class="stage">
     <section id="viewer" tabindex="0">
       <div id="sigbanner" class="hidden"></div>
       <div id="empty">
-        <h1>HDF Studio</h1>
-        <p>Drop PDFs here, or press <kbd>Ctrl</kbd>+<kbd>O</kbd>.</p>
-        <p class="muted">Press <kbd>Ctrl</kbd>+<kbd>K</kbd> for every command.</p>
+        <div class="start">
+          <img src="/hive-logo.png" alt="Hive Engineering" class="start-logo" />
+          <h1>HDF Studio</h1>
+          <p class="muted">Open a PDF to get started, or drop files anywhere in this window.</p>
+          <div class="cards">
+            <button class="card" data-cmd="open"><span data-icon="open"></span><b>Open PDF</b><small>Ctrl+O</small></button>
+            <button class="card" data-cmd="createPdf"><span data-icon="create"></span><b>Create PDF</b><small>From Office, images, HTML</small></button>
+            <button class="card" data-cmd="mergeFiles"><span data-icon="merge"></span><b>Combine files</b><small>Merge into one PDF</small></button>
+            <button class="card" data-cmd="batch"><span data-icon="batch"></span><b>Batch process</b><small>Run a recipe on many files</small></button>
+            <button class="card" data-cmd="newBlank"><span data-icon="blankdoc"></span><b>Blank PDF</b><small>Ctrl+Shift+N</small></button>
+            <button class="card" data-cmd="makeCert"><span data-icon="cert"></span><b>New digital ID</b><small>For certified signatures</small></button>
+          </div>
+          <div id="recent" class="recent hidden"><h2>Recent</h2><ul id="recentList"></ul></div>
+          <p class="hint muted">Press <kbd>Ctrl</kbd> <kbd>K</kbd> to find any tool by name.</p>
+        </div>
       </div>
       <div id="pages"></div>
     </section>
+    <div id="viewbar" class="hidden" role="toolbar" aria-label="Page and zoom">
+      <button data-cmd="prevPage" class="icon-btn" title="Previous page (PageUp)" data-icon="left"></button>
+      <input id="pageInput" type="text" inputmode="numeric" aria-label="Page number" /><span id="pageCount">/ 0</span>
+      <button data-cmd="nextPage" class="icon-btn" title="Next page (PageDown)" data-icon="right"></button>
+      <span class="vsep"></span>
+      <button data-cmd="zoomOut" class="icon-btn" title="Zoom out (Ctrl+-)" data-icon="zoomout"></button>
+      <span id="zoomLabel">100%</span>
+      <button data-cmd="zoomIn" class="icon-btn" title="Zoom in (Ctrl+=)" data-icon="zoomin"></button>
+      <span class="vsep"></span>
+      <button data-cmd="fitWidth" class="icon-btn" title="Fit width (Ctrl+2)" data-icon="fitw"></button>
+      <button data-cmd="fitPage" class="icon-btn" title="Fit page (Ctrl+0)" data-icon="fitp"></button>
+    </div>
+    </div>
   </main>
   <footer id="status"></footer>
   <div id="palette" class="hidden" role="dialog" aria-label="Command palette">
-    <input id="paletteInput" placeholder="Type a command…" />
+    <div class="palette-head"><span data-icon="search"></span><input id="paletteInput" placeholder="Search tools and commands…" /></div>
     <ul id="paletteList"></ul>
   </div>
   <script type="module" src="/src/main.ts"></script>

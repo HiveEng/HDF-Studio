@@ -3,6 +3,20 @@
 An open-source PDF reader and editor for Windows (macOS and Linux to follow), built for speed
 and batch workflows. Licensed under the GNU AGPL v3 or later.
 
+## Layout
+
+- **Task ribbon**: the tabs across the top are jobs, not menus: Home, Comment, Edit, Organize,
+  Fill & Sign, Protect, Convert and Automate. Each holds the tools for that job, grouped.
+  Choosing a tool by its shortcut brings its tab forward.
+- **Tools search** (Ctrl+K): type any part of a tool's name to run it; each result shows its tab.
+- **Panel rail** (left): Pages, Bookmarks, Search results and Comments. Click the open panel's
+  icon again to fold the sidebar away.
+- **Page bar** (floating, bottom): page number, zoom and fit.
+- **Start screen**: quick actions and, in the desktop app, recent files.
+
+Colours follow the Hive Engineering palette (charcoal #575859, cyan #05C7F2, lime #C5D932,
+yellow #F2CB05, ink #0D0D0D), with light and dark themes.
+
 ## Stack
 
 - **Desktop shell:** [Tauri 2](https://tauri.app) (Rust). Small installers, native file dialogs,
