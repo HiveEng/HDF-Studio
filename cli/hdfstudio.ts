@@ -592,7 +592,13 @@ export async function main(argv: string[]): Promise<number> {
     }
     case "review-server": {
       const { startReviewServer } = await import("../src/review/server");
-      const tenant = args.flags["ms-tenant"] as string | undefined, client = args.flags["ms-client"] as string | undefined;
+      // Flags win; environment variables suit services and containers.
+      const env = process.env;
+      const tenant = (args.flags["ms-tenant"] as string | undefined) ?? env.HDF_MS_TENANT, client = (args.flags["ms-client"] as string | undefined) ?? env.HDF_MS_CLIENT;
+      args.flags.domain ??= env.HDF_DOMAIN ?? "";
+      args.flags.port ??= env.PORT ?? env.HDF_PORT ?? "8787";
+      args.flags.data ??= env.HDF_DATA ?? "reviews";
+      args.flags.token ??= env.HDF_TOKEN as string;
       if (!!tenant !== !!client) throw new Error("Microsoft sign-in needs both --ms-tenant and --ms-client");
       const domains = ((args.flags.domain as string) ?? "").split(",").map((d) => d.trim()).filter(Boolean);
       if (tenant && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tenant)) throw new Error("--ms-tenant must be the Directory (tenant) ID, a GUID like 1b2c3d4e-…, from the app registration's Overview page");

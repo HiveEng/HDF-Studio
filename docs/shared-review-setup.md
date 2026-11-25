@@ -51,6 +51,14 @@ can't keep a secret, so it uses PKCE instead.
 
 ## Step 2: run the review server
 
+**Hive Engineering:** step 1 is done (tenant `2cc319ea-c91f-4964-92a2-807a20ffe7b6`, app
+`8b0d9e7f-df7a-44e9-b939-4961db6bf450`). Ready-made settings are in `deploy/review-server/`:
+`Start-ReviewServer.ps1` for a Windows machine, and `hive.env` for the Docker image
+(`docker build -t hdf-review .` then
+`docker run -p 8787:8787 -v hdf-reviews:/data --env-file deploy/review-server/hive.env hdf-review`).
+The server also reads `HDF_MS_TENANT`, `HDF_MS_CLIENT`, `HDF_DOMAIN`, `HDF_DATA` and `PORT` from the
+environment, which suits Azure App Service and Container Apps.
+
 The server is part of the `hdfstudio` command line tool (Node.js 20 or later):
 
 ```sh
