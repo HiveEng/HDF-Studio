@@ -17,6 +17,7 @@ import { showProgress } from "./ui/progress";
 import { ocrBytes, ocrStep } from "./ocr/pipeline";
 import { startWatching, openWatchPanel } from "./ui/watch";
 import { showCheckReport } from "./ui/check";
+import { showAltTextDialog } from "./ui/accessibility";
 import type { WatchFs } from "./automation/watch";
 
 const engine = createEngine();
@@ -1359,9 +1360,59 @@ async function checkDocumentFlow() {
       if (fix === "sanitize") return sanitizeFlow();
       if (fix === "unprotect") return unprotectFlow();
       if (fix === "pdfa") return saveAsPdfa();
+      if (fix === "tag") return makeAccessible().then(recheck);
+      if (fix === "alt") return describeImages().then(recheck);
     },
     () => quickFixes(t).then(recheck),
   );
+}
+/** Tag the document for screen readers, then ask for image descriptions. */
+async function makeAccessible() {
+  if (!active) return;
+  const t = active;
+  const tagged = await engine.isTagged(t.info.id);
+  const navLang = navigator.language || "en-US";
+  const r = await ask(tagged ? "Re-tag for accessibility" : "Make accessible", [
+    { name: "lang", label: "Language of the text", type: "select", value: LANGS.some(([k]) => k === navLang) ? navLang : "en-US", options: LANGS },
+    ...(tagged ? [{ name: "retag", label: "This document already has tags", type: "select" as const, value: "yes", options: [["yes", "Replace them with new tags"], ["no", "Keep them"]] as [string, string][] }] : []),
+  ], tagged ? "Re-tag" : "Tag document");
+  if (!r || r.retag === "no") return;
+  const prog = showProgress("Tagging for accessibility");
+  prog.set(0.3, "Finding headings, lists, tables and images…");
+  try {
+    const rep = await engine.autoTag(t.info.id, { lang: r.lang, retag: tagged });
+    t.info = await engine.info(t.info.id);
+    t.dirty = true;
+    renderTabs();
+    buildView();
+    const parts = [
+      [rep.headings, "heading"], [rep.paragraphs, "paragraph"], [rep.lists, "list"], [rep.tables, "table"], [rep.figures, "image"], [rep.links, "link"], [rep.fields, "form field"],
+    ].filter(([n]) => n).map(([n, w]) => `${n} ${w}${n === 1 ? "" : "s"}`);
+    status(`Tagged ${parts.join(", ") || "the document"}. Headers, footers and decoration are marked to be skipped. Ctrl+Z to undo.`);
+  } catch (e) {
+    prog.close();
+    return status((e as Error).message);
+  }
+  prog.close();
+  if ((await engine.figures(t.info.id)).some((f) => !f.alt.trim())) await describeImages();
+}
+async function describeImages() {
+  if (!active) return;
+  const t = active;
+  if (!(await engine.isTagged(t.info.id))) return status("Tag the document first (Protect › Make accessible); image descriptions live in the tags.");
+  if (!(await engine.figures(t.info.id)).length) return status("No images to describe.");
+  await showAltTextDialog({
+    figures: () => engine.figures(t.info.id),
+    render: (page, scale) => engine.render(t.info.id, page, scale),
+    pageSize: (page) => t.info.pageSizes[page],
+    save: async (changes) => {
+      for (const c of changes) await engine.setFigureAlt(t.info.id, c.key, c.alt);
+      t.dirty = true;
+      renderTabs();
+      const deco = changes.filter((c) => c.alt === null).length;
+      status(`Saved ${changes.length - deco} description${changes.length - deco === 1 ? "" : "s"}${deco ? ` and marked ${deco} image${deco === 1 ? "" : "s"} decorative` : ""}. Ctrl+Z to undo.`);
+    },
+  });
 }
 const LANGS: [string, string][] = [["en-US", "English (US)"], ["en-CA", "English (Canada)"], ["en-GB", "English (UK)"], ["fr-CA", "French (Canada)"], ["fr-FR", "French (France)"], ["es-ES", "Spanish"], ["de-DE", "German"], ["pt-BR", "Portuguese (Brazil)"], ["it-IT", "Italian"], ["nl-NL", "Dutch"]];
 async function quickFixes(t: Tab) {
@@ -1464,6 +1515,8 @@ const commands: Command[] = [
   { id: "tool-ellipse", title: "Ellipse tool", keys: "O", run: () => useTool("ellipse") },
   { id: "tool-arrow", title: "Arrow tool", keys: "A", run: () => useTool("arrow") },
   { id: "tool-ink", title: "Pen tool", keys: "P", run: () => useTool("ink") },
+  { id: "autoTag", title: "Make accessible: tag headings, lists, tables and images for screen readers…", run: () => makeAccessible() },
+  { id: "altText", title: "Describe images (alt text) for screen readers…", run: () => describeImages() },
   { id: "prepareForm", title: "Prepare form: add, move and edit form fields", keys: "Ctrl+Shift+F", run: () => designUI.toggle() },
   { id: "detectFields", title: "Detect form fields: make a flat form fillable automatically", run: () => designUI.detect() },
   { id: "showComments", title: "Show comments", run: () => (showSidePanel("comments"), annot.refreshComments()) },

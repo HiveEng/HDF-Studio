@@ -1,10 +1,11 @@
 // Document check (preflight): PDF/A archiving rules, accessibility basics and security findings,
 // each with a plain-language explanation and, where possible, a one-click fix.
 import * as mupdf from "mupdf";
+import { listFigures } from "./autotag";
 import { pagesWithoutText } from "./ocr";
 
 export type Area = "PDF/A" | "Accessibility" | "Security";
-export type Fix = "title" | "lang" | "displayTitle" | "tabs" | "ocr" | "sanitize" | "unprotect" | "pdfa";
+export type Fix = "title" | "lang" | "displayTitle" | "tabs" | "ocr" | "sanitize" | "unprotect" | "pdfa" | "tag" | "alt";
 export interface Issue {
   id: string;
   area: Area;
@@ -125,7 +126,11 @@ export function checkDocument(doc: mupdf.PDFDocument, encrypted: boolean): Check
   // --- Accessibility ---
   const marked = at(root, "MarkInfo", "Marked");
   const tagged = !root.get("StructTreeRoot").isNull() && marked.isBoolean() && marked.asBoolean();
-  if (!tagged) add({ id: "ua-tags", area: "Accessibility", level: "error", text: "Not tagged: screen readers can't tell headings, paragraphs and tables apart. Re-export from the source document (Word: Save as PDF with 'Document structure tags') to fix." });
+  if (!tagged) add({ id: "ua-tags", area: "Accessibility", level: "error", text: "Not tagged: screen readers can't tell headings, paragraphs, lists and tables apart.", fix: "tag" });
+  else {
+    const noAlt = listFigures(doc).filter((f) => !f.alt.trim());
+    if (noAlt.length) add({ id: "ua-alt", area: "Accessibility", level: "error", text: `${noAlt.length} image${noAlt.length === 1 ? " has" : "s have"} no description (alt text).`, pages: [...new Set(noAlt.map((f) => f.page + 1))], fix: "alt" });
+  }
   const title = doc.getMetaData("info:Title") ?? "";
   if (!title.trim()) add({ id: "ua-title", area: "Accessibility", level: "error", text: "No document title.", fix: "title" });
   const vp = at(root, "ViewerPreferences", "DisplayDocTitle");

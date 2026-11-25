@@ -10,6 +10,7 @@ import * as forms from "./forms";
 import * as design from "./formdesign";
 import * as digisign from "./digisign";
 import * as tsa from "./tsa";
+import * as autotag from "./autotag";
 import * as edit from "./edit";
 import * as ocr from "./ocr";
 import * as cmp from "./compare";
@@ -524,6 +525,30 @@ export class Engine {
 
   fieldNames(id: number): string[] {
     return [...design.fieldNames(this.pdf(id))];
+  }
+
+  // Accessibility tagging
+  autoTag(id: number, o?: autotag.TagOptions): autotag.TagReport {
+    if (this.hasSignatures(id)) throw new Error("Tagging rewrites page content, which would break the digital signatures in this file. Tag the document before signing it.");
+    const r = this.op(id, "Tag for accessibility", () => autotag.autoTag(this.pdf(id), o));
+    this.dropTextCache(id);
+    return r;
+  }
+
+  isTagged(id: number): boolean {
+    return autotag.isTagged(this.pdf(id));
+  }
+
+  figures(id: number): autotag.FigureInfo[] {
+    return autotag.listFigures(this.pdf(id));
+  }
+
+  setFigureAlt(id: number, key: number, alt: string | null): void {
+    this.op(id, alt === null ? "Mark image decorative" : "Set alt text", () => autotag.setFigureAlt(this.pdf(id), key, alt));
+  }
+
+  tagOutline(id: number) {
+    return autotag.tagOutline(this.pdf(id));
   }
 
   fields(id: number): forms.FieldInfo[] {

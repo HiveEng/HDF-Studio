@@ -76,6 +76,8 @@ Usage:
                                                     (originals move to <folder>/processed unless --keep)
   hdfstudio comments <file.pdf> [reviews.pdf|.xfdf ...] [-o out.pdf] [--xfdf out.xfdf]
                                                     List comments with replies and status; merge reviewers' copies
+  hdfstudio tag <files|folders...> [--lang en-US] [--retag] [-o dir]
+                                                    Tag for accessibility (headings, lists, tables, images)
   hdfstudio check <files|folders...> [--json]           PDF/A, accessibility and security check (exit 1 on errors)
   hdfstudio pdfa <files|folders...> [-o dir]            Convert to PDF/A-2b for archiving (needs Ghostscript)
   hdfstudio recipes                                     List built-in recipes and step types
@@ -96,7 +98,7 @@ type Args = { _: string[]; flags: Record<string, string | boolean>; steps: strin
 function parseArgs(argv: string[]): Args {
   const a: Args = { _: [], flags: {}, steps: [] };
   const alias: Record<string, string> = { o: "out", r: "recursive", q: "quiet", h: "help" };
-  const bools = new Set(["recursive", "quiet", "help", "csv", "bookmarks", "dry-run", "continue-bates", "flatten", "each", "all", "json", "text-only", "keep"]);
+  const bools = new Set(["retag", "recursive", "quiet", "help", "csv", "bookmarks", "dry-run", "continue-bates", "flatten", "each", "all", "json", "text-only", "keep"]);
   for (let i = 0; i < argv.length; i++) {
     const t = argv[i];
     if (t.startsWith("-") && t !== "-") {
@@ -509,6 +511,30 @@ export async function main(argv: string[]): Promise<number> {
         log(`XFDF: ${args.flags.xfdf}`);
       }
       return 0;
+    }
+    case "tag": {
+      const files = collect(rest, recursive);
+      if (!files.length) throw new Error("usage: hdfstudio tag <files|folders...> [--lang en-US] [-o dir]");
+      let failed = 0;
+      for (const f of files) {
+        try {
+          const d = e.open(readFileSync(f), basename(f));
+          if (d.needsPassword) throw new Error("password protected");
+          const r = e.autoTag(d.id, { lang: args.flags.lang as string | undefined, retag: !!args.flags.retag });
+          const dir = (args.flags.out as string) ?? join(dirname(f), "hdfstudio-out");
+          mkdirSync(dir, { recursive: true });
+          const target = join(dir, basename(f));
+          if (resolve(target) === resolve(f)) throw new Error("output would overwrite the input; use -o");
+          writeFileSync(target, e.save(d.id));
+          const noAlt = e.figures(d.id).filter((x) => !x.alt).length;
+          log(`✓ ${f}: ${r.headings} headings, ${r.paragraphs} paragraphs, ${r.lists} lists, ${r.tables} tables, ${r.figures} images${noAlt ? ` (${noAlt} need a description: open in HDF Studio › Describe images)` : ""} -> ${target}`);
+          e.close(d.id);
+        } catch (err) {
+          failed++;
+          console.error(`✗ ${f}: ${(err as Error).message}`);
+        }
+      }
+      return failed ? 1 : 0;
     }
     case "check": {
       const files = collect(rest, recursive);

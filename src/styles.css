@@ -390,3 +390,13 @@ body.designing .page .field { display: none; }
 .fd-suggest.off { border-color: var(--border-strong); background: rgba(128, 128, 128, .06); }
 .fd-suggest.off .fd-name { background: #8a8c8e; text-decoration: line-through; }
 .fd-ghost { border-style: dashed; pointer-events: none; }
+
+/* ---------- Alt text dialog ---------- */
+.modal.alt-dialog { width: min(640px, 94vw); max-height: 86vh; }
+.alt-dialog > p { margin: 0; font-size: 12.5px; }
+.alt-list { overflow: auto; display: grid; gap: 10px; padding-right: 4px; }
+.alt-row { display: grid; grid-template-columns: 150px 1fr; gap: 12px; align-items: start; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); }
+.alt-thumb { max-width: 140px; max-height: 100px; background: #fff; border: 1px solid var(--border); justify-self: center; }
+.alt-fields { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; }
+.alt-fields textarea { font: inherit; resize: vertical; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border-strong); background: var(--panel); color: inherit; }
+.modal label.alt-deco { flex-direction: row; align-items: center; gap: 6px; }

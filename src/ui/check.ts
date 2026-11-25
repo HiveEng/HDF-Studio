@@ -10,6 +10,8 @@ const FIX_LABEL: Record<Fix, string> = {
   sanitize: "Remove",
   unprotect: "Remove password",
   pdfa: "Save as PDF/A",
+  tag: "Tag automatically",
+  alt: "Describe images",
 };
 const AREA_HINT: Record<Area, string> = {
   "PDF/A": "Long-term archiving (ISO 19005)",

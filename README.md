@@ -82,6 +82,7 @@ npm run hdfstudio -- compare contract-v1.pdf contract-v2.pdf -o changes.pdf
 npm run hdfstudio -- make-fillable ./paper-forms -o ./fillable   # detect fields on flat forms
 npm run hdfstudio -- comments draft.pdf review-ann.pdf review-bob.xfdf -o merged.pdf   # combine reviewers' comments
 npm run hdfstudio -- watch "D:/Scans/Inbox" --recipe "Make scans searchable"   # runs until Ctrl+C
+npm run hdfstudio -- tag ./reports -o ./accessible --lang en-CA   # tag for screen readers
 npm run hdfstudio -- check ./outgoing -r                # PDF/A, accessibility and security report
 npm run hdfstudio -- pdfa ./to-archive -o ./archive      # PDF/A-2b (needs Ghostscript)
 npm run hdfstudio -- recipes          # list built-in recipes and step types
@@ -126,5 +127,5 @@ npm run hdfstudio -- recipes          # list built-in recipes and step types
 | 8 | Create & convert | Images, XPS, EPUB, HTML, text to PDF; PDF to Word, images, text, HTML, SVG; Office files via optional LibreOffice | Done |
 | 9 | OCR | Make scanned PDFs searchable (invisible text layer), 44 languages (English bundled; others download once, then work offline; two at a time for mixed documents), any script searchable including Arabic, Hebrew, CJK and Indic, scan detection on open, batch and CLI OCR | Done |
 | 10 | Compare | Word-level diff across the whole document (reflowed text isn't flagged), pixel diff for images and drawings, changes marked as comments with a clickable list, CLI report | Done |
-| 11 | Compliance | Document check (PDF/A, accessibility, security) with one-click fixes; PDF/A-2b conversion via optional Ghostscript plus a built-in sRGB output intent | Done (auto-tagging later) |
+| 11 | Compliance & accessibility | Document check (PDF/A, accessibility, security) with one-click fixes; Make accessible: automatic tagging (headings by size, paragraphs, lists, ruled tables with header rows, figures, links, form fields; running headers, footers and decoration as artifacts; reading order, language, title, tab order) plus an alt-text review with previews; PDF/A-2b via optional Ghostscript plus a built-in sRGB output intent; `hdfstudio tag` and a batch recipe step | Done |
 | 12 | Collaboration | Review threads and status (Accepted, Rejected, Completed…), status and reviewer filters, merge reviewers' PDF copies or XFDF files without duplicates, `hdfstudio comments` CLI | Done (live shared review server later) |
