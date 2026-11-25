@@ -61,6 +61,8 @@ Usage:
   hdfstudio watch <folder> --recipe <name|file.json> [-o dir] [--keep] [--interval 3]
                                                     Keep running: process every PDF dropped into the folder
                                                     (originals move to <folder>/processed unless --keep)
+  hdfstudio check <files|folders...> [--json]           PDF/A, accessibility and security check (exit 1 on errors)
+  hdfstudio pdfa <files|folders...> [-o dir]            Convert to PDF/A-2b for archiving (needs Ghostscript)
   hdfstudio recipes                                     List built-in recipes and step types
   hdfstudio run <recipe> <files|folders...> [options]   Apply a recipe to every PDF
       <recipe> is a built-in name (quotes or a unique prefix), a .json file, or "-" to use --step only
@@ -136,6 +138,30 @@ function officeToPdf(file: string): Uint8Array {
       } catch { /* try next */ }
     }
     throw new Error(`${file}: converting Office files needs LibreOffice (set SOFFICE to its path if it isn't found)`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** Ghostscript, for PDF/A conversion (optional, like LibreOffice for Office files). */
+function ghostscript(): string {
+  const pf = ["C:/Program Files/gs", "C:/Program Files (x86)/gs"].flatMap((d) => (existsSync(d) ? readdirSync(d).sort().reverse().map((v) => join(d, v, "bin", "gswin64c.exe")) : []));
+  for (const bin of [process.env.GS, ...pf, "gswin64c", "gswin32c", "gs"].filter(Boolean) as string[]) {
+    try {
+      execFileSync(bin, ["--version"], { stdio: "ignore" });
+      return bin;
+    } catch { /* next */ }
+  }
+  throw new Error("PDF/A conversion needs Ghostscript (ghostscript.com); set GS to its path if it isn't found");
+}
+
+/** Ghostscript's PDF/A-2b conversion, before HDF Studio adds the output intent. */
+export function gsPdfa(input: Uint8Array): Uint8Array {
+  const dir = mkdtempSync(join(tmpdir(), "hdfstudio-"));
+  try {
+    writeFileSync(join(dir, "in.pdf"), input);
+    execFileSync(ghostscript(), ["-q", "-dPDFA=2", "-dBATCH", "-dNOPAUSE", "-dNOOUTERSAVE", "-sColorConversionStrategy=RGB", "-sDEVICE=pdfwrite", "-dPDFACompatibilityPolicy=1", `-sOutputFile=${join(dir, "out.pdf")}`, join(dir, "in.pdf")], { stdio: "ignore", timeout: 600_000 });
+    return readFileSync(join(dir, "out.pdf"));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -408,6 +434,57 @@ export async function main(argv: string[]): Promise<number> {
         }
         await new Promise((r) => setTimeout(r, every));
       }
+    }
+    case "check": {
+      const files = collect(rest, recursive);
+      if (!files.length) throw new Error("usage: hdfstudio check <files|folders...>");
+      let bad = 0;
+      const all: Record<string, unknown> = {};
+      for (const f of files) {
+        const d = e.open(readFileSync(f), basename(f));
+        if (d.needsPassword) {
+          console.error(`✗ ${f}: password protected`);
+          bad++;
+          continue;
+        }
+        const r = e.checkDocument(d.id);
+        e.close(d.id);
+        if (args.flags.json) all[f] = r;
+        else {
+          const verdict = (["PDF/A", "Accessibility", "Security"] as const).map((a) => `${a} ${r.passes[a] ? "✓" : "✗"}`).join("  ");
+          log(`${f}: ${verdict}${r.pdfaClaim ? `  (claims PDF/A-${r.pdfaClaim})` : ""}`);
+          for (const i of r.issues) log(`   ${i.level === "error" ? "✗" : "!"} [${i.area}] ${i.text}`);
+        }
+        if (r.issues.some((i) => i.level === "error")) bad++;
+      }
+      if (args.flags.json) console.log(JSON.stringify(all, null, 2));
+      return bad ? 1 : 0;
+    }
+    case "pdfa": {
+      const files = collect(rest, recursive);
+      if (!files.length) throw new Error("usage: hdfstudio pdfa <files|folders...> [-o dir]");
+      let failed = 0;
+      for (const f of files) {
+        const dir = (args.flags.out as string) ?? join(dirname(f), "hdfstudio-out");
+        try {
+          const src = readFileSync(f);
+          const d = e.open(src, basename(f));
+          const out = e.finishPdfa(gsPdfa(src), d.id);
+          e.close(d.id);
+          mkdirSync(dir, { recursive: true });
+          const target = join(dir, basename(f));
+          if (resolve(target) === resolve(f)) throw new Error("output would overwrite the input; use -o");
+          writeFileSync(target, out);
+          const c = e.open(out, basename(f));
+          const r = e.checkDocument(c.id);
+          e.close(c.id);
+          log(`✓ ${f} -> ${target}  (PDF/A ${r.passes["PDF/A"] ? "check passed" : "check: " + r.issues.filter((i) => i.area === "PDF/A").map((i) => i.id).join(", ")})`);
+        } catch (err) {
+          failed++;
+          console.error(`✗ ${f}: ${(err as Error).message}`);
+        }
+      }
+      return failed ? 1 : 0;
     }
     case "recipes": {
       console.log("Built-in recipes:");

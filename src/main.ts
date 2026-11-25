@@ -13,6 +13,7 @@ import { openBatch, type BatchDeps } from "./ui/batch";
 import { showProgress } from "./ui/progress";
 import { ocrBytes, ocrStep } from "./ocr/pipeline";
 import { startWatching, openWatchPanel } from "./ui/watch";
+import { showCheckReport } from "./ui/check";
 import type { WatchFs } from "./automation/watch";
 
 const engine = createEngine();
@@ -1275,6 +1276,68 @@ async function unprotectFlow() {
 }
 annot.onRedactions(updateRedactButton);
 
+// ---------- Document check (PDF/A, accessibility) ----------
+async function checkDocumentFlow() {
+  if (!active) return;
+  const t = active;
+  const r = await engine.checkDocument(t.info.id);
+  const recheck = async () => {
+    if (t === active) await checkDocumentFlow();
+  };
+  showCheckReport(
+    t.name,
+    r,
+    async (fix) => {
+      if (fix === "title" || fix === "lang" || fix === "displayTitle" || fix === "tabs") return quickFixes(t).then(recheck);
+      if (fix === "ocr") {
+        await recognizeText(await engine.pagesWithoutText(t.info.id));
+        return recheck();
+      }
+      if (fix === "sanitize") return sanitizeFlow();
+      if (fix === "unprotect") return unprotectFlow();
+      if (fix === "pdfa") return saveAsPdfa();
+    },
+    () => quickFixes(t).then(recheck),
+  );
+}
+const LANGS: [string, string][] = [["en-US", "English (US)"], ["en-CA", "English (Canada)"], ["en-GB", "English (UK)"], ["fr-CA", "French (Canada)"], ["fr-FR", "French (France)"], ["es-ES", "Spanish"], ["de-DE", "German"], ["pt-BR", "Portuguese (Brazil)"], ["it-IT", "Italian"], ["nl-NL", "Dutch"]];
+async function quickFixes(t: Tab) {
+  const navLang = navigator.language || "en-US";
+  const r = await ask("Title, language and tab order", [
+    { name: "title", label: "Document title", value: t.info.title ?? t.name.replace(/\.pdf$/i, ""), hint: "Shown in the window and read out by screen readers." },
+    { name: "lang", label: "Language of the text", type: "select", value: LANGS.some(([k]) => k === navLang) ? navLang : "en-US", options: LANGS },
+  ], "Apply");
+  if (!r) return;
+  t.info = await engine.applyFixes(t.info.id, { title: r.title.trim(), lang: r.lang, displayTitle: true, tabs: true });
+  t.dirty = true;
+  renderTabs();
+  status("Title, language, title display and tab order set. Ctrl+Z to undo.");
+}
+async function saveAsPdfa() {
+  if (!active) return;
+  const t = active;
+  if (!isTauri) return status("PDF/A conversion uses Ghostscript and runs in the desktop app or with: hdfstudio pdfa <file>");
+  const { invoke } = await import("@tauri-apps/api/core");
+  if (!(await invoke<boolean>("ghostscript_available"))) return status("PDF/A conversion needs Ghostscript. Install it from ghostscript.com (free), then try again.");
+  const prog = showProgress("Converting to PDF/A");
+  try {
+    prog.set(0.2, "Embedding fonts and colour profile…");
+    const bytes = await engine.save(t.info.id, "garbage");
+    const converted = new Uint8Array(await invoke<number[]>("pdfa_convert", { data: Array.from(bytes) }));
+    prog.set(0.8, "Checking the result…");
+    const out = await engine.finishPdfa(converted, t.info.id);
+    const info = await engine.open(out, "pdfa.pdf");
+    addTab(info, t.name.replace(/\.pdf$/i, "") + " (PDF-A).pdf", null, true);
+    buildView();
+    prog.close();
+    await checkDocumentFlow();
+    status("Converted to PDF/A-2b. Save it to keep it (Ctrl+S). Note: accessibility tags aren't carried over by the conversion.");
+  } catch (e) {
+    prog.close();
+    status(`PDF/A conversion failed: ${(e as Error).message ?? e}`);
+  }
+}
+
 // ---------- Theme ----------
 function setTheme(dark: boolean) {
   document.documentElement.classList.toggle("dark", dark);
@@ -1365,6 +1428,9 @@ const commands: Command[] = [
   { id: "ocr", title: "Recognize text (OCR): make scanned pages searchable…", keys: "Ctrl+Shift+O", run: () => recognizeText() },
   { id: "ocrPage", title: "Recognize text on this page (OCR)", run: () => active && recognizeText([active.page]) },
   { id: "compare", title: "Compare files: find what changed between two versions…", keys: "Ctrl+Shift+C", run: () => compareFiles() },
+  { id: "checkDoc", title: "Check document: PDF/A, accessibility and security…", run: () => checkDocumentFlow() },
+  { id: "saveAsPdfa", title: "Save as PDF/A (archiving)…", run: () => saveAsPdfa() },
+  { id: "fixProps", title: "Set title, language and tab order (accessibility)…", run: () => active && quickFixes(active) },
   { id: "watchFolders", title: "Watch folders: process PDFs dropped into a folder automatically…", run: () => openWatchPanel() },
   { id: "palette", title: "Show all commands", keys: "Ctrl+K", run: () => openPalette() },
 ];

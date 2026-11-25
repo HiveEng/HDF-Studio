@@ -8,7 +8,7 @@ import {
   ImagePlus, Replace, ImageDown, Stamp, FileInput, FilePlus2, Copy, Trash2, RotateCcw, RotateCw, ArrowUpDown,
   LayoutGrid, Merge, FileOutput, Scissors, Signature, PenLine, BadgeCheck, FileKey, ShieldCheck, Sheet,
   FileSpreadsheet, Eraser, SquareDashed, ScanSearch, Shredder, Lock, LockOpen, File, FileDown, Workflow, ListChecks,
-  MoveHorizontal, Maximize, PanelLeft, Search, ScanText, ScanLine, GitCompare, FolderSync,
+  MoveHorizontal, Maximize, PanelLeft, Search, ScanText, ScanLine, GitCompare, FolderSync, ClipboardCheck, Archive, Languages,
 } from "lucide";
 
 export function icon(node: IconNode, size = 18): SVGElement {
@@ -147,6 +147,11 @@ export const TASKS: Task[] = [
         { cmd: "findRedact", label: "Find & redact", icon: ScanSearch, big: true },
         { cmd: "applyRedactions", label: "Apply", icon: ShieldCheck, big: true },
       ] },
+      { label: "Compliance", items: [
+        { cmd: "checkDoc", label: "Check document", icon: ClipboardCheck, big: true, hint: "PDF/A, accessibility and security" },
+        { cmd: "saveAsPdfa", label: "Save as PDF/A", icon: Archive, big: true, hint: "For long-term archiving (needs Ghostscript)" },
+        { cmd: "fixProps", label: "Title & language", icon: Languages },
+      ] },
       { label: "Security", items: [
         { cmd: "protect", label: "Password", icon: Lock, big: true },
         { cmd: "unprotect", label: "Remove password", icon: LockOpen },
@@ -164,6 +169,9 @@ export const TASKS: Task[] = [
       ] },
       { label: "Scans", items: [
         { cmd: "ocr", label: "Recognize text", icon: ScanText, big: true, hint: "OCR: make scanned pages searchable and copyable" },
+      ] },
+      { label: "Archive", items: [
+        { cmd: "saveAsPdfa", label: "PDF/A", icon: Archive, big: true, hint: "For long-term archiving (needs Ghostscript)" },
       ] },
       { label: "Export", items: [
         { cmd: "exportAs", label: "Export", icon: FileDown, big: true, hint: "Word, PNG/JPEG images, HTML, text or SVG" },

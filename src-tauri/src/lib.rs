@@ -51,6 +51,64 @@ async fn office_to_pdf(name: String, data: Vec<u8>) -> Result<Vec<u8>, String> {
     result
 }
 
+/// Find Ghostscript (used for PDF/A conversion). Newest installed version first on Windows.
+fn find_gs() -> Option<std::path::PathBuf> {
+    if let Ok(p) = std::env::var("GS") {
+        let p = std::path::PathBuf::from(p);
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    let mut candidates: Vec<std::path::PathBuf> = vec![];
+    for var in ["ProgramFiles", "ProgramFiles(x86)"] {
+        if let Ok(dir) = std::env::var(var) {
+            let root = std::path::Path::new(&dir).join("gs");
+            if let Ok(entries) = std::fs::read_dir(&root) {
+                let mut versions: Vec<_> = entries.filter_map(|e| e.ok()).map(|e| e.path()).collect();
+                versions.sort();
+                versions.reverse();
+                for v in versions {
+                    candidates.push(v.join("bin").join("gswin64c.exe"));
+                    candidates.push(v.join("bin").join("gswin32c.exe"));
+                }
+            }
+        }
+    }
+    for p in ["/opt/homebrew/bin/gs", "/usr/local/bin/gs", "/usr/bin/gs"] {
+        candidates.push(p.into());
+    }
+    candidates.into_iter().find(|p| p.exists())
+}
+
+#[tauri::command]
+fn ghostscript_available() -> bool {
+    find_gs().is_some()
+}
+
+/// Convert a PDF to PDF/A-2b with Ghostscript. The app then adds the colour profile and properties.
+#[tauri::command]
+async fn pdfa_convert(data: Vec<u8>) -> Result<Vec<u8>, String> {
+    let gs = find_gs().ok_or("PDF/A conversion needs Ghostscript. Install it from ghostscript.com, then try again.")?;
+    let dir = std::env::temp_dir().join(format!("hdfstudio-pdfa-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)));
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let input = dir.join("in.pdf");
+    let output = dir.join("out.pdf");
+    std::fs::write(&input, &data).map_err(|e| e.to_string())?;
+    let mut cmd = std::process::Command::new(gs);
+    cmd.args(["-q", "-dPDFA=2", "-dBATCH", "-dNOPAUSE", "-dNOOUTERSAVE", "-sColorConversionStrategy=RGB", "-sDEVICE=pdfwrite", "-dPDFACompatibilityPolicy=1"])
+        .arg(format!("-sOutputFile={}", output.display()))
+        .arg(&input);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW: no console flashing up
+    }
+    let status = cmd.status().map_err(|e| e.to_string())?;
+    let result = if status.success() && output.exists() { std::fs::read(&output).map_err(|e| e.to_string()) } else { Err("Ghostscript could not convert this file".into()) };
+    let _ = std::fs::remove_dir_all(&dir);
+    result
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -64,7 +122,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![startup_files, office_available, office_to_pdf])
+        .invoke_handler(tauri::generate_handler![startup_files, office_available, office_to_pdf, ghostscript_available, pdfa_convert])
         .run(tauri::generate_context!())
         .expect("error while running HDF Studio");
 }

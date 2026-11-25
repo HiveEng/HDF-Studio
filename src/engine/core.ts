@@ -11,6 +11,8 @@ import * as digisign from "./digisign";
 import * as edit from "./edit";
 import * as ocr from "./ocr";
 import * as cmp from "./compare";
+import * as check from "./check";
+import { srgbIcc } from "./icc";
 import * as convert from "./convert";
 export { safeName };
 
@@ -553,6 +555,29 @@ export class Engine {
     const r = this.op(id, "Add text", () => edit.addText(this.pdf(id), pageIndex, at, text, style));
     this.dropTextCache(id);
     return r;
+  }
+
+  // ---------- Document check & PDF/A ----------
+  checkDocument(id: number): check.CheckReport {
+    return check.checkDocument(this.pdf(id), this.isEncrypted(id));
+  }
+
+  /** Title, language, title display and tab order fixes, as one undo step. */
+  applyFixes(id: number, f: { title?: string; lang?: string; displayTitle?: boolean; tabs?: boolean }): DocInfo {
+    this.op(id, "Fix document properties", () => check.applyFixes(this.pdf(id), f));
+    return this.info(id);
+  }
+
+  /** Complete a Ghostscript PDF/A file (output intent, language…), copying properties from the original. */
+  finishPdfa(converted: Uint8Array, originalId?: number): Uint8Array {
+    const doc = mupdf.Document.openDocument(converted, "pdf").asPDF();
+    if (!doc) throw new Error("Ghostscript did not produce a PDF");
+    try {
+      check.finishPdfa(doc, originalId === undefined ? null : this.pdf(originalId), srgbIcc());
+      return doc.saveToBuffer("garbage").asUint8Array();
+    } finally {
+      doc.destroy();
+    }
   }
 
   // ---------- Compare ----------

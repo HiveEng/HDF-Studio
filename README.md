@@ -80,6 +80,8 @@ npm run hdfstudio -- ocr ./scans -r -o ./searchable     # make scanned PDFs sear
 npm run hdfstudio -- run "OCR scans, then redact" ./scans -o ./clean
 npm run hdfstudio -- compare contract-v1.pdf contract-v2.pdf -o changes.pdf
 npm run hdfstudio -- watch "D:/Scans/Inbox" --recipe "Make scans searchable"   # runs until Ctrl+C
+npm run hdfstudio -- check ./outgoing -r                # PDF/A, accessibility and security report
+npm run hdfstudio -- pdfa ./to-archive -o ./archive      # PDF/A-2b (needs Ghostscript)
 npm run hdfstudio -- recipes          # list built-in recipes and step types
 ```
 
@@ -121,5 +123,5 @@ npm run hdfstudio -- recipes          # list built-in recipes and step types
 | 8 | Create & convert | Images, XPS, EPUB, HTML, text to PDF; PDF to Word, images, text, HTML, SVG; Office files via optional LibreOffice | Done |
 | 9 | OCR | Make scanned PDFs searchable (invisible text layer), offline English bundled, scan detection on open, batch and CLI OCR | Done (more languages next) |
 | 10 | Compare | Word-level diff across the whole document (reflowed text isn't flagged), pixel diff for images and drawings, changes marked as comments with a clickable list, CLI report | Done |
-| 11 | Compliance | PDF/A conversion and checks, accessibility checks, audit log of batch runs | Later phase |
+| 11 | Compliance | Document check (PDF/A, accessibility, security) with one-click fixes; PDF/A-2b conversion via optional Ghostscript plus a built-in sRGB output intent | Done (auto-tagging later) |
 | 12 | Collaboration | Shared review threads on comments, review status | Later phase |
