@@ -306,9 +306,14 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 .page textarea.field { resize: none; }
 .page input.field-checkbox, .page input.field-radiobutton { accent-color: var(--accent); padding: 0; }
 .page button.field-signature { background: rgba(255, 236, 179, .95); border: 1px dashed #b7791f; color: #7a4d00; font-size: calc(var(--z, 1) * 10px); cursor: pointer; }
-.sig canvas { width: 100%; aspect-ratio: 560 / 180; border: 1px dashed var(--border); border-radius: 8px; background: #fff; touch-action: none; cursor: crosshair; }
+.sig canvas { width: 100%; aspect-ratio: 1120 / 360; border: 1px dashed var(--border); border-radius: 8px; background: #fff; touch-action: none; cursor: crosshair; }
 .sig .sig-type { display: flex; gap: 6px; }
 .sig .sig-type input { flex: 1; }
+.sig .sig-image { display: grid; gap: 4px; }
+.modal .sig-image label { display: flex; flex-direction: row; align-items: center; gap: 6px; font-size: 13px; margin: 0; }
+.modal .sig-image label input { width: auto; margin: 0; }
+.sig .sig-error { color: var(--danger); font-size: 13px; }
+.sig canvas { background: #fff repeating-conic-gradient(#f1f2f3 0 25%, #fff 0 50%) 0 0 / 16px 16px; }
 .modal.sig { width: min(620px, 94vw); }
 #sigbanner { position: sticky; top: 0; z-index: 5; padding: 6px 12px; font-size: 13px; cursor: pointer; }
 #sigbanner.good { background: #def7ec; color: #03543f; border-bottom: 1px solid #84e1bc; }
