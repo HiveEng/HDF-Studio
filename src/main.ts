@@ -6,6 +6,8 @@ import { OCR_LANGUAGES, BUNDLED_LANGS, langSource } from "./ocr/languages";
 import { setupAnnotate, type Tool } from "./ui/annotate";
 import { setupEngineering, ENG_TOOLS, type EngTool } from "./ui/engineering";
 import { setupChest } from "./ui/chest";
+import { setupFindReplace } from "./ui/findreplace";
+import { setupSpell } from "./ui/spell";
 import { openSettings } from "./ui/settings";
 import { setupNav } from "./ui/navpanels";
 import { showMenu, type MenuItem } from "./ui/contextmenu";
@@ -480,7 +482,7 @@ viewer.addEventListener("drop", async (e) => {
 });
 
 // ---------- Sidebar ----------
-const SIDE_TITLES: Record<string, string> = { thumbs: "Pages", outline: "Bookmarks", results: "Search results", comments: "Comments", attach: "Attached files", layers: "Layers", chest: "Tool chest" };
+const SIDE_TITLES: Record<string, string> = { thumbs: "Pages", outline: "Bookmarks", results: "Search results", comments: "Comments", attach: "Attached files", layers: "Layers", chest: "Tool chest", spell: "Spelling" };
 function showSidePanel(name: string) {
   $("main").classList.remove("no-sidebar");
   $("#thumb-tools").classList.toggle("hidden", name !== "thumbs");
@@ -1288,6 +1290,42 @@ navUI = setupNav({
   openUrl: (url) => void openExternal(url),
 });
 
+// ---------- Find and replace, spelling ----------
+function textChanged(pages: number[], label: string) {
+  if (!active) return;
+  editUI.invalidate();
+  for (const p of pages) refreshPage(p);
+  active.dirty = true;
+  renderTabs();
+  status(`${label}. Ctrl+Z to undo.`);
+}
+const findReplace = setupFindReplace({
+  engine,
+  doc: () => active,
+  showMatches: (hits, index) => {
+    if (!active) return;
+    active.hits = hits;
+    active.hitIndex = index;
+    drawHighlights();
+    renderResults();
+    if (index >= 0) focusHit();
+  },
+  afterReplace: textChanged,
+  status,
+});
+const spell = setupSpell({
+  engine,
+  doc: () => active,
+  el: $("#side-spell"),
+  show: () => showSidePanel("spell"),
+  goTo: (p) => goToPage(p),
+  afterChange: (pages, label, comments) => {
+    textChanged(pages, label);
+    if (comments) annot.refreshComments();
+  },
+  status,
+});
+
 // ---------- Tool chest & markup list ----------
 function startEng(t: EngTool) {
   chestUI?.release();
@@ -1820,6 +1858,8 @@ const commands: Command[] = [
   { id: "nextTab", title: "Next tab", keys: "Ctrl+Tab", run: () => tabs.length > 1 && switchTab(tabs[(tabs.indexOf(active!) + 1) % tabs.length]) },
   { id: "prevTab", title: "Previous tab", keys: "Ctrl+Shift+Tab", run: () => tabs.length > 1 && switchTab(tabs[(tabs.indexOf(active!) - 1 + tabs.length) % tabs.length]) },
   { id: "find", title: "Find in document", keys: "Ctrl+F", run: () => (searchInput.focus(), searchInput.select()) },
+  { id: "findReplace", title: "Find and replace text…", keys: "Ctrl+H", run: () => findReplace.open(searchInput.value || undefined) },
+  { id: "spellCheck", title: "Check spelling (comments and page text)", keys: "F7", run: () => void spell.check() },
   { id: "nextHit", title: "Next match", keys: "F3", run: () => stepHit(1) },
   { id: "prevHit", title: "Previous match", keys: "Shift+F3", run: () => stepHit(-1) },
   { id: "zoomIn", title: "Zoom in", keys: "Ctrl+=", run: () => stepZoom(1) },

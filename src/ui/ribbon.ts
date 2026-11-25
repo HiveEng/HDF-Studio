@@ -10,7 +10,7 @@ import {
   FileSpreadsheet, Eraser, SquareDashed, ScanSearch, Shredder, Lock, LockOpen, File, FileDown, Workflow, ListChecks,
   MoveHorizontal, Maximize, PanelLeft, Search, ScanText, ScanLine, GitCompare, FolderSync, ClipboardCheck, Archive, Languages, Users, Printer, FormInput, WandSparkles, Accessibility, Images,
   Cloud, MessageSquareQuote, Spline, Pentagon, Ruler, RulerDimensionLine, DraftingCompass, Hash, Scaling, Crosshair, Waypoints, LandPlot, Settings, Split, Link, BookmarkPlus, Paperclip, Layers2,
-  Toolbox,
+  Toolbox, SpellCheck,
 } from "lucide";
 
 export function icon(node: IconNode, size = 18): SVGElement {
@@ -92,6 +92,7 @@ export const TASKS: Task[] = [
         { cmd: "showComments", label: "Comments", icon: MessagesSquare, big: true },
         { cmd: "mergeReviews", label: "Merge reviews", icon: Users, big: true, hint: "Bring in comments from reviewers' copies or XFDF files" },
         { cmd: "compare", label: "Compare files", icon: GitCompare, big: true, hint: "Find every change between two versions" },
+        { cmd: "spellCheck", label: "Spelling", icon: SpellCheck, hint: "Check spelling in comments and text boxes (F7)" },
         { cmd: "exportMarkups", label: "Export list", icon: Sheet, hint: "Every markup and measurement with totals, to Excel or CSV" },
         { cmd: "flatten", label: "Flatten", icon: Layers },
       ] },
@@ -123,6 +124,8 @@ export const TASKS: Task[] = [
       { label: "Content", items: [
         { cmd: "tool-edit", tool: "edit", label: "Edit text & images", icon: SquarePen, big: true },
         { cmd: "textStyle", label: "Text style", icon: CaseSensitive },
+        { cmd: "findReplace", label: "Find & replace", icon: Replace, hint: "Change words throughout the page text and comments (Ctrl+H)" },
+        { cmd: "spellCheck", label: "Spelling", icon: SpellCheck, hint: "Check spelling in comments and page text (F7)" },
       ] },
       { label: "Navigation", items: [
         { cmd: "tool-link", tool: "link", label: "Link", icon: Link, big: true, hint: "Drag a box to link to a page, web address or email" },

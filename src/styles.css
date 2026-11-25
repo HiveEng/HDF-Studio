@@ -468,3 +468,26 @@ body.designing .page .field { display: none; }
 .chest-swatch { grid-row: span 2; width: 14px; height: 14px; border-radius: 3px; align-self: center; border: 1px solid rgba(0, 0, 0, .2); }
 .chest-name { font-size: 13px; }
 .chest-item small { grid-column: 2; color: var(--muted, #777); font-size: 11px; }
+/* Find and replace */
+.find-replace { position: fixed; top: 56px; right: 16px; z-index: 60; width: 320px; padding: 10px 12px; background: var(--panel, #fff); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.18); display: grid; gap: 6px; font-size: 13px; }
+.find-replace.hidden { display: none; }
+.find-replace label { display: grid; gap: 2px; }
+.find-replace input[type=text] { padding: 4px 6px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); color: inherit; }
+.find-replace .fr-head { display: flex; justify-content: space-between; align-items: center; }
+.find-replace .fr-opts { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.find-replace .fr-opts label { display: flex; align-items: center; gap: 4px; }
+.find-replace .fr-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.find-replace .fr-btns button { padding: 4px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); color: inherit; }
+.find-replace .fr-btns button.primary { background: #05C7F2; border-color: #05C7F2; color: #0D0D0D; }
+.find-replace .fr-note { margin: 0; font-size: 11px; }
+/* Spelling */
+.spell-opt { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; margin-left: 8px; }
+.spell-count { margin: 4px 8px; font-size: 12px; }
+.spell-item { border-bottom: 1px solid var(--border); }
+.spell-head { display: grid; grid-template-columns: 1fr auto; width: 100%; text-align: left; padding: 6px 8px; background: none; border: 0; cursor: pointer; color: inherit; }
+.spell-word { font-weight: 600; text-decoration: underline wavy #d91a1a; text-underline-offset: 3px; }
+.spell-head small { color: var(--muted, #777); }
+.spell-ctx { grid-column: 1 / -1; font-size: 12px; color: var(--muted, #777); }
+.spell-item.open { background: rgba(5, 199, 242, .08); }
+.spell-acts { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 8px 8px; }
+.spell-sugg { font-weight: 600; }

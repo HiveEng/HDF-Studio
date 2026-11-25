@@ -711,6 +711,52 @@ export class Engine {
     this.dropTextCache(id);
   }
 
+  /** Find text across pages, by paragraph (so matches across wrapped lines are found). */
+  findText(id: number, find: string, o: edit.FindOptions = {}, pages?: number[]): edit.TextMatch[] {
+    if (!find) return [];
+    const doc = this.get(id);
+    const re = edit.findPattern(find, o);
+    const out: edit.TextMatch[] = [];
+    for (const i of pages ?? [...Array(doc.countPages()).keys()]) {
+      const page = doc.loadPage(i);
+      try {
+        out.push(...edit.findInPage(page, i, re));
+      } finally {
+        page.destroy();
+      }
+    }
+    return out;
+  }
+
+  /** Replace one match (`only`) or every match in the page text. Returns the count. */
+  replaceTextAll(id: number, find: string, replacement: string, o: edit.FindOptions = {}, only?: { page: number; block: number; start: number }): number {
+    if (!find) return 0;
+    const re = edit.findPattern(find, o);
+    const doc = this.pdf(id);
+    // Only touch pages that match, so an empty Replace all leaves no undo step.
+    const pages = only ? [only.page] : [...new Set(this.findText(id, find, o).map((m) => m.page))];
+    if (!pages.length) return 0;
+    const n = this.op(id, only ? "Replace text" : "Replace all", () => pages.reduce((sum, p) => sum + edit.replaceInPage(doc, p, re, replacement, only), 0));
+    this.dropTextCache(id);
+    return n;
+  }
+
+  /** Replace text in comments, text boxes and callouts. Returns the count. */
+  replaceInComments(id: number, find: string, replacement: string, o: edit.FindOptions = {}): number {
+    if (!find) return 0;
+    const re = edit.findPattern(find, o);
+    const hits = this.allAnnotations(id).filter((a) => a.contents && new RegExp(re.source, re.flags).test(a.contents) && !a.groupOf);
+    if (!hits.length) return 0;
+    return this.op(id, "Replace in comments", () => {
+      let n = 0;
+      for (const a of hits) {
+        const text = a.contents.replace(new RegExp(re.source, re.flags), () => (n++, replacement));
+        annots.updateAnnotation(this.pdf(id), a.page, a.key, { contents: text });
+      }
+      return n;
+    });
+  }
+
   addText(id: number, pageIndex: number, at: [number, number], text: string, style: edit.TextStyle): number[] {
     const r = this.op(id, "Add text", () => edit.addText(this.pdf(id), pageIndex, at, text, style));
     this.dropTextCache(id);

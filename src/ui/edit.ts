@@ -219,13 +219,17 @@ export function setupEdit(d: EditDeps) {
     const bbox = block ? block.bbox : [at![0], at![1] - style.size * 0.8, Math.min(pw - 36, at![0] + 240), at![1] + style.size * 1.4];
     const ta = document.createElement("textarea");
     ta.className = "text-editor";
-    ta.value = block?.text ?? "";
+    // Wrapped lines come in as one paragraph, so typing reflows it like a word processor.
+    ta.value = block?.para ?? "";
+    ta.spellcheck = true;
+    ta.lang = "en";
     const family = style.font.split("-")[0];
     Object.assign(ta.style, {
       left: `${(bbox[0] / pw) * 100}%`,
       top: `${(bbox[1] / ph) * 100}%`,
-      minWidth: `${((bbox[2] - bbox[0]) / pw) * 100}%`,
-      width: `${((Math.max(bbox[2] - bbox[0], 60) + 8) / pw) * 100}%`,
+      // Same width as the column (plus the padding), so the lines wrap where they will on the page.
+      width: `${((Math.max(bbox[2] - bbox[0], 60) + (block && block.lines.length > 1 ? 1 : 8)) / pw) * 100}%`,
+      textAlign: style.align === "justify" ? "justify" : (style.align ?? "left"),
       height: `${((bbox[3] - bbox[1] + 4) / ph) * 100}%`,
       fontFamily: CSS_FONT[family] ?? CSS_FONT.Helvetica,
       fontWeight: /Bold/.test(style.font) ? "bold" : "normal",
@@ -269,7 +273,7 @@ export function setupEdit(d: EditDeps) {
     const doc = d.doc();
     if (!doc) return;
     if (block) {
-      if (text === block.text) return;
+      if (text === block.para) return;
       await d.engine.replaceText(doc.info.id, page, block.bbox, text, style);
       after(page, "Edited text");
     } else if (text.trim()) {
