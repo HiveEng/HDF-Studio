@@ -6,6 +6,10 @@ import { Engine } from "../src/engine/core";
 import { runRecipe, parseStep, BUILTIN_RECIPES, STEP_LABELS, type Recipe } from "../src/engine/recipes";
 import { parseRanges } from "../src/engine/ranges";
 import { signPdf, verifySignatures, makeSelfSignedP12 } from "../src/engine/digisign";
+import { canOpen, needsOffice } from "../src/engine/convert";
+import { execFileSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { rmSync, mkdtempSync } from "node:fs";
 
 const HELP = `hdfstudio - batch PDF tools (AGPL-3.0)
 
@@ -25,6 +29,10 @@ Usage:
   hdfstudio verify <files|folders...>                   Validate digital signatures
   hdfstudio make-cert "Your Name" -o me.pfx --password pw [--email you@x.com]
                                                     Create a self-signed certificate
+  hdfstudio convert <files...> -o out.pdf [--size a4|letter|auto] [--each]
+                                                    Images, HTML, text, EPUB, XPS (and Office files via LibreOffice) to PDF
+  hdfstudio export <files|folders...> --to png|jpg|docx|html|txt|svg [--dpi 150] [--pages 1-3] [-o dir]
+                                                    PDF to images, Word, HTML, text or SVG
   hdfstudio recipes                                     List built-in recipes and step types
   hdfstudio run <recipe> <files|folders...> [options]   Apply a recipe to every PDF
       <recipe> is a built-in name (quotes or a unique prefix), a .json file, or "-" to use --step only
@@ -43,7 +51,7 @@ type Args = { _: string[]; flags: Record<string, string | boolean>; steps: strin
 function parseArgs(argv: string[]): Args {
   const a: Args = { _: [], flags: {}, steps: [] };
   const alias: Record<string, string> = { o: "out", r: "recursive", q: "quiet", h: "help" };
-  const bools = new Set(["recursive", "quiet", "help", "csv", "bookmarks", "dry-run", "continue-bates", "flatten"]);
+  const bools = new Set(["recursive", "quiet", "help", "csv", "bookmarks", "dry-run", "continue-bates", "flatten", "each"]);
   for (let i = 0; i < argv.length; i++) {
     const t = argv[i];
     if (t.startsWith("-") && t !== "-") {
@@ -76,6 +84,33 @@ function collect(paths: string[], recursive: boolean): string[] {
     walk(p, 0);
   }
   return out;
+}
+
+/** Files of any type (for convert), folders expanded. */
+function collectAny(paths: string[]): string[] {
+  const out: string[] = [];
+  for (const p of paths) {
+    if (!existsSync(p)) throw new Error(`Not found: ${p}`);
+    if (statSync(p).isDirectory()) for (const e of readdirSync(p).sort()) { const f = join(p, e); if (statSync(f).isFile()) out.push(f); }
+    else out.push(p);
+  }
+  return out;
+}
+
+function officeToPdf(file: string): Uint8Array {
+  const dir = mkdtempSync(join(tmpdir(), "hdfstudio-"));
+  try {
+    const candidates = [process.env.SOFFICE, "soffice", "C:/Program Files/LibreOffice/program/soffice.exe", "/Applications/LibreOffice.app/Contents/MacOS/soffice"].filter(Boolean) as string[];
+    for (const bin of candidates) {
+      try {
+        execFileSync(bin, ["--headless", "--norestore", "--convert-to", "pdf", "--outdir", dir, file], { stdio: "ignore", timeout: 180_000 });
+        return readFileSync(join(dir, basename(file, extname(file)) + ".pdf"));
+      } catch { /* try next */ }
+    }
+    throw new Error(`${file}: converting Office files needs LibreOffice (set SOFFICE to its path if it isn't found)`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 function findRecipe(name: string, steps: string[]): Recipe {
@@ -226,6 +261,49 @@ export function main(argv: string[]): number {
       if (!rest[0] || !out || !password) throw new Error('usage: hdfstudio make-cert "Your Name" -o me.pfx --password pw');
       writeFileSync(out, makeSelfSignedP12(rest[0], password, args.flags.email as string | undefined));
       log(`Wrote ${out}`);
+      return 0;
+    }
+    case "convert": {
+      const inputs = collectAny(rest);
+      const size = ((args.flags.size as string) ?? "auto") as "auto";
+      const load = (f: string) => {
+        if (needsOffice(f)) return { name: basename(f, extname(f)) + ".pdf", data: officeToPdf(f) };
+        if (!canOpen(f)) throw new Error(`${f}: unsupported format`);
+        return { name: basename(f), data: readFileSync(f) as Uint8Array };
+      };
+      if (args.flags.each) {
+        const dir = (args.flags.out as string) ?? "hdfstudio-out";
+        mkdirSync(dir, { recursive: true });
+        for (const f of inputs) {
+          writeFileSync(join(dir, basename(f, extname(f)) + ".pdf"), e.toPdf([load(f)], { pageSize: size }));
+          log(`✓ ${f}`);
+        }
+      } else {
+        const out = args.flags.out as string;
+        if (!out) throw new Error("convert needs -o out.pdf (or --each -o folder)");
+        writeFileSync(out, e.toPdf(inputs.map(load), { pageSize: size }));
+        log(`Wrote ${out} from ${inputs.length} file(s)`);
+      }
+      return 0;
+    }
+    case "export": {
+      const to = (args.flags.to as string) ?? "png";
+      if (!["png", "jpg", "docx", "html", "txt", "svg"].includes(to)) throw new Error("--to must be png, jpg, docx, html, txt or svg");
+      for (const f of collect(rest, recursive)) {
+        const d = e.open(readFileSync(f), basename(f));
+        const dir = (args.flags.out as string) ?? join(dirname(f), "hdfstudio-out");
+        mkdirSync(dir, { recursive: true });
+        const stem = basename(f, extname(f));
+        if (to === "png" || to === "jpg") {
+          const pages = args.flags.pages ? parseRanges(args.flags.pages as string, d.pageCount) : [...Array(d.pageCount).keys()];
+          for (const im of e.toImages(d.id, pages, Number(args.flags.dpi ?? 150), to)) writeFileSync(join(dir, `${stem}-p${im.page + 1}.${to}`), im.data);
+        } else {
+          const outs = e.exportAs(d.id, to === "txt" ? "text" : (to as "docx"));
+          outs.forEach((o, i) => writeFileSync(join(dir, outs.length > 1 ? `${stem}-p${i + 1}.${to}` : `${stem}.${to}`), o));
+        }
+        e.close(d.id);
+        log(`✓ ${f} -> ${dir}`);
+      }
       return 0;
     }
     case "recipes": {

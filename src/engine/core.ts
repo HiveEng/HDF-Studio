@@ -9,6 +9,7 @@ import * as redact from "./redact";
 import * as forms from "./forms";
 import * as digisign from "./digisign";
 import * as edit from "./edit";
+import * as convert from "./convert";
 export { safeName };
 
 export interface OutlineNode {
@@ -580,6 +581,24 @@ export class Engine {
     } finally {
       page.destroy();
     }
+  }
+
+  // ---------- Create & convert ----------
+
+  toPdf(files: { name: string; data: Uint8Array }[], o?: convert.ToPdfOptions): Uint8Array {
+    return convert.toPdf(files, o);
+  }
+
+  blankPdf(pages?: number, size?: keyof typeof convert.PAGE_SIZES, landscape?: boolean): Uint8Array {
+    return convert.blankPdf(pages, size, landscape);
+  }
+
+  toImages(id: number, pages: number[], dpi?: number, format?: convert.ImageFormat, quality?: number) {
+    return convert.toImages(this.get(id), pages, dpi, format, quality);
+  }
+
+  exportAs(id: number, format: "html" | "xhtml" | "text" | "svg" | "docx"): Uint8Array[] {
+    return format === "docx" ? [convert.toDocx(this.get(id))] : convert.exportWith(this.get(id), format);
   }
 
   close(id: number): void {

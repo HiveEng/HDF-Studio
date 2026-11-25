@@ -461,7 +461,11 @@ viewer.addEventListener("dragleave", () => viewer.classList.remove("dragover"));
 viewer.addEventListener("drop", async (e) => {
   e.preventDefault();
   viewer.classList.remove("dragover");
-  openFiles(await filesFromList(e.dataTransfer?.files ?? null));
+  const dropped = await filesFromList(e.dataTransfer?.files ?? null);
+  const { canOpen, needsOffice } = await import("./engine/convert");
+  const office = dropped.filter((f) => needsOffice(f.name));
+  openFiles(dropped.filter((f) => canOpen(f.name)));
+  if (office.length) createPdf(office);
 });
 
 // ---------- Sidebar ----------
@@ -758,6 +762,78 @@ async function createCertificate() {
   const pfx = await engine.makeCertificate(r.name, r.pw, r.email || undefined);
   await saveBytes(`${r.name}.pfx`, pfx);
   status("Certificate created. Self-signed certificates prove the file wasn't changed, but not who you are; use one from your organization or a certificate authority for that.");
+}
+
+// ---------- Create & convert ----------
+const CREATE_EXT = ["pdf", "png", "jpg", "jpeg", "tif", "tiff", "bmp", "gif", "html", "htm", "txt", "epub", "xps", "cbz", "svg", "doc", "docx", "odt", "rtf", "xls", "xlsx", "ods", "csv", "ppt", "pptx", "odp"];
+async function createPdf(files?: OpenedFile[]) {
+  files ??= await pickFiles(true, CREATE_EXT);
+  if (!files.length) return;
+  const r = await ask(`Create a PDF from ${files.length} file${files.length > 1 ? "s" : ""}`, [
+    { name: "size", label: "Page size for images and text", type: "select", value: "auto", options: [["auto", "Keep original size"], ["letter", "Letter"], ["a4", "A4"], ["legal", "Legal"], ["a3", "A3"]] },
+    { name: "mode", label: "Output", type: "select", value: "one", options: [["one", "One combined PDF"], ["each", "One PDF per file"]] },
+  ], "Create");
+  if (!r) return;
+  const { needsOffice } = await import("./engine/convert");
+  try {
+    const inputs: OpenedFile[] = [];
+    for (const f of files) {
+      if (!needsOffice(f.name)) inputs.push(f);
+      else if (!isTauri) throw new Error(`${f.name}: Office files are converted with LibreOffice in the desktop app`);
+      else {
+        status(`Converting ${f.name} with LibreOffice…`);
+        const { invoke } = await import("@tauri-apps/api/core");
+        const pdf = new Uint8Array(await invoke<number[]>("office_to_pdf", { name: f.name, data: Array.from(f.data) }));
+        inputs.push({ name: f.name.replace(/\.[^.]+$/, ".pdf"), path: null, data: pdf });
+      }
+    }
+    const groups = r.mode === "each" ? inputs.map((f) => [f]) : [inputs];
+    for (const g of groups) {
+      const pdf = await engine.toPdf(g.map((f) => ({ name: f.name, data: f.data.slice() })), { pageSize: r.size as "auto" });
+      const info = await engine.open(pdf, "new.pdf");
+      addTab(info, g.length === 1 ? g[0].name.replace(/\.[^.]+$/, "") + ".pdf" : "Combined.pdf", null, true);
+    }
+    buildView();
+    status(`Created ${groups.length} PDF${groups.length > 1 ? "s" : ""}. Save with Ctrl+S.`);
+  } catch (e) {
+    status(`Create failed: ${(e as Error).message}`);
+  }
+}
+async function newBlank() {
+  const r = await ask("New blank PDF", [
+    { name: "pages", label: "Pages", type: "number", value: "1" },
+    { name: "size", label: "Size", type: "select", value: "letter", options: [["letter", "Letter"], ["a4", "A4"], ["legal", "Legal"], ["a3", "A3"], ["a5", "A5"]] },
+    { name: "orient", label: "Orientation", type: "select", value: "portrait", options: [["portrait", "Portrait"], ["landscape", "Landscape"]] },
+  ], "Create");
+  if (!r) return;
+  const info = await engine.open(await engine.blankPdf(Math.max(1, Number(r.pages) || 1), r.size as "letter", r.orient === "landscape"), "blank.pdf");
+  addTab(info, "Untitled.pdf", null, true);
+  buildView();
+}
+async function exportAs() {
+  if (!active) return;
+  const t = active;
+  const r = await ask("Export", [
+    { name: "to", label: "Format", type: "select", value: "docx", options: [["docx", "Word document (.docx)"], ["png", "Images (PNG)"], ["jpg", "Images (JPEG)"], ["html", "Web page (HTML)"], ["txt", "Plain text"], ["svg", "SVG (one per page)"]] },
+    { name: "pages", label: "Pages (images)", value: "all" },
+    { name: "dpi", label: "Resolution (images)", type: "select", value: "150", options: [["72", "72 dpi (screen)"], ["150", "150 dpi"], ["300", "300 dpi (print)"], ["600", "600 dpi"]] },
+  ], "Export");
+  if (!r) return;
+  const stem = t.name.replace(/\.pdf$/i, "");
+  try {
+    if (r.to === "png" || r.to === "jpg") {
+      const imgs = await engine.toImages(t.info.id, parseRanges(r.pages, t.info.pageCount), Number(r.dpi), r.to);
+      const dir = await saveMany(imgs.map((im) => ({ name: `${stem}-p${im.page + 1}.${r.to}`, data: im.data })));
+      status(`Exported ${imgs.length} image${imgs.length > 1 ? "s" : ""}${dir ? ` to ${dir}` : ""}`);
+    } else {
+      const outs = await engine.exportAs(t.info.id, r.to === "txt" ? "text" : (r.to as "docx"));
+      if (outs.length === 1) await saveBytes(`${stem}.${r.to}`, outs[0]);
+      else await saveMany(outs.map((o, i) => ({ name: `${stem}-p${i + 1}.${r.to}`, data: o })));
+      status(`Exported ${stem}.${r.to}`);
+    }
+  } catch (e) {
+    status(`Export failed: ${(e as Error).message}`);
+  }
 }
 
 // ---------- Batch ----------
@@ -1081,6 +1157,9 @@ const commands: Command[] = [
   { id: "replaceImage", title: "Replace selected image…", run: () => editUI.replaceSelectedImage() },
   { id: "saveImage", title: "Save selected image as PNG…", run: () => editUI.saveSelectedImage() },
   { id: "textStyle", title: "Font, size and colour for new text…", run: () => editUI.setTextStyle() },
+  { id: "createPdf", title: "Create PDF from files (images, Word, Excel, PowerPoint, HTML, text)…", keys: "Ctrl+N", run: () => createPdf() },
+  { id: "newBlank", title: "New blank PDF…", keys: "Ctrl+Shift+N", run: () => newBlank() },
+  { id: "exportAs", title: "Export to Word, images, HTML or text…", keys: "Ctrl+Shift+E", run: () => exportAs() },
   { id: "signCert", title: "Sign with a certificate (.pfx / .p12)…", run: () => signWithCertificate() },
   { id: "verifySigs", title: "Validate signatures", run: () => showSignatureDetails() },
   { id: "makeCert", title: "Create a self-signed certificate…", run: () => createCertificate() },
