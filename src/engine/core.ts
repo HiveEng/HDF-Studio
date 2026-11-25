@@ -22,6 +22,7 @@ import * as autotag from "./autotag";
 import * as edit from "./edit";
 import * as ocr from "./ocr";
 import * as scanclean from "./scanclean";
+import * as imageexport from "./imageexport";
 import * as cmp from "./compare";
 import * as check from "./check";
 import { srgbIcc } from "./icc";
@@ -946,6 +947,12 @@ export class Engine {
 
   blankPdf(pages?: number, size?: keyof typeof convert.PAGE_SIZES, landscape?: boolean): Uint8Array {
     return convert.blankPdf(pages, size, landscape);
+  }
+
+  /** Pages as image files for CAD and other apps (PNG, JPEG, TIFF, BMP), with world files at the drawing scale. */
+  rasterPages(id: number, pages: number[], o: imageexport.RasterOptions) {
+    const pdf = this.get(id).asPDF();
+    return imageexport.rasterPages(this.get(id), pages, o, pdf ? (i) => scale.getPageScale(pdf, i) : undefined);
   }
 
   toImages(id: number, pages: number[], dpi?: number, format?: convert.ImageFormat, quality?: number) {

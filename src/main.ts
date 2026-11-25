@@ -1229,25 +1229,123 @@ async function newBlank() {
   addTab(info, "Untitled.pdf", null, true);
   buildView();
 }
+/** Pages to image files for AutoCAD (IMAGEATTACH) and other apps. */
+async function saveAsImages() {
+  if (!active) return;
+  const t = active;
+  const saved = JSON.parse(localStorage.getItem("hdfstudio.images") ?? "{}");
+  const sc = await engine.pageScale(t.info.id, t.page).catch(() => null);
+  const r = await ask("Save as images", [
+    { name: "format", label: "Format", type: "select", value: saved.format ?? "png", options: [["png", "PNG: sharp lines, small files (best for AutoCAD)"], ["tif", "TIFF: for CAD and print shops"], ["jpg", "JPEG: photos and scans"], ["bmp", "BMP"]] },
+    { name: "pages", label: "Pages", value: t.info.pageCount === 1 ? "1" : "all", placeholder: "all, or e.g. 1-3, 8", hint: `Current page is ${t.page + 1}.` },
+    { name: "dpi", label: "Resolution", type: "select", value: saved.dpi ?? "300", options: [["96", "96 dpi (screen)"], ["150", "150 dpi"], ["200", "200 dpi"], ["300", "300 dpi (print, recommended)"], ["400", "400 dpi"], ["600", "600 dpi (fine detail, large files)"]] },
+    { name: "colour", label: "Colour", type: "select", value: saved.colour ?? "rgb", options: [["rgb", "Colour"], ["gray", "Greyscale"], ["bw", "Black and white (1-bit TIFF/BMP: smallest, crisp lines)"]] },
+    { name: "background", label: "Background", type: "select", value: saved.background ?? "white", options: [["white", "White"], ["transparent", "Transparent (PNG and TIFF): drawing shows through"]] },
+    { name: "trim", label: "Margins", type: "select", value: saved.trim ?? "keep", options: [["keep", "Keep the whole page"], ["trim", "Trim white margins"]] },
+    { name: "world", label: "World file", type: "select", value: saved.world ?? (sc ? "yes" : "no"), options: [["yes", "Also save a world file (.pgw/.tfw/.jgw) at the drawing scale"], ["no", "No"]], hint: sc ? `This page's scale is ${sc.label}. Pages without a scale get no world file.` : "Only pages with a drawing scale (Measure › Set scale) get one." },
+  ], "Save");
+  if (!r) return;
+  localStorage.setItem("hdfstudio.images", JSON.stringify(r));
+  let pages: number[];
+  try {
+    pages = r.pages.trim().toLowerCase() === "all" || !r.pages.trim() ? [...Array(t.info.pageCount).keys()] : parseRanges(r.pages, t.info.pageCount);
+  } catch (e) {
+    return status((e as Error).message);
+  }
+  if (!pages.length) return status("No pages chosen.");
+  const { EXT, WORLD_EXT } = await import("./engine/imageexport");
+  const format = r.format as "png";
+  const stem = t.name.replace(/\.pdf$/i, "");
+  const prog = showProgress("Saving images");
+  try {
+    const files: { name: string; data: Uint8Array }[] = [];
+    const notes: string[] = [];
+    let lowered = 0;
+    for (const [k, p] of pages.entries()) {
+      if (prog.cancelled) break;
+      prog.set(k / pages.length, `Page ${p + 1} (${k + 1} of ${pages.length})`);
+      const [img] = await engine.rasterPages(t.info.id, [p], { format, dpi: +r.dpi, colour: r.colour as "rgb", transparent: r.background === "transparent", trim: r.trim === "trim" });
+      const name = pages.length === 1 ? stem : `${stem}-p${p + 1}`;
+      files.push({ name: `${name}.${EXT[format]}`, data: img.data });
+      if (r.world === "yes" && img.world) files.push({ name: `${name}.${WORLD_EXT[format]}`, data: new TextEncoder().encode(img.world) });
+      if (img.dpi < +r.dpi) lowered = img.dpi;
+      if (img.real && notes.length < 1) notes.push(`at full scale the image is ${+img.real.width.toFixed(2)} ${img.real.unit} wide (IMAGEATTACH scale ${+img.real.width.toFixed(4)} with ${img.real.unit} units)`);
+      else if (!img.real && notes.length < 1) notes.push(`at paper size it is ${+(img.width / img.dpi).toFixed(2)} in wide`);
+    }
+    if (!files.length) return status("Stopped.");
+    const dir = files.length === 1 ? await saveBytes(files[0].name, files[0].data) : await saveMany(files);
+    const n = files.filter((f) => f.name.endsWith(EXT[format])).length;
+    status(`Saved ${n} image${n === 1 ? "" : "s"}${dir ? ` to ${dir}` : ""}. In AutoCAD: ${notes[0]}.${lowered ? ` Large sheet: resolution lowered to ${lowered} dpi to fit in memory.` : ""}`);
+  } catch (e) {
+    status(`Save as images failed: ${(e as Error).message ?? e}`);
+  } finally {
+    prog.close();
+  }
+}
+
+/** Insert pages (all or a range) from other files at the start, the end, or before/after a page. */
+async function insertPagesFlow() {
+  if (!active) return;
+  const files = await pickFiles(true);
+  if (!files.length) return;
+  const t = active;
+  const counts: number[] = [];
+  for (const f of files) {
+    const src = await engine.open(f.data.slice(), f.name);
+    counts.push(src.needsPassword ? -1 : src.pageCount);
+    await engine.close(src.id);
+  }
+  if (counts.includes(-1)) return status(`${files[counts.indexOf(-1)].name} is password protected; open it first`);
+  const total = counts.reduce((a, b) => a + b, 0);
+  const one = files.length === 1;
+  const r = await ask(`Insert ${one ? files[0].name : `${files.length} files`}`, [
+    { name: "pages", label: one ? `Pages from ${files[0].name} (${counts[0]} pages)` : `Pages (${total} in all)`, value: "all", placeholder: "all, or e.g. 1-3, 8", hint: one ? undefined : "Applies to each file." },
+    { name: "where", label: "Put them", type: "select", value: "after", options: [["start", "At the beginning"], ["end", "At the end"], ["before", "Before page…"], ["after", "After page…"]] },
+    { name: "page", label: `Page (1-${t.info.pageCount})`, type: "number", value: String(t.page + 1) },
+  ], "Insert");
+  if (!r) return;
+  const n = Math.min(t.info.pageCount, Math.max(1, Math.round(+r.page || 1)));
+  const at = r.where === "start" ? 0 : r.where === "end" ? t.info.pageCount : r.where === "before" ? n - 1 : n;
+  const all = !r.pages.trim() || r.pages.trim().toLowerCase() === "all";
+  let added = 0;
+  await mutate(`Inserted pages from ${files.map((f) => f.name).join(", ")}`, async (tab) => {
+    let info = tab.info;
+    let pos = at;
+    for (const [k, f] of files.entries()) {
+      const src = await engine.open(f.data, f.name);
+      try {
+        const pages = all ? undefined : parseRanges(r.pages, counts[k]);
+        info = await engine.insertFrom(tab.info.id, pos, src.id, pages);
+        const c = pages ? pages.length : counts[k];
+        pos += c;
+        added += c;
+      } finally {
+        await engine.close(src.id);
+      }
+    }
+    return info;
+  });
+  if (active === t && added) {
+    t.page = at;
+    status(`Inserted ${added} page${added === 1 ? "" : "s"} as pages ${at + 1}-${at + added}. Ctrl+Z to undo.`);
+    buildView();
+  }
+}
+
 async function exportAs() {
   if (!active) return;
   const t = active;
   const r = await ask("Export", [
-    { name: "to", label: "Format", type: "select", value: localStorage.getItem("hdfstudio.exportTo") ?? "docx", options: [["docx", "Word document (.docx)"], ["xlsx", "Excel workbook (.xlsx): tables and schedules"], ["pptx", "PowerPoint (.pptx): one slide per page"], ["png", "Images (PNG)"], ["jpg", "Images (JPEG)"], ["html", "Web page (HTML)"], ["txt", "Plain text"], ["svg", "SVG (one per page)"]] },
-    { name: "pages", label: "Pages (images)", value: "all" },
-    { name: "dpi", label: "Resolution (images)", type: "select", value: "150", options: [["72", "72 dpi (screen)"], ["150", "150 dpi"], ["300", "300 dpi (print)"], ["600", "600 dpi"]] },
+    { name: "to", label: "Format", type: "select", value: localStorage.getItem("hdfstudio.exportTo") ?? "docx", options: [["docx", "Word document (.docx)"], ["xlsx", "Excel workbook (.xlsx): tables and schedules"], ["pptx", "PowerPoint (.pptx): one slide per page"], ["image", "Images (PNG, JPEG, TIFF, BMP) for AutoCAD and other apps…"], ["html", "Web page (HTML)"], ["txt", "Plain text"], ["svg", "SVG (one per page)"]] },
     { name: "sheets", label: "Excel: sheets", type: "select", value: "page", options: [["page", "One sheet per page"], ["one", "Everything on one sheet"]] },
     { name: "slides", label: "PowerPoint: text", type: "select", value: "edit", options: [["edit", "Editable text boxes over the page"], ["image", "Pictures of the pages only"]] },
   ], "Export");
   if (!r) return;
   localStorage.setItem("hdfstudio.exportTo", r.to);
+  if (r.to === "image") return saveAsImages();
   const stem = t.name.replace(/\.pdf$/i, "");
   try {
-    if (r.to === "png" || r.to === "jpg") {
-      const imgs = await engine.toImages(t.info.id, parseRanges(r.pages, t.info.pageCount), Number(r.dpi), r.to);
-      const dir = await saveMany(imgs.map((im) => ({ name: `${stem}-p${im.page + 1}.${r.to}`, data: im.data })));
-      status(`Exported ${imgs.length} image${imgs.length > 1 ? "s" : ""}${dir ? ` to ${dir}` : ""}`);
-    } else {
+    {
       status(`Exporting ${stem}.${r.to}…`);
       const outs = await engine.exportAs(t.info.id, r.to === "txt" ? "text" : (r.to as "docx"), { oneSheet: r.sheets === "one", editableText: r.slides === "edit" });
       if (outs.length === 1) await saveBytes(`${stem}.${r.to}`, outs[0]);
@@ -1958,7 +2056,8 @@ const commands: Command[] = [
   { id: "undo", title: "Undo", keys: "Ctrl+Z", run: () => undoRedo("undo") },
   { id: "redo", title: "Redo", keys: "Ctrl+Y", run: () => undoRedo("redo") },
   { id: "mergeFiles", title: "Merge files into a new document…", keys: "Ctrl+Shift+M", run: () => mergeFiles() },
-  { id: "insertFile", title: "Insert pages from files after current page…", run: async () => active && insertFiles(await pickFiles(true), active.page + 1) },
+  { id: "insertFile", title: "Insert pages from files: choose pages and where (start, end, before or after a page)…", run: () => void insertPagesFlow() },
+  { id: "saveAsImages", title: "Save pages as images (PNG, TIFF, JPEG, BMP) for AutoCAD…", run: () => void saveAsImages() },
   { id: "insertBlank", title: "Insert blank page after current", run: () => mutate("Inserted blank page", (t) => engine.insertBlank(t.info.id, t.page + 1, t.page)) },
   { id: "splitDoc", title: "Split document…", run: () => splitDocument() },
   { id: "extractPages", title: "Extract pages…", run: () => extractPages() },

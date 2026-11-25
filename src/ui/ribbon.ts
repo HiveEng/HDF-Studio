@@ -154,7 +154,7 @@ export const TASKS: Task[] = [
     id: "organize", label: "Organize",
     groups: [
       { label: "Insert", items: [
-        { cmd: "insertFile", label: "From file", icon: FileInput, big: true },
+        { cmd: "insertFile", label: "From file", icon: FileInput, big: true, hint: "Insert all or some pages from another file at the start, the end, or before or after a page" },
         { cmd: "insertBlank", label: "Blank page", icon: FilePlus2 },
         { cmd: "duplicateSelected", label: "Duplicate", icon: Copy },
       ] },
@@ -238,6 +238,7 @@ export const TASKS: Task[] = [
       ] },
       { label: "Export", items: [
         { cmd: "exportAs", label: "Export", icon: FileDown, big: true, hint: "Word, Excel, PowerPoint, images, HTML, text or SVG" },
+        { cmd: "saveAsImages", label: "Save as image", icon: ImageDown, big: true, hint: "PNG, TIFF, JPEG or BMP at a chosen resolution, for AutoCAD and other apps" },
       ] },
     ],
   },
