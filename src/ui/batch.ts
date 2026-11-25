@@ -16,6 +16,9 @@ const STORE = "hdfstudio.recipes";
 const loadSaved = (): Recipe[] => JSON.parse(localStorage.getItem(STORE) ?? "[]");
 const storeSaved = (r: Recipe[]) => localStorage.setItem(STORE, JSON.stringify(r));
 
+/** Saved recipes first, then built-in ones (used by watch folders too). */
+export const allRecipes = (): Recipe[] => [...loadSaved(), ...BUILTIN_RECIPES.filter((b) => !loadSaved().some((s) => s.name === b.name))];
+
 let root: HTMLElement | null = null;
 let files: OpenedFile[] = [];
 

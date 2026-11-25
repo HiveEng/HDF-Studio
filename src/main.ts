@@ -12,6 +12,8 @@ import { ask, confirmDialog } from "./ui/dialog";
 import { openBatch, type BatchDeps } from "./ui/batch";
 import { showProgress } from "./ui/progress";
 import { ocrBytes, ocrStep } from "./ocr/pipeline";
+import { startWatching, openWatchPanel } from "./ui/watch";
+import type { WatchFs } from "./automation/watch";
 
 const engine = createEngine();
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
@@ -54,7 +56,7 @@ const outlineEl = $("#side-outline");
 const resultsEl = $("#side-results");
 const pageInput = $<HTMLInputElement>("#pageInput");
 const searchInput = $<HTMLInputElement>("#searchInput");
-const status = (msg: string) => ($("#status").textContent = msg);
+const status = (msg: string) => ($("#statusText").textContent = msg);
 
 // ---------- Render queue (worker is serial; render what's visible first) ----------
 type Job = { el: HTMLElement; tab: Tab; page: number; scale: number };
@@ -1363,6 +1365,7 @@ const commands: Command[] = [
   { id: "ocr", title: "Recognize text (OCR): make scanned pages searchable…", keys: "Ctrl+Shift+O", run: () => recognizeText() },
   { id: "ocrPage", title: "Recognize text on this page (OCR)", run: () => active && recognizeText([active.page]) },
   { id: "compare", title: "Compare files: find what changed between two versions…", keys: "Ctrl+Shift+C", run: () => compareFiles() },
+  { id: "watchFolders", title: "Watch folders: process PDFs dropped into a folder automatically…", run: () => openWatchPanel() },
   { id: "palette", title: "Show all commands", keys: "Ctrl+K", run: () => openPalette() },
 ];
 const byId = Object.fromEntries(commands.map((c) => [c.id, c]));
@@ -1524,6 +1527,46 @@ function renderRecent() {
     }),
   );
 }
+
+// ---------- Watch folders ----------
+async function tauriFs(): Promise<WatchFs> {
+  const f = await import("@tauri-apps/plugin-fs");
+  const sep = (p: string) => (p.includes("\\") && !p.includes("/") ? "\\" : "/");
+  return {
+    async list(dir) {
+      const entries = (await f.readDir(dir)).filter((e) => e.isFile);
+      return Promise.all(entries.map(async (e) => {
+        const st = await f.stat(dir + sep(dir) + e.name);
+        return { name: e.name, size: st.size, mtime: st.mtime ? new Date(st.mtime).getTime() : 0 };
+      }));
+    },
+    read: (p) => f.readFile(p),
+    write: (p, d) => f.writeFile(p, d),
+    mkdir: (p) => f.mkdir(p, { recursive: true }),
+    move: (a, b) => f.rename(a, b),
+    join: (...parts) => parts.join(sep(parts[0])),
+  };
+}
+(async () => {
+  const testFs = (window as unknown as { hdfStudioTestFs?: WatchFs }).hdfStudioTestFs ?? null;
+  startWatching({
+    run: (data, name, recipe) => batchDeps.runRecipe(data, name, recipe, {}),
+    fs: testFs ?? (isTauri ? await tauriFs() : null),
+    pickFolder: async (title) => {
+      if (testFs) return (window as unknown as { hdfStudioTestFolder?: string }).hdfStudioTestFolder ?? null;
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const d = await open({ directory: true, title });
+      return typeof d === "string" ? d : null;
+    },
+    onStatus: (text) => {
+      const pill = $("#watchPill");
+      if (text.startsWith("Watching") || !text) {
+        pill.textContent = text;
+        pill.classList.toggle("hidden", !text);
+      } else status(text);
+    },
+  });
+})().catch((e) => status(String(e)));
 
 // Exposed for tests and future modules.
 Object.assign(window, { hdfStudio: { openFiles, runSearch, goToPage, commands, get active() { return active; } } });

@@ -79,6 +79,7 @@ npm run hdfstudio -- verify ./contracts
 npm run hdfstudio -- ocr ./scans -r -o ./searchable     # make scanned PDFs searchable
 npm run hdfstudio -- run "OCR scans, then redact" ./scans -o ./clean
 npm run hdfstudio -- compare contract-v1.pdf contract-v2.pdf -o changes.pdf
+npm run hdfstudio -- watch "D:/Scans/Inbox" --recipe "Make scans searchable"   # runs until Ctrl+C
 npm run hdfstudio -- recipes          # list built-in recipes and step types
 ```
 
@@ -112,7 +113,7 @@ npm run hdfstudio -- recipes          # list built-in recipes and step types
 |---|---|---|---|
 | 1 | View & search | Tabs, thumbnails, outline, zoom, full-text search | Done |
 | 2 | Organize & combine | Merge, split, reorder, rotate, extract, delete, insert pages | Done |
-| 3 | Automation | Batch panel, saved recipes, `hdfstudio` CLI, stamps/Bates/watermarks; watch folders next | Done (watch folders pending) |
+| 3 | Automation | Batch panel, saved recipes, `hdfstudio` CLI, stamps/Bates/watermarks, watch folders (app and CLI) | Done |
 | 4 | Comment & review | Highlight, notes, shapes, ink, stamps, replies, XFDF import/export | MuPDF annotations |
 | 5 | Redaction & security | Permanent redaction (text, images, vector art), find-and-redact by text/regex/patterns, hidden-data removal, AES-256 passwords and permissions | Done |
 | 6 | Forms & e-signatures | Fill/flatten forms, CSV mail merge, drawn/typed/image signatures, certificate (PKCS#7, .pfx) digital signatures, validation, batch signing | Done (form designer and timestamps next) |

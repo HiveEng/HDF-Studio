@@ -13,6 +13,17 @@ import { rmSync, mkdtempSync } from "node:fs";
 import { createRequire } from "node:module";
 import { createRecognizer, type Recognizer } from "../src/ocr/recognize";
 import { ocrBytes, ocrStep } from "../src/ocr/pipeline";
+import { FolderWatcher, type WatchFs } from "../src/automation/watch";
+import { renameSync } from "node:fs";
+
+const nodeFs: WatchFs = {
+  list: async (dir) => readdirSync(dir).map((name) => ({ name, st: statSync(join(dir, name)) })).filter((f) => f.st.isFile()).map((f) => ({ name: f.name, size: f.st.size, mtime: f.st.mtimeMs })),
+  read: async (p) => readFileSync(p),
+  write: async (p, d) => writeFileSync(p, d),
+  mkdir: async (p) => void mkdirSync(p, { recursive: true }),
+  move: async (a, b) => renameSync(a, b),
+  join: (...p) => join(...p),
+};
 
 /** Tesseract with the bundled English data (no download needed). Other languages: --lang and --lang-path. */
 function recognizerFor(lang: string, langPath?: string): Promise<Recognizer> {
@@ -47,6 +58,9 @@ Usage:
                                                     Make scanned PDFs searchable (adds an invisible text layer)
   hdfstudio compare <old.pdf> <new.pdf> [-o report.pdf] [--json] [--text-only]
                                                     List what changed (exit code 1 if they differ); -o writes the new file with every change marked
+  hdfstudio watch <folder> --recipe <name|file.json> [-o dir] [--keep] [--interval 3]
+                                                    Keep running: process every PDF dropped into the folder
+                                                    (originals move to <folder>/processed unless --keep)
   hdfstudio recipes                                     List built-in recipes and step types
   hdfstudio run <recipe> <files|folders...> [options]   Apply a recipe to every PDF
       <recipe> is a built-in name (quotes or a unique prefix), a .json file, or "-" to use --step only
@@ -65,7 +79,7 @@ type Args = { _: string[]; flags: Record<string, string | boolean>; steps: strin
 function parseArgs(argv: string[]): Args {
   const a: Args = { _: [], flags: {}, steps: [] };
   const alias: Record<string, string> = { o: "out", r: "recursive", q: "quiet", h: "help" };
-  const bools = new Set(["recursive", "quiet", "help", "csv", "bookmarks", "dry-run", "continue-bates", "flatten", "each", "all", "json", "text-only"]);
+  const bools = new Set(["recursive", "quiet", "help", "csv", "bookmarks", "dry-run", "continue-bates", "flatten", "each", "all", "json", "text-only", "keep"]);
   for (let i = 0; i < argv.length; i++) {
     const t = argv[i];
     if (t.startsWith("-") && t !== "-") {
@@ -369,6 +383,31 @@ export async function main(argv: string[]): Promise<number> {
         log(`Report: ${args.flags.out}`);
       }
       return result.changes.length ? 1 : 0;
+    }
+    case "watch": {
+      const [folder] = rest;
+      if (!folder || !args.flags.recipe) throw new Error("usage: hdfstudio watch <folder> --recipe <name>");
+      const recipe = findRecipe(args.flags.recipe as string, args.steps);
+      recipe.steps.push(...args.steps.map(parseStep));
+      const ocr = ocrStep(recipe);
+      const rec = ocr ? await recognizerFor(ocr.lang ?? "eng", args.flags["lang-path"] as string | undefined) : null;
+      const w = new FolderWatcher(
+        { id: "cli", folder: resolve(folder), recipe: recipe.name, out: args.flags.out ? resolve(args.flags.out as string) : undefined, afterwards: args.flags.keep ? "keep" : "move", enabled: true },
+        nodeFs,
+        () => recipe,
+        async (data, name, r) => runRecipe(rec ? (await ocrBytes(e, rec, data, name, ocr!.pages ?? "scanned")).data : data, name, r),
+        (ev) => (ev.ok ? log(`${ev.at.toLocaleTimeString()} ✓ ${ev.file} ${ev.message}`) : console.error(`${ev.at.toLocaleTimeString()} ✗ ${ev.file}: ${ev.message}`)),
+      );
+      const every = Math.max(1, Number(args.flags.interval ?? 3)) * 1000;
+      log(`Watching ${resolve(folder)} with "${recipe.name}". Press Ctrl+C to stop.`);
+      for (;;) {
+        try {
+          await w.tick();
+        } catch (err) {
+          console.error(`✗ ${(err as Error).message}`);
+        }
+        await new Promise((r) => setTimeout(r, every));
+      }
     }
     case "recipes": {
       console.log("Built-in recipes:");

@@ -8,7 +8,7 @@ import {
   ImagePlus, Replace, ImageDown, Stamp, FileInput, FilePlus2, Copy, Trash2, RotateCcw, RotateCw, ArrowUpDown,
   LayoutGrid, Merge, FileOutput, Scissors, Signature, PenLine, BadgeCheck, FileKey, ShieldCheck, Sheet,
   FileSpreadsheet, Eraser, SquareDashed, ScanSearch, Shredder, Lock, LockOpen, File, FileDown, Workflow, ListChecks,
-  MoveHorizontal, Maximize, PanelLeft, Search, ScanText, ScanLine, GitCompare,
+  MoveHorizontal, Maximize, PanelLeft, Search, ScanText, ScanLine, GitCompare, FolderSync,
 } from "lucide";
 
 export function icon(node: IconNode, size = 18): SVGElement {
@@ -176,6 +176,9 @@ export const TASKS: Task[] = [
       { label: "Batch", items: [
         { cmd: "batch", label: "Batch process", icon: Workflow, big: true },
         { cmd: "recipeCurrent", label: "Run on this file", icon: ListChecks, big: true },
+      ] },
+      { label: "Automatic", items: [
+        { cmd: "watchFolders", label: "Watch folders", icon: FolderSync, big: true, hint: "Process every PDF dropped into a folder" },
       ] },
     ],
   },

@@ -299,3 +299,29 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 .notice > span { flex: 1; }
 .notice svg { color: var(--accent); }
 .notice .icon-btn { width: 26px; height: 26px; }
+.modal.watch { width: min(640px, 94vw); }
+.watch header { display: flex; align-items: center; justify-content: space-between; }
+.watch h2 { margin: 0; }
+.watch h3 { margin: 6px 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
+.watch p { margin: 0; }
+.watch .row { display: flex; gap: 8px; }
+.watch-rule { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 6px; }
+.watch-rule > div { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.watch-rule b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.watch-rule small { color: var(--muted); }
+.watch-rule.off { opacity: .6; }
+.watch-rule .remove { border-color: var(--border-strong); }
+#watchLog { list-style: none; margin: 0; padding: 8px; max-height: 180px; overflow: auto; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; font: 12px/1.5 ui-monospace, Consolas, monospace; }
+#watchLog:empty::before { content: "Nothing yet."; color: var(--muted); font-family: inherit; }
+#watchLog li.bad { color: var(--danger); }
+.switch { position: relative; width: 34px; height: 20px; flex: none; }
+.switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+.switch span { position: absolute; inset: 0; border-radius: 20px; background: var(--border-strong); cursor: pointer; transition: background .15s; }
+.switch span::after { content: ""; position: absolute; left: 3px; top: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: transform .15s; box-shadow: 0 1px 2px rgba(0,0,0,.3); }
+.switch input:checked + span { background: var(--hive-lime); }
+.switch input:checked + span::after { transform: translateX(14px); }
+.switch input:focus-visible + span { outline: 2px solid var(--focus); outline-offset: 1px; }
+#status { gap: 12px; }
+#status #statusText { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+#watchPill { display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; border-radius: 10px; background: var(--accent-soft); color: var(--text); font-size: 11px; cursor: pointer; border: 0; height: 18px; }
+#watchPill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--hive-lime); box-shadow: 0 0 0 2px color-mix(in srgb, var(--hive-lime) 35%, transparent); }
