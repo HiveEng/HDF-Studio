@@ -190,6 +190,86 @@ async fn scan_pages(dpi: u32, mode: u32, feeder: bool, dialog: bool) -> Result<V
     }
 }
 
+/// A one-shot web server on 127.0.0.1 that receives the Microsoft sign-in redirect.
+/// The system browser does the sign-in (so passwords, MFA and passkeys never touch the app).
+static OAUTH_LISTENER: std::sync::Mutex<Option<std::net::TcpListener>> = std::sync::Mutex::new(None);
+
+#[tauri::command]
+fn oauth_listen() -> Result<u16, String> {
+    let l = std::net::TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
+    let port = l.local_addr().map_err(|e| e.to_string())?.port();
+    *OAUTH_LISTENER.lock().unwrap() = Some(l);
+    Ok(port)
+}
+
+/// Wait for the browser to come back to http://localhost:{port}/?code=… and return the query string.
+#[tauri::command]
+async fn oauth_wait(timeout_secs: u64) -> Result<String, String> {
+    let l = OAUTH_LISTENER.lock().unwrap().take().ok_or("Sign-in was not started")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        use std::io::{Read, Write};
+        l.set_nonblocking(true).map_err(|e| e.to_string())?;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs.max(10));
+        loop {
+            match l.accept() {
+                Ok((mut s, _)) => {
+                    let _ = s.set_nonblocking(false);
+                    let _ = s.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+                    let mut buf = [0u8; 8192];
+                    let n = s.read(&mut buf).unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let target = req.split_whitespace().nth(1).unwrap_or("/").to_string();
+                    let query = target.split_once('?').map(|(_, q)| q.to_string()).unwrap_or_default();
+                    // Browsers also ask for /favicon.ico; only the redirect carries code= or error=.
+                    if !(query.contains("code=") || query.contains("error=")) {
+                        let _ = s.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                        continue;
+                    }
+                    let ok = query.contains("code=");
+                    let body = format!(
+                        "<!doctype html><meta charset=\"utf-8\"><title>HDF Studio</title><body style=\"font:16px system-ui;text-align:center;margin-top:80px;color:#0D0D0D\"><h2>{}</h2><p>You can close this tab and go back to HDF Studio.</p></body>",
+                        if ok { "You're signed in" } else { "Sign-in didn't finish" }
+                    );
+                    let _ = s.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).as_bytes());
+                    return Ok(query);
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    if std::time::Instant::now() > deadline {
+                        return Err("Sign-in timed out. Try again.".to_string());
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(150));
+                }
+                Err(e) => return Err(e.to_string()),
+            }
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// POST a form and return the response body (Microsoft's token endpoint refuses browser-origin requests
+/// from desktop app registrations, so the exchange is done here).
+#[tauri::command]
+async fn http_post_form(url: String, body: String) -> Result<String, String> {
+    if !url.starts_with("https://login.microsoftonline.com/") {
+        return Err("Unexpected sign-in address".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let r = ureq::post(&url)
+            .timeout(std::time::Duration::from_secs(30))
+            .set("Content-Type", "application/x-www-form-urlencoded")
+            .send_string(&body);
+        let resp = match r {
+            Ok(r) => r,
+            Err(ureq::Error::Status(_, r)) => r,
+            Err(e) => return Err(format!("Could not reach Microsoft sign-in: {e}")),
+        };
+        resp.into_string().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -206,7 +286,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![startup_files, office_available, office_to_pdf, ghostscript_available, pdfa_convert, tsa_request, scan_pages])
+        .invoke_handler(tauri::generate_handler![startup_files, office_available, office_to_pdf, ghostscript_available, pdfa_convert, tsa_request, scan_pages, oauth_listen, oauth_wait, http_post_form])
         .run(tauri::generate_context!())
         .expect("error while running HDF Studio");
 }

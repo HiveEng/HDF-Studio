@@ -499,3 +499,14 @@ body.designing .page .field { display: none; }
 /* Long dialogs scroll; the buttons stay in view. */
 .modal { max-height: 90vh; overflow-y: auto; }
 .modal-buttons { position: sticky; bottom: -20px; background: var(--panel); padding: 8px 0 4px; }
+/* Staff sign-in */
+.signin-gate { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: linear-gradient(160deg, #0D0D0D 0%, #575859 100%); }
+.signin-gate.hidden { display: none; }
+.signin-card { width: min(400px, 90vw); background: var(--panel, #fff); color: var(--fg, #0D0D0D); border-radius: 16px; padding: 32px 30px 24px; text-align: center; box-shadow: 0 24px 60px rgba(0,0,0,.4); border-top: 4px solid #C5D932; }
+.signin-logo img { height: 56px; }
+.signin-card h1 { margin: 10px 0 6px; font-size: 22px; }
+.signin-why { margin: 0 0 18px; color: var(--muted, #575859); }
+.signin-btn { width: 100%; padding: 10px 14px; font-size: 15px; border-radius: 8px; background: #05C7F2; border: 1px solid #05C7F2; color: #0D0D0D; font-weight: 600; cursor: pointer; }
+.signin-btn[disabled] { opacity: .6; cursor: default; }
+.signin-msg { min-height: 1.2em; margin: 12px 0 0; color: #b3261e; font-size: 13px; }
+.signin-note { margin: 8px 0 0; font-size: 12px; color: var(--muted, #777); }

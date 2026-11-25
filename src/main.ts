@@ -8,6 +8,7 @@ import { setupEngineering, ENG_TOOLS, type EngTool } from "./ui/engineering";
 import { setupChest } from "./ui/chest";
 import { setupFindReplace } from "./ui/findreplace";
 import { setupSpell } from "./ui/spell";
+import { setupSignIn } from "./ui/signin";
 import { openSettings } from "./ui/settings";
 import { setupNav } from "./ui/navpanels";
 import { showMenu, type MenuItem } from "./ui/contextmenu";
@@ -1860,6 +1861,8 @@ const commands: Command[] = [
   { id: "prevTab", title: "Previous tab", keys: "Ctrl+Shift+Tab", run: () => tabs.length > 1 && switchTab(tabs[(tabs.indexOf(active!) - 1 + tabs.length) % tabs.length]) },
   { id: "find", title: "Find in document", keys: "Ctrl+F", run: () => (searchInput.focus(), searchInput.select()) },
   { id: "findReplace", title: "Find and replace text…", keys: "Ctrl+H", run: () => findReplace.open(searchInput.value || undefined) },
+  { id: "account", title: "Account: who is signed in", run: () => status(signIn.user ? `Signed in as ${signIn.user.name} (${signIn.user.email})` : "Not signed in") },
+  { id: "signOut", title: "Sign out of HDF Studio", run: () => signIn.signOut() },
   { id: "spellCheck", title: "Check spelling (comments and page text)", keys: "F7", run: () => void spell.check() },
   { id: "nextHit", title: "Next match", keys: "F3", run: () => stepHit(1) },
   { id: "prevHit", title: "Previous match", keys: "Shift+F3", run: () => stepHit(-1) },
@@ -2059,6 +2062,14 @@ paletteInput.addEventListener("keydown", (e) => {
   renderPalette();
 });
 paletteInput.addEventListener("blur", () => setTimeout(closePalette, 150));
+
+// ---------- Staff sign-in ----------
+const signIn = setupSignIn({
+  logoHtml: `<img src="/hive-logo.png" alt="Hive Engineering" />`,
+  onUser: (u) => localStorage.setItem("hdfstudio.author", u.name),
+  status,
+});
+void signIn.start();
 
 // ---------- Startup: files passed on the command line / "Open with" ----------
 (async () => {
