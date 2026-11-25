@@ -510,3 +510,6 @@ body.designing .page .field { display: none; }
 .signin-btn[disabled] { opacity: .6; cursor: default; }
 .signin-msg { min-height: 1.2em; margin: 12px 0 0; color: #b3261e; font-size: 13px; }
 .signin-note { margin: 8px 0 0; font-size: 12px; color: var(--muted, #777); }
+/* Snap marker */
+.snap-mark { stroke: #05C7F2; fill: none; pointer-events: none; }
+.snap-mark text { stroke: #fff; stroke-width: 3px; paint-order: stroke; fill: #0a7fa0; font-family: system-ui, sans-serif; }

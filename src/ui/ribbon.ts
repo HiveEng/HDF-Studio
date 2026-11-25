@@ -10,7 +10,7 @@ import {
   FileSpreadsheet, Eraser, SquareDashed, ScanSearch, Shredder, Lock, LockOpen, File, FileDown, Workflow, ListChecks,
   MoveHorizontal, Maximize, PanelLeft, Search, ScanText, ScanLine, GitCompare, FolderSync, ClipboardCheck, Archive, Languages, Users, Printer, FormInput, WandSparkles, Accessibility, Images,
   Cloud, MessageSquareQuote, Spline, Pentagon, Ruler, RulerDimensionLine, DraftingCompass, Hash, Scaling, Crosshair, Waypoints, LandPlot, Settings, Split, Link, BookmarkPlus, Paperclip, Layers2,
-  Toolbox, SpellCheck,
+  Toolbox, SpellCheck, Magnet,
 } from "lucide";
 
 export function icon(node: IconNode, size = 18): SVGElement {
@@ -104,6 +104,7 @@ export const TASKS: Task[] = [
       { label: "Scale", items: [
         { cmd: "setScale", label: "Set scale", icon: Scaling, big: true, hint: "Pick the drawing scale, e.g. 1/4\" = 1'-0\"" },
         { cmd: "tool-m-calibrate", tool: "m-calibrate", label: "Calibrate", icon: Crosshair, big: true, hint: "Click both ends of a known dimension" },
+        { cmd: "toggleSnap", label: "Snap", icon: Magnet, hint: "Snap points to line ends, intersections and midpoints (F9). Hold Alt to place freely." },
       ] },
       { label: "Measure", items: [
         { cmd: "tool-m-length", tool: "m-length", label: "Length", icon: Ruler, big: true },

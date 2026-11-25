@@ -1,5 +1,6 @@
 // Engineering markups and measurement: revision clouds, callouts, polylines, polygons, dimension
 // lines, review stamps, and calibrated length / area / perimeter / angle / count on drawings.
+import { SnapIndex, type SnapHit, type SnapKind } from "../engine/snapindex";
 import type { AnnotSpec, AnnotInfo, Pt, RGB } from "../engine/annotations";
 import type { DocInfo } from "../engine/core";
 import {
@@ -34,6 +35,10 @@ const TWO_POINT = new Set<EngTool>(["cloud", "callout", "dimension", "m-length",
 const MULTI = new Set<EngTool>(["cloudpoly", "polyline", "polygon", "m-polylength", "m-area", "m-perimeter"]);
 const CLOSED = new Set<EngTool>(["cloudpoly", "polygon", "m-area", "m-perimeter"]);
 const NEEDS_SCALE = new Set<EngTool>(["m-length", "m-polylength", "m-area", "m-perimeter"]);
+/** Tools whose points snap to the drawing's line work. */
+const SNAPS = new Set<EngTool>(["m-length", "m-polylength", "m-area", "m-perimeter", "m-angle", "m-calibrate", "m-count", "dimension", "polyline", "polygon", "cloudpoly"]);
+const SNAP_PX = 10;
+const SNAP_LABEL: Record<SnapKind, string> = { end: "Endpoint", intersection: "Intersection", mid: "Midpoint", line: "On line" };
 
 export interface EngDeps {
   engine: {
@@ -43,6 +48,7 @@ export interface EngDeps {
     addLeader(id: number, page: number, parentKey: number, target: Pt, author: string): Promise<number>;
     pageScale(id: number, page: number): Promise<Scale | null>;
     setPageScale(id: number, pages: number[], s: Scale | null): Promise<void>;
+    vectorSegments(id: number, page: number): Promise<Float32Array>;
   };
   doc(): { info: DocInfo; name: string; page: number } | null;
   pagesEl: HTMLElement;
@@ -69,6 +75,53 @@ export function setupEngineering(d: EngDeps) {
   let downAt: Pt | null = null;
   let leaderOf: AnnotInfo | null = null;
   let stampChoice: { title: string; color: string } | null = null;
+  // ----- snapping -----
+  let snapOn = localStorage.getItem("hdfstudio.snap") !== "0";
+  let snapHit: SnapHit | null = null;
+  const snapIndexes = new Map<string, Promise<SnapIndex | null>>();
+  const indexFor = (page: number) => {
+    const doc = d.doc()!;
+    const k = `${doc.info.id}:${page}`;
+    if (!snapIndexes.has(k)) snapIndexes.set(k, d.engine.vectorSegments(doc.info.id, page).then((seg) => (seg.length ? new SnapIndex(seg) : null)).catch(() => null));
+    return snapIndexes.get(k)!;
+  };
+  /** Snap a point to the drawing unless snapping is off, Alt is held or Shift is locking the angle. */
+  async function snapped(el: HTMLElement, page: number, p: Pt, e: { altKey: boolean; shiftKey: boolean }): Promise<Pt> {
+    snapHit = null;
+    if (!snapOn || e.altKey || (e.shiftKey && pts.length) || !SNAPS.has(tool())) return p;
+    const idx = await indexFor(page);
+    if (!idx) return p;
+    const r = SNAP_PX * (d.doc()!.info.pageSizes[page][0] / el.getBoundingClientRect().width);
+    snapHit = idx.snap(p[0], p[1], r);
+    return snapHit ? snapHit.pt : p;
+  }
+  function drawSnapMark(el: HTMLElement, page: number) {
+    el.querySelectorAll(".snap-mark").forEach((n) => n.remove());
+    if (!snapHit) return;
+    const svg = svgOf(el, page);
+    const k = d.doc()!.info.pageSizes[page][0] / el.getBoundingClientRect().width;
+    const [x, y] = snapHit.pt, s = 6 * k;
+    const g = document.createElementNS(SVGNS, "g");
+    g.classList.add("snap-mark", "eng-preview");
+    const shape = snapHit.kind === "end" ? `<rect x="${x - s}" y="${y - s}" width="${2 * s}" height="${2 * s}"/>`
+      : snapHit.kind === "intersection" ? `<path d="M${x - s} ${y - s}L${x + s} ${y + s}M${x - s} ${y + s}L${x + s} ${y - s}"/>`
+      : snapHit.kind === "mid" ? `<path d="M${x} ${y - s}L${x + s} ${y + s * 0.8}L${x - s} ${y + s * 0.8}Z"/>`
+      : `<circle cx="${x}" cy="${y}" r="${s * 0.8}"/>`;
+    g.innerHTML = shape;
+    g.setAttribute("stroke-width", String(1.6 * k));
+    const tip = document.createElementNS(SVGNS, "text");
+    tip.setAttribute("x", String(x + 9 * k));
+    tip.setAttribute("y", String(y + 16 * k));
+    tip.setAttribute("font-size", String(10 * k));
+    tip.textContent = SNAP_LABEL[snapHit.kind];
+    g.append(tip);
+    svg.append(g);
+  }
+  function toggleSnap(on = !snapOn) {
+    snapOn = on;
+    localStorage.setItem("hdfstudio.snap", on ? "1" : "0");
+    d.status(on ? "Snap to drawing is on (hold Alt to place a point freely)." : "Snap to drawing is off.");
+  }
   const scales = new Map<string, Scale | null>();
   const author = () => getPrefs().name || "Reviewer";
   const tool = () => d.tool() as EngTool;
@@ -131,7 +184,7 @@ export function setupEngineering(d: EngDeps) {
     if (!scales.has(k)) scales.set(k, await d.engine.pageScale(doc.info.id, page));
     return scales.get(k) ?? null;
   }
-  const forgetScales = () => scales.clear();
+  const forgetScales = () => (scales.clear(), snapIndexes.clear());
 
   // ----- preview -----
   function drawPreview() {
@@ -410,8 +463,8 @@ export function setupEngineering(d: EngDeps) {
         return;
       }
     }
-    let p = pointIn(hit.el, hit.index, e);
-    if (pts.length) p = constrain(pts[pts.length - 1], p, e.shiftKey);
+    let p = await snapped(hit.el, hit.index, pointIn(hit.el, hit.index, e), e);
+    if (pts.length && !snapHit) p = constrain(pts[pts.length - 1], p, e.shiftKey);
     if (t === "m-count") return void (await addCount(p), reset());
     if (t === "stamp") return void (await addStamp(p));
     pts.push(p);
@@ -422,11 +475,20 @@ export function setupEngineering(d: EngDeps) {
     drawPreview();
   }, true);
 
-  d.pagesEl.addEventListener("pointermove", (e) => {
-    if (!active() || !pageEl) return;
-    const p = pointIn(pageEl, pageIndex, e);
-    hover = pts.length ? constrain(pts[pts.length - 1], p, e.shiftKey) : p;
-    drawPreview();
+  let moveSeq = 0;
+  d.pagesEl.addEventListener("pointermove", async (e) => {
+    if (!active() || !d.doc()) return;
+    const hit = pageEl ? { el: pageEl, index: pageIndex } : pageOf(e);
+    if (!hit) return;
+    const seq = ++moveSeq;
+    const raw = pointIn(hit.el, hit.index, e);
+    const p = await snapped(hit.el, hit.index, raw, e);
+    if (seq !== moveSeq) return;
+    if (pageEl) {
+      hover = pts.length && !snapHit ? constrain(pts[pts.length - 1], p, e.shiftKey) : p;
+      drawPreview();
+    }
+    drawSnapMark(hit.el, hit.index);
   }, true);
 
   d.pagesEl.addEventListener("pointerup", (e) => {
@@ -517,5 +579,5 @@ export function setupEngineering(d: EngDeps) {
     d.status(`${TOOL_INFO[t].label}: ${TOOL_INFO[t].how}${extra} Esc to cancel.`);
   }
 
-  return { start, setScale, reset, forgetScales, TOOL_INFO };
+  return { start, setScale, reset, forgetScales, toggleSnap, get snapOn() { return snapOn; }, TOOL_INFO };
 }

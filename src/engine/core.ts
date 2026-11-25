@@ -3,6 +3,7 @@
 import * as scale from "./scale";
 import * as overlay from "./overlay";
 import * as nav from "./navigation";
+import * as snap from "./snap";
 import * as mlist from "./markuplist";
 import type { Scale } from "./measure";
 import type { Xf } from "./xform";
@@ -805,6 +806,16 @@ export class Engine {
   }
 
   // ---------- Markup list ----------
+  /** Line work of a page for snapping (display space). */
+  vectorSegments(id: number, pageIndex: number): Float32Array {
+    const page = this.get(id).loadPage(pageIndex);
+    try {
+      return snap.pageSegments(page);
+    } finally {
+      page.destroy();
+    }
+  }
+
   markupRows(id: number): mlist.MarkupRow[] {
     return mlist.markupRows(this.pdf(id));
   }

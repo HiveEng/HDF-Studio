@@ -1925,6 +1925,7 @@ const commands: Command[] = [
   { id: "newSignature", title: "Create a new signature…", run: async () => { clearSignature(); if (await getSignature(true)) annot.setTool("sign"); } },
   ...ENG_TOOLS.map((t) => ({ id: `tool-${t}`, title: `${eng.TOOL_INFO[t].label} tool`, run: () => startEng(t) })),
   { id: "setScale", title: "Set drawing scale…", run: () => void eng.setScale() },
+  { id: "toggleSnap", title: "Snap to drawing (endpoints, intersections, midpoints): on/off", keys: "F9", run: () => eng.toggleSnap() },
   { id: "tool-link", title: "Link tool: add or edit links to pages, websites and email", run: () => navUI.startLinkTool() },
   { id: "addBookmark", title: "Bookmark the current view", keys: "Ctrl+D", run: () => (showSidePanel("outline"), navUI.addBookmarkHere()) },
   { id: "attachFile", title: "Attach files to this PDF…", run: () => (showSidePanel("attach"), void navUI.loadAttachments().then(() => ($("#side-attach .nav-btn") as HTMLElement | null)?.click())) },
