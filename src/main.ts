@@ -19,6 +19,7 @@ import { startWatching, openWatchPanel } from "./ui/watch";
 import { showCheckReport } from "./ui/check";
 import { showAltTextDialog } from "./ui/accessibility";
 import { printPages } from "./ui/print";
+import { checkForUpdates } from "./ui/update";
 import type { WatchFs } from "./automation/watch";
 
 const engine = createEngine();
@@ -1509,6 +1510,7 @@ const commands: Command[] = [
   { id: "open", title: "Open files…", keys: "Ctrl+O", run: async () => openFiles(await pickFiles()) },
   { id: "save", title: "Save", keys: "Ctrl+S", run: () => save(false) },
   { id: "print", title: "Print…", keys: "Ctrl+P", run: () => printDoc() },
+  { id: "checkUpdates", title: "Check for updates", run: () => checkForUpdates(status, true) },
   { id: "saveAs", title: "Save as…", keys: "Ctrl+Shift+S", run: () => save(true) },
   { id: "closeTab", title: "Close tab", keys: "Ctrl+W", run: () => active && closeTab(active) },
   { id: "nextTab", title: "Next tab", keys: "Ctrl+Tab", run: () => tabs.length > 1 && switchTab(tabs[(tabs.indexOf(active!) + 1) % tabs.length]) },
@@ -1798,5 +1800,8 @@ async function tauriFs(): Promise<WatchFs> {
 })().catch((e) => status(String(e)));
 
 // Exposed for tests and future modules.
+// Look for a newer version shortly after start-up (desktop app only; quiet unless there is one).
+setTimeout(() => checkForUpdates(status), 4000);
+
 Object.assign(window, { hdfStudio: { openFiles, runSearch, goToPage, commands, get active() { return active; } } });
 buildView();

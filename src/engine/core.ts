@@ -1,5 +1,7 @@
 // Engine core: thin, UI-agnostic wrapper over MuPDF (mupdf.js, AGPL-3.0).
 // Runs in a Web Worker in the app and directly in Node for the CLI and tests.
+import * as scale from "./scale";
+import type { Scale } from "./measure";
 import * as mupdf from "mupdf";
 import { runRecipe, type Recipe } from "./recipes";
 import { safeName } from "./util";
@@ -114,6 +116,15 @@ export class Engine {
     } finally {
       page.destroy();
     }
+  }
+
+  /** Drawing scale of a page (set here, or by CAD / another PDF app), if any. */
+  pageScale(id: number, pageIndex: number) {
+    return scale.getPageScale(this.pdf(id), pageIndex);
+  }
+
+  setPageScale(id: number, pages: number[], s: Scale | null) {
+    this.op(id, s ? "Set scale" : "Clear scale", () => scale.setPageScale(this.pdf(id), pages, s));
   }
 
   /** A page as PNG for printing. `markups` false leaves out comments and form fields. Large sheets are capped near 60 megapixels. */

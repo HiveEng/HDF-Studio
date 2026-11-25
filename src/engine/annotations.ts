@@ -9,11 +9,19 @@ export type AnnotSpec =
   | { type: "Highlight" | "Underline" | "StrikeOut" | "Squiggly"; quads: number[][]; color?: RGB; contents?: string }
   | { type: "Text"; at: Pt; contents: string; color?: RGB; icon?: string }
   | { type: "FreeText"; rect: number[]; contents: string; fontSize?: number; color?: RGB }
-  | { type: "Square" | "Circle"; rect: number[]; color?: RGB; fill?: RGB | null; width?: number; contents?: string }
-  | { type: "Line"; a: Pt; b: Pt; arrow?: boolean; color?: RGB; width?: number; contents?: string }
+  | { type: "Square" | "Circle"; rect: number[]; color?: RGB; fill?: RGB | null; width?: number; contents?: string; cloud?: boolean; opacity?: number; label?: Label }
+  | { type: "Line"; a: Pt; b: Pt; arrow?: boolean; color?: RGB; width?: number; contents?: string; dimension?: boolean; caption?: string; captionSize?: number; measure?: MeasureSpec }
+  | { type: "Polygon" | "PolyLine"; vertices: Pt[]; color?: RGB; fill?: RGB | null; width?: number; contents?: string; cloud?: boolean; opacity?: number; label?: Label; intent?: string; measure?: MeasureSpec }
+  | { type: "Callout"; target: Pt; knee?: Pt; rect: number[]; contents: string; fontSize?: number; color?: RGB }
+  | { type: "ReviewStamp"; rect: number[]; title: string; name: string; date: string; company?: string; color?: RGB }
   | { type: "Ink"; strokes: Pt[][]; color?: RGB; width?: number; contents?: string }
   | { type: "Stamp"; rect: number[]; label: string; color?: RGB }
   | { type: "Redact"; quads?: number[][]; rect?: number[] };
+
+/** Text drawn on the page as part of a markup (a measurement value, a count number). */
+export interface Label { text: string; at: Pt; size?: number; color?: RGB; /** White backing behind the text (default true). */ bg?: boolean }
+/** Scale written into a measurement markup's /Measure dictionary so other PDF apps read the same values. */
+export interface MeasureSpec { ratio: string; xUnit: string; xC: number; aUnit: string }
 
 export interface AnnotInfo {
   /** Stable key: PDF object number of the annotation. */
@@ -49,6 +57,10 @@ const DEFAULT_COLORS: Record<string, RGB> = {
   Line: [0.85, 0.1, 0.1],
   Ink: [0.1, 0.3, 0.9],
   Stamp: [0.1, 0.5, 0.2],
+  Polygon: [0.85, 0.1, 0.1],
+  PolyLine: [0.85, 0.1, 0.1],
+  Callout: [0.85, 0.1, 0.1],
+  ReviewStamp: [0.1, 0.5, 0.2],
 };
 
 const keyOf = (a: mupdf.PDFAnnotation) => a.getObject().asIndirect();
@@ -86,10 +98,12 @@ export function listAnnotations(doc: mupdf.PDFDocument, pageIndex: number): Anno
 export function addAnnotation(doc: mupdf.PDFDocument, pageIndex: number, spec: AnnotSpec, author: string): number {
   const page = doc.loadPage(pageIndex) as mupdf.PDFPage;
   try {
-    const a = page.createAnnotation(spec.type);
+    const kind = spec.type === "Callout" ? "FreeText" : spec.type === "ReviewStamp" ? "Stamp" : spec.type;
+    const a = page.createAnnotation(kind as mupdf.PDFAnnotationType);
     const color = ("color" in spec && spec.color) || DEFAULT_COLORS[spec.type];
     // For FreeText, /C is the box background; the text colour goes in the default appearance instead.
-    if (color && spec.type !== "Redact" && spec.type !== "FreeText") a.setColor(color);
+    if (color && spec.type !== "Redact" && spec.type !== "FreeText" && spec.type !== "Callout") a.setColor(color);
+    const o = a.getObject();
     switch (spec.type) {
       case "Highlight":
       case "Underline":
@@ -106,16 +120,47 @@ export function addAnnotation(doc: mupdf.PDFDocument, pageIndex: number, spec: A
         a.setRect(spec.rect as mupdf.Rect);
         a.setDefaultAppearance("Helv", spec.fontSize ?? 12, color ?? [0, 0, 0]);
         break;
+      case "Callout": {
+        a.setRect(spec.rect as mupdf.Rect);
+        a.setDefaultAppearance("Helv", spec.fontSize ?? 12, color ?? [0, 0, 0]);
+        const [x0, y0, x1, y1] = spec.rect;
+        // The leader starts at the target and meets the box at its nearest side's middle.
+        const end: Pt = spec.target[0] < x0 ? [x0, (y0 + y1) / 2] : spec.target[0] > x1 ? [x1, (y0 + y1) / 2] : [(x0 + x1) / 2, spec.target[1] < y0 ? y0 : y1];
+        const knee: Pt = spec.knee ?? (spec.target[0] < x0 || spec.target[0] > x1 ? [end[0] + (spec.target[0] < x0 ? -18 : 18), end[1]] : [end[0], end[1] + (spec.target[1] < y0 ? -18 : 18)]);
+        a.setCalloutLine([spec.target, knee, end] as mupdf.Point[]);
+        a.setCalloutStyle("OpenArrow");
+        a.setIntent("FreeTextCallout");
+        a.setBorderWidth(1);
+        // Border colour of a FreeText comes from its default appearance; keep the box white so text stays readable.
+        a.setColor([1, 1, 1]);
+        break;
+      }
       case "Square":
       case "Circle":
         a.setRect(spec.rect as mupdf.Rect);
         a.setBorderWidth(spec.width ?? 2);
         if (spec.fill) a.setInteriorColor(spec.fill);
+        if (spec.cloud) (a.setBorderEffect("Cloudy"), a.setBorderEffectIntensity(1));
+        break;
+      case "Polygon":
+      case "PolyLine":
+        a.setVertices(spec.vertices as mupdf.Point[]);
+        a.setBorderWidth(spec.width ?? 2);
+        if (spec.fill) a.setInteriorColor(spec.fill);
+        if (spec.cloud) (a.setBorderEffect("Cloudy"), a.setBorderEffectIntensity(1));
+        if (spec.intent) a.setIntent(spec.intent as mupdf.PDFAnnotationIntent);
         break;
       case "Line":
         a.setLine(spec.a, spec.b);
         a.setBorderWidth(spec.width ?? 2);
-        if (spec.arrow) a.setLineEndingStyles("None", "ClosedArrow");
+        if (spec.dimension) {
+          a.setLineEndingStyles("OpenArrow", "OpenArrow");
+          a.setIntent("LineDimension");
+          if (spec.caption) {
+            const mid: Pt = [(spec.a[0] + spec.b[0]) / 2, (spec.a[1] + spec.b[1]) / 2];
+            o.put("HDFLabel", toPdfArray(doc, [spec.caption, mid[0], mid[1], spec.captionSize ?? 10, ...(color ?? [0, 0, 0]), 1]));
+          }
+        } else if (spec.arrow) a.setLineEndingStyles("None", "ClosedArrow");
         break;
       case "Ink":
         a.setInkList(spec.strokes);
@@ -125,21 +170,205 @@ export function addAnnotation(doc: mupdf.PDFDocument, pageIndex: number, spec: A
         a.setRect(spec.rect as mupdf.Rect);
         a.setIcon(spec.label);
         break;
+      case "ReviewStamp":
+        a.setRect(spec.rect as mupdf.Rect);
+        a.setIcon(spec.title);
+        a.setContents(`${spec.title} — ${spec.name}, ${spec.date}`);
+        o.put("HDFStamp", toPdfArray(doc, [spec.title, spec.name, spec.date, spec.company ?? "", ...(color ?? [0.1, 0.5, 0.2])]));
+        break;
       case "Redact":
         if (spec.quads?.length) a.setQuadPoints(spec.quads as mupdf.Quad[]);
         if (spec.rect) a.setRect(spec.rect as mupdf.Rect);
         else if (spec.quads?.length) a.setRect(boundsOfQuads(spec.quads) as mupdf.Rect);
         break;
     }
+    if (spec.type === "Line" && spec.caption) a.setContents(spec.caption);
     if ("contents" in spec && spec.contents) a.setContents(spec.contents);
+    if ("opacity" in spec && spec.opacity !== undefined && spec.opacity < 1) a.setOpacity(spec.opacity);
+    if ("label" in spec && spec.label && typeof spec.label === "object") {
+      const L = spec.label as Label;
+      o.put("HDFLabel", toPdfArray(doc, [L.text, L.at[0], L.at[1], L.size ?? 10, ...(L.color ?? color ?? [0, 0, 0]), L.bg === false ? 0 : 1]));
+    }
+    if ("measure" in spec && spec.measure) o.put("Measure", measureObj(doc, spec.measure));
     if (spec.type !== "Redact" && spec.type !== "Stamp") a.setAuthor(author);
     const now = new Date();
     a.setCreationDate?.(now);
     a.setModificationDate(now);
     a.update();
+    decorate(doc, page, a);
     return keyOf(a);
   } finally {
     page.destroy();
+  }
+}
+
+function toPdfArray(doc: mupdf.PDFDocument, items: (string | number)[]) {
+  const arr = doc.newArray();
+  for (const v of items) arr.push(typeof v === "number" ? doc.newReal(v) : doc.newString(v));
+  return arr;
+}
+
+function measureObj(doc: mupdf.PDFDocument, m: MeasureSpec) {
+  const fmt = (u: string, c: number) => {
+    const d = doc.newDictionary();
+    d.put("Type", doc.newName("NumberFormat"));
+    d.put("U", doc.newString(u));
+    d.put("C", doc.newReal(c));
+    d.put("D", doc.newInteger(100));
+    return d;
+  };
+  const md = doc.newDictionary();
+  md.put("Type", doc.newName("Measure"));
+  md.put("Subtype", doc.newName("RL"));
+  md.put("R", doc.newString(m.ratio));
+  const one = (d: mupdf.PDFObject) => {
+    const a = doc.newArray();
+    a.push(d);
+    return a;
+  };
+  md.put("X", one(fmt(m.xUnit, m.xC)));
+  md.put("D", one(fmt(m.xUnit, 1)));
+  md.put("A", one(fmt(m.aUnit, 1)));
+  return md;
+}
+
+/** PDF string bytes for WinAnsi text (°, ², fractions survive; anything else becomes "?"). */
+function pdfText(s: string) {
+  const map: Record<string, number> = { "—": 0x97, "–": 0x96, "’": 0x92, "“": 0x93, "”": 0x94, "•": 0x95, "·": 0xb7 };
+  let out = "";
+  for (const ch of s) {
+    const c = map[ch] ?? ch.codePointAt(0)!;
+    const b = c > 255 ? 63 : c;
+    out += b === 40 || b === 41 || b === 92 ? "\\" + String.fromCharCode(b) : b < 32 || b > 126 ? "\\" + b.toString(8).padStart(3, "0") : String.fromCharCode(b);
+  }
+  return `(${out})`;
+}
+const latin1 = (s: string) => Uint8Array.from(s, (c) => c.charCodeAt(0) & 255);
+/** Approximate Helvetica text width (good enough to centre and size labels). */
+export function helvWidth(s: string, size: number, bold = false) {
+  let w = 0;
+  for (const c of s) w += /[il.,:;|!'·]/.test(c) ? 0.28 : /[mwMW]/.test(c) ? 0.86 : /[A-Z]/.test(c) ? (bold ? 0.74 : 0.68) : /[0-9]/.test(c) ? 0.556 : c === " " ? 0.278 : bold ? 0.6 : 0.53;
+  return w * size;
+}
+
+function fontDict(doc: mupdf.PDFDocument, base: string) {
+  const f = doc.newDictionary();
+  f.put("Type", doc.newName("Font"));
+  f.put("Subtype", doc.newName("Type1"));
+  f.put("BaseFont", doc.newName(base));
+  f.put("Encoding", doc.newName("WinAnsiEncoding"));
+  return doc.addObject(f);
+}
+
+/**
+ * Our additions to mupdf's own appearance: a measurement/count label, or a whole review stamp.
+ * Re-run after anything that makes mupdf redraw the annotation (it would drop them).
+ */
+function decorate(doc: mupdf.PDFDocument, page: mupdf.PDFPage, a: mupdf.PDFAnnotation) {
+  const o = a.getObject();
+  const stamp = o.get("HDFStamp");
+  const label = o.get("HDFLabel");
+  if (!stamp.isArray() && !label.isArray()) return;
+  const toUser = mupdf.Matrix.invert(page.getTransform());
+  const tp = (x: number, y: number): Pt => {
+    const [m0, m1, m2, m3, m4, m5] = toUser;
+    return [x * m0 + y * m2 + m4, x * m1 + y * m3 + m5];
+  };
+  const num = (arr: mupdf.PDFObject, i: number) => arr.get(i).asNumber();
+  const str = (arr: mupdf.PDFObject, i: number) => arr.get(i).asString();
+  const rgb = (arr: mupdf.PDFObject, i: number) => `${num(arr, i).toFixed(3)} ${num(arr, i + 1).toFixed(3)} ${num(arr, i + 2).toFixed(3)}`;
+  if (stamp.isArray()) {
+    const [title, name, date, company] = [0, 1, 2, 3].map((i) => str(stamp, i));
+    const col = rgb(stamp, 4);
+    const r = a.getRect();
+    const p0 = tp(r[0], r[1]), p1 = tp(r[2], r[3]);
+    const x0 = Math.min(p0[0], p1[0]), y0 = Math.min(p0[1], p1[1]), x1 = Math.max(p0[0], p1[0]), y1 = Math.max(p0[1], p1[1]);
+    const w = x1 - x0, h = y1 - y0;
+    const lines = [name && date ? `${name}  ·  ${date}` : name || date, company].filter(Boolean);
+    const titleSize = Math.min(h * (lines.length ? 0.34 : 0.5), (w - 16) / Math.max(1e-3, helvWidth(title, 1, true)));
+    const small = Math.min(h * 0.19, (w - 16) / Math.max(1e-3, ...lines.map((l) => helvWidth(l, 1))));
+    let cs = `q ${col} RG ${col} rg 2 w 2 2 ${w - 4} ${h - 4} re S 0.75 w 5 5 ${w - 10} ${h - 10} re S\n`;
+    let y = h - 6 - titleSize;
+    cs += `BT /HdfB ${titleSize.toFixed(2)} Tf ${((w - helvWidth(title, titleSize, true)) / 2).toFixed(2)} ${y.toFixed(2)} Td ${pdfText(title)} Tj ET\n`;
+    for (const l of lines) {
+      y -= small * 1.35;
+      cs += `BT /Hdf ${small.toFixed(2)} Tf ${((w - helvWidth(l, small)) / 2).toFixed(2)} ${y.toFixed(2)} Td ${pdfText(l)} Tj ET\n`;
+    }
+    cs += "Q";
+    const res = doc.newDictionary();
+    const fonts = doc.newDictionary();
+    fonts.put("Hdf", fontDict(doc, "Helvetica"));
+    fonts.put("HdfB", fontDict(doc, "Helvetica-Bold"));
+    res.put("Font", fonts);
+    const sd = doc.newDictionary();
+    sd.put("Type", doc.newName("XObject"));
+    sd.put("Subtype", doc.newName("Form"));
+    const bb = doc.newArray();
+    [0, 0, w, h].forEach((v) => bb.push(doc.newReal(v)));
+    sd.put("BBox", bb);
+    const mx = doc.newArray();
+    [1, 0, 0, 1, x0, y0].forEach((v) => mx.push(doc.newReal(v)));
+    sd.put("Matrix", mx);
+    sd.put("Resources", res);
+    const ap = doc.newDictionary();
+    ap.put("N", doc.addStream(latin1(cs), sd));
+    o.put("AP", ap);
+    return;
+  }
+  // Label: append text to mupdf's appearance stream, growing its box to fit.
+  const ap = o.get("AP").get("N");
+  if (!ap.isStream()) return;
+  const text = str(label, 0);
+  const size = num(label, 3);
+  const [ux, uy] = tp(num(label, 1), num(label, 2));
+  const tw = helvWidth(text, size);
+  // Text is centred on the label point, on a white backing so it stays readable over linework.
+  const bx0 = ux - tw / 2 - 2, by0 = uy - size * 0.55, bx1 = ux + tw / 2 + 2, by1 = uy + size * 0.85;
+  const m = ap.get("Matrix");
+  const M = m.isArray() ? [0, 1, 2, 3, 4, 5].map((i) => m.get(i).asNumber()) : [1, 0, 0, 1, 0, 0];
+  const inv = mupdf.Matrix.invert(M as mupdf.Matrix);
+  const fx = (x: number, y: number): Pt => [x * inv[0] + y * inv[2] + inv[4], x * inv[1] + y * inv[3] + inv[5]];
+  const [lx0, ly0] = fx(bx0, by0), [lx1, ly1] = fx(bx1, by1);
+  const [tx, ty] = fx(ux - tw / 2, uy - size * 0.3);
+  const bg = label.length < 8 || num(label, 7) !== 0;
+  const add = `\nq /HdfOpaque gs ${bg ? `1 1 1 rg ${lx0.toFixed(2)} ${ly0.toFixed(2)} ${(lx1 - lx0).toFixed(2)} ${(ly1 - ly0).toFixed(2)} re f ` : ""}${rgb(label, 4)} rg BT /HdfL ${size} Tf ${tx.toFixed(2)} ${ty.toFixed(2)} Td ${pdfText(text)} Tj ET Q\n`;
+  const old = ap.readStream().asUint8Array();
+  const next = new Uint8Array(old.length + add.length);
+  next.set(old, 0);
+  next.set(latin1(add), old.length);
+  ap.writeStream(next);
+  let res = ap.get("Resources");
+  if (!res.isDictionary()) {
+    res = doc.newDictionary();
+    ap.put("Resources", res);
+  }
+  let fonts = res.get("Font");
+  if (!fonts.isDictionary()) {
+    fonts = doc.newDictionary();
+    res.put("Font", fonts);
+  }
+  fonts.put("HdfL", fontDict(doc, "Helvetica"));
+  // The label stays fully opaque even on a see-through shape.
+  let gsd = res.get("ExtGState");
+  if (!gsd.isDictionary()) {
+    gsd = doc.newDictionary();
+    res.put("ExtGState", gsd);
+  }
+  const op = doc.newDictionary();
+  op.put("CA", doc.newReal(1));
+  op.put("ca", doc.newReal(1));
+  gsd.put("HdfOpaque", op);
+  const bbox = ap.get("BBox");
+  if (bbox.isArray()) {
+    const b = [0, 1, 2, 3].map((i) => bbox.get(i).asNumber());
+    const nb = [Math.min(b[0], lx0), Math.min(b[1], ly0), Math.max(b[2], lx1), Math.max(b[3], ly1)];
+    nb.forEach((v, i) => bbox.put(i, doc.newReal(v)));
+  }
+  const rect = o.get("Rect");
+  if (rect.isArray()) {
+    const rr = [0, 1, 2, 3].map((i) => rect.get(i).asNumber());
+    const nr = [Math.min(rr[0], bx0), Math.min(rr[1], by0), Math.max(rr[2], bx1), Math.max(rr[3], by1)];
+    nr.forEach((v, i) => rect.put(i, doc.newReal(v)));
   }
 }
 
@@ -278,8 +507,13 @@ export function updateAnnotation(doc: mupdf.PDFDocument, pageIndex: number, key:
     if (patch.contents !== undefined) a.setContents(patch.contents);
     if (patch.color) a.setColor(patch.color);
     if (patch.rect) a.setRect(patch.rect as mupdf.Rect);
+    if (patch.color && a.getObject().get("HDFStamp").isArray()) {
+      const st = a.getObject().get("HDFStamp");
+      patch.color.forEach((v, i) => st.put(4 + i, doc.newReal(v)));
+    }
     a.setModificationDate(new Date());
     a.update();
+    decorate(doc, page, a);
   } finally {
     page.destroy();
   }
