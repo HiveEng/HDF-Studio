@@ -1426,6 +1426,7 @@ const formsUI = setupForms({
     status(`${label}. Ctrl+Z to undo.`);
   },
   signField: (f) => placeSignature(f.page, [0, 0], f.rect),
+  status,
 });
 const designUI = setupFormDesign({
   engine,

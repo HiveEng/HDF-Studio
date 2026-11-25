@@ -491,3 +491,11 @@ body.designing .page .field { display: none; }
 .spell-item.open { background: rgba(5, 199, 242, .08); }
 .spell-acts { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 8px 8px; }
 .spell-sugg { font-weight: 600; }
+/* Form logic */
+.page .field.field-calc { background: rgba(197, 217, 50, .18); cursor: default; }
+.page .field.field-required { box-shadow: inset 0 0 0 1px rgba(217, 26, 26, .55); }
+.page .field.field-invalid { box-shadow: inset 0 0 0 2px #d91a1a; animation: field-shake .3s; }
+@keyframes field-shake { 25% { transform: translateX(-2px); } 75% { transform: translateX(2px); } }
+/* Long dialogs scroll; the buttons stay in view. */
+.modal { max-height: 90vh; overflow-y: auto; }
+.modal-buttons { position: sticky; bottom: -20px; background: var(--panel); padding: 8px 0 4px; }

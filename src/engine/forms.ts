@@ -1,5 +1,6 @@
 // Form filling (AcroForm) and signature images.
 import * as mupdf from "mupdf";
+import { readLogic, normalize, setDisplayed, recalculate, display, type FieldLogic } from "./formcalc";
 
 export interface FieldInfo {
   key: number;
@@ -14,6 +15,11 @@ export interface FieldInfo {
   readOnly: boolean;
   multiline: boolean;
   maxLen: number;
+  required: boolean;
+  /** The value as the field shows it (formatted number, currency, date…). */
+  shown: string;
+  /** Format, calculation and validation from the field's scripts. */
+  logic: FieldLogic;
 }
 
 function onStateOf(w: mupdf.PDFWidget): string | null {
@@ -31,12 +37,17 @@ export function listFields(doc: mupdf.PDFDocument): FieldInfo[] {
     const page = doc.loadPage(i) as mupdf.PDFPage;
     for (const w of page.getWidgets()) {
       const type = w.getFieldType();
+      const logic = readLogic(w.getObject());
+      const value = type === "signature" ? (w.getObject().get("V").isNull() ? "" : "signed") : w.getValue() ?? "";
       out.push({
         key: keyOf(w),
         page: i,
         name: w.getName(),
         type,
-        value: type === "signature" ? (w.getObject().get("V").isNull() ? "" : "signed") : w.getValue() ?? "",
+        value,
+        shown: type === "text" ? display(value, logic.format) : value,
+        logic,
+        required: (w.getFieldFlags() & 2) !== 0,
         options: w.isChoice() ? w.getOptions() : [],
         onState: w.isCheckbox() || w.isRadioButton() ? onStateOf(w) : null,
         rect: Array.from(w.getBounds()),
@@ -52,10 +63,20 @@ export function listFields(doc: mupdf.PDFDocument): FieldInfo[] {
 
 const TRUTHY = /^(1|y|yes|true|on|x|checked|✓|✔)$/i;
 
-function setWidget(w: mupdf.PDFWidget, value: string): boolean {
+function setWidget(doc: mupdf.PDFDocument, w: mupdf.PDFWidget, value: string, strict = false): boolean {
   if (w.isReadOnly()) return false;
-  if (w.isText()) w.setTextValue(value);
-  else if (w.isChoice()) w.setChoiceValue(value);
+  if (w.isText()) {
+    // Formats (number, currency, date) and range checks from the field's own scripts.
+    const logic = readLogic(w.getObject());
+    const r = normalize(value, logic);
+    if ("error" in r) {
+      if (strict) throw new Error(r.error);
+      w.setTextValue(value);
+    } else {
+      setDisplayed(doc, w, r.value, logic.format);
+      return true;
+    }
+  } else if (w.isChoice()) w.setChoiceValue(value);
   else if (w.isCheckbox()) {
     const on = onStateOf(w);
     const want = TRUTHY.test(value) || (!!on && value === on);
@@ -74,10 +95,11 @@ export function setField(doc: mupdf.PDFDocument, pageIndex: number, key: number,
   try {
     const w = page.getWidgets().find((x) => keyOf(x) === key);
     if (!w) throw new Error("Field not found");
-    setWidget(w, value);
+    setWidget(doc, w, value, true);
   } finally {
     page.destroy();
   }
+  recalculate(doc);
 }
 
 /** Fill fields by name (e.g. one CSV row). Returns the names that were filled and those not found. */
@@ -88,10 +110,11 @@ export function fillByName(doc: mupdf.PDFDocument, data: Record<string, string>)
     const page = doc.loadPage(i) as mupdf.PDFPage;
     for (const w of page.getWidgets()) {
       const name = w.getName();
-      if (want.has(name) && setWidget(w, want.get(name)!)) filled.add(name);
+      if (want.has(name) && setWidget(doc, w, want.get(name)!)) filled.add(name);
     }
     page.destroy();
   }
+  recalculate(doc);
   return { filled: [...filled], missing: [...want.keys()].filter((k) => !filled.has(k)) };
 }
 
@@ -128,6 +151,7 @@ export function clearForm(doc: mupdf.PDFDocument) {
     }
     page.destroy();
   }
+  recalculate(doc);
 }
 
 /** Place a signature (or any) image on a page as a stamp annotation. */

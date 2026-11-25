@@ -2,6 +2,7 @@
 // flat form (underscores, ☐ boxes, drawn lines and boxes). Rectangles are page display space
 // (points, origin top-left), like everything else in the UI.
 import * as mupdf from "mupdf";
+import { readLogic, writeLogic, recalculate, setDisplayed, type FieldLogic } from "./formcalc";
 
 export type NewFieldType = "text" | "checkbox" | "radio" | "combobox" | "listbox" | "signature";
 
@@ -21,6 +22,8 @@ export interface FieldSpec {
   /** 0 = auto size. */
   fontSize?: number;
   tooltip?: string;
+  /** Number/date format, calculation and validation (text fields). */
+  logic?: FieldLogic;
 }
 
 export interface FieldProps {
@@ -37,6 +40,7 @@ export interface FieldProps {
   maxLen: number;
   fontSize: number;
   tooltip: string;
+  logic: FieldLogic;
 }
 
 export type FieldPatch = Partial<Omit<FieldSpec, "type" | "value" | "exportValue">>;
@@ -251,12 +255,15 @@ export function addField(doc: mupdf.PDFDocument, pageIndex: number, spec: FieldS
     if (spec.type === "radio" && spec.tooltip) ref.put("TU", doc.newString(spec.tooltip));
     pageAnnots(doc, pageObj).push(ref);
     const key = ref.asIndirect();
+    if (spec.logic && spec.type === "text") writeLogic(doc, ref, spec.logic);
     // Let MuPDF build the appearance for text and choice fields (and set any initial value).
     const fresh = doc.loadPage(pageIndex) as mupdf.PDFPage;
     try {
       const wid = fresh.getWidgets().find((x) => x.getObject().asIndirect() === key);
       if (wid) {
-        if (spec.type === "text") wid.setTextValue(spec.value ?? "");
+        if (spec.type === "text") {
+          wid.setTextValue(spec.value ?? "");
+        }
         else if ((spec.type === "combobox" || spec.type === "listbox") && spec.value) wid.setChoiceValue(spec.value);
         else if (spec.type === "checkbox" && spec.value && /^(1|y|yes|true|on|x)$/i.test(spec.value)) wid.toggle();
         wid.update();
@@ -311,6 +318,7 @@ export function fieldProps(doc: mupdf.PDFDocument, pageIndex: number, key: numbe
       maxLen: w.isText() ? w.getMaxLen() : 0,
       fontSize: Number(/([\d.]+)\s+Tf/.exec(da)?.[1] ?? 0),
       tooltip: tu.isString() ? tu.asString() : "",
+      logic: readLogic(o),
     };
   } finally {
     page.destroy();
@@ -347,11 +355,13 @@ export function updateField(doc: mupdf.PDFDocument, pageIndex: number, key: numb
         setToggleAppearance(doc, o, on, w.isRadioButton());
       }
     }
-    if (w.isText()) w.setTextValue(w.getValue() ?? "");
+    if (patch.logic && w.isText()) writeLogic(doc, o, patch.logic);
+    if (w.isText()) setDisplayed(doc, w, w.getValue() ?? "", readLogic(o).format);
     w.update();
   } finally {
     page.destroy();
   }
+  if (patch.logic) recalculate(doc);
 }
 
 function removeFrom(arr: mupdf.PDFObject, num: number) {

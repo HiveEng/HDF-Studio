@@ -9,17 +9,23 @@ export interface FormDeps {
   refreshPage(i: number): void;
   changed(label: string): void;
   signField(f: FieldInfo): void;
+  status?(msg: string): void;
 }
 
 export function setupForms(d: FormDeps) {
   let current: FieldInfo[] = [];
 
   async function render() {
-    document.querySelectorAll(".page .field").forEach((n) => n.remove());
     const doc = d.doc();
-    current = doc ? await d.fields(doc.info.id) : [];
-    if (!doc || d.doc() !== doc) return;
+    const next = doc ? await d.fields(doc.info.id) : [];
+    if (d.doc() !== doc) return;
+    // Keep the cursor where it was (tabbing on to the next field re-renders the form).
+    const focusKey = (document.activeElement as HTMLElement | null)?.closest?.(".field")?.getAttribute("data-key");
+    document.querySelectorAll(".page .field").forEach((n) => n.remove());
+    current = next;
+    if (!doc) return;
     for (const f of current) place(doc.info.id, doc.info.pageSizes, f);
+    if (focusKey) document.querySelector<HTMLElement>(`.page .field[data-key="${focusKey}"]`)?.focus();
     return current.length;
   }
 
@@ -30,11 +36,25 @@ export function setupForms(d: FormDeps) {
     const [x0, y0, x1, y1] = f.rect;
     let el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement;
     switch (f.type) {
-      case "text":
-        el = f.multiline ? document.createElement("textarea") : Object.assign(document.createElement("input"), { type: "text" });
-        el.value = f.value;
-        if (f.maxLen > 0) (el as HTMLInputElement).maxLength = f.maxLen;
+      case "text": {
+        const t = f.multiline ? document.createElement("textarea") : Object.assign(document.createElement("input"), { type: "text" });
+        // Formatted while you look at it ($1,234.50), the plain value while you type.
+        t.value = f.shown;
+        t.addEventListener("focus", () => !t.readOnly && t.value !== f.value && f.shown === t.value && (t.value = f.value));
+        t.addEventListener("blur", () => t.value === f.value && (t.value = f.shown));
+        if (f.maxLen > 0) (t as HTMLInputElement).maxLength = f.maxLen;
+        const fk = f.logic.format.kind;
+        if (fk === "number" || fk === "percent") t.inputMode = "decimal";
+        if (f.logic.calc.kind !== "none") {
+          t.readOnly = true;
+          t.tabIndex = -1;
+          t.classList.add("field-calc");
+          t.title = `${f.name}: calculated`;
+        }
+        if (f.required) t.classList.add("field-required");
+        el = t;
         break;
+      }
       case "checkbox":
         el = Object.assign(document.createElement("input"), { type: "checkbox", checked: f.value !== "Off" && f.value !== "" });
         break;
@@ -58,7 +78,7 @@ export function setupForms(d: FormDeps) {
         return;
     }
     el.classList.add("field", `field-${f.type}`);
-    el.title = f.name;
+    el.title ||= f.name + (f.required ? " (required)" : "");
     el.dataset.key = String(f.key);
     Object.assign(el.style, { left: `${(x0 / pw) * 100}%`, top: `${(y0 / ph) * 100}%`, width: `${((x1 - x0) / pw) * 100}%`, height: `${((y1 - y0) / ph) * 100}%` });
     if (f.readOnly) (el as HTMLInputElement).disabled = true;
@@ -69,9 +89,20 @@ export function setupForms(d: FormDeps) {
         const v = el instanceof HTMLInputElement && el.type === "checkbox" ? (el.checked ? "Yes" : "Off") : el instanceof HTMLInputElement && el.type === "radio" ? f.onState ?? "" : (el as HTMLInputElement).value;
         const doc = d.doc();
         if (!doc) return;
-        current = await d.setField(doc.info.id, f.page, f.key, v);
-        d.refreshPage(f.page);
+        try {
+          current = await d.setField(doc.info.id, f.page, f.key, v);
+        } catch (e) {
+          // Not a valid value for this field (number, date or range): put the old one back.
+          d.status?.(String((e as Error).message ?? e).replace(/^Error:\s*/, ""));
+          (el as HTMLInputElement).value = f.shown;
+          el.classList.add("field-invalid");
+          setTimeout(() => el.classList.remove("field-invalid"), 1500);
+          return;
+        }
         d.changed(`Filled “${f.name}”`);
+        // Calculated fields elsewhere may have changed: redraw the pages with fields.
+        for (const p of new Set(current.map((x) => x.page))) d.refreshPage(p);
+        await render();
       };
       el.addEventListener("change", commit);
     }

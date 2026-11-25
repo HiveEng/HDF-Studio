@@ -1,5 +1,6 @@
 // Form designer: draw new fields on the page, move/resize/rename them, and turn a flat form into
 // a fillable one with "Detect fields". Fields show as outlined boxes while designing.
+import { parseExpr, type FieldLogic, type NumberSep, type CalcOp } from "../engine/formcalc";
 import type { FieldInfo } from "../engine/forms";
 import type { FieldSpec, FieldProps, FieldPatch, DetectedField, NewFieldType } from "../engine/formdesign";
 import { ask } from "./dialog";
@@ -286,6 +287,20 @@ export function setupFormDesign(d: DesignDeps) {
     if (f.type === "text") {
       form.push({ name: "multiline", label: "Multiple lines", type: "select", value: yn(p.multiline), options: yesNo });
       form.push({ name: "maxLen", label: "Character limit", type: "number", value: String(p.maxLen || ""), placeholder: "No limit" });
+      const L = p.logic, F = L.format, C = L.calc, V = L.validate;
+      const fmtVal = F.kind === "number" ? (F.currency ? "currency" : "number") : F.kind;
+      form.push(
+        { name: "fmt", label: "Format", type: "select", value: fmtVal, options: [["none", "None (plain text)"], ["number", "Number"], ["currency", "Currency"], ["percent", "Percent"], ["date", "Date"]] },
+        { name: "decimals", label: "Decimal places", type: "number", value: String(F.kind === "number" || F.kind === "percent" ? F.decimals : 2) },
+        { name: "currency", label: "Currency symbol", value: F.kind === "number" && F.currency ? F.currency : "$" },
+        { name: "sep", label: "Number style", type: "select", value: String(F.kind === "number" || F.kind === "percent" ? F.sep : 0), options: [["0", "1,234.56"], ["1", "1234.56"], ["2", "1.234,56"], ["3", "1234,56"]] },
+        { name: "date", label: "Date style", type: "select", value: F.kind === "date" ? F.pattern : "mm/dd/yyyy", options: [...new Set([F.kind === "date" ? F.pattern : "mm/dd/yyyy", "mm/dd/yyyy", "m/d/yy", "dd/mm/yyyy", "yyyy-mm-dd", "mmm d, yyyy", "d-mmm-yyyy", "mmmm d, yyyy"])].map((x): [string, string] => [x, x]) },
+        { name: "calc", label: "Calculate", type: "select", value: C.kind === "simple" ? C.op : C.kind === "formula" ? "formula" : C.kind === "script" ? "script" : "none", options: [["none", "Not calculated"], ["SUM", "Sum (+) of fields"], ["PRD", "Product (×) of fields"], ["AVG", "Average of fields"], ["MIN", "Minimum of fields"], ["MAX", "Maximum of fields"], ["formula", "Formula"], ...(C.kind === "script" ? [["script", "Custom script (kept, not run here)"] as [string, string]] : [])] },
+        { name: "calcFields", label: "Fields to calculate from", value: C.kind === "simple" ? C.fields.join(", ") : "", placeholder: "Line1, Line2, Line3", hint: "Field names, separated by commas" },
+        { name: "formula", label: "Formula", value: C.kind === "formula" ? C.expr : "", placeholder: "Qty * Price", hint: "Field names with + - * / and brackets. Put \\ before a space or dot in a name." },
+        { name: "min", label: "Lowest allowed value", type: "number", value: V.kind === "range" && V.min !== undefined ? String(V.min) : "", placeholder: "No limit" },
+        { name: "max", label: "Highest allowed value", type: "number", value: V.kind === "range" && V.max !== undefined ? String(V.max) : "", placeholder: "No limit" },
+      );
     }
     if (f.type === "combobox" || f.type === "listbox") form.push({ name: "options", label: "Choices", value: p.options.join(", "), hint: "Separate with commas" });
     const r = await ask(`${TYPE_NAME[f.type] ?? "Field"} properties`, form, "Save");
@@ -295,6 +310,24 @@ export function setupFormDesign(d: DesignDeps) {
     if ("multiline" in r) patch.multiline = r.multiline === "yes";
     if ("maxLen" in r) patch.maxLen = Math.max(0, Math.floor(Number(r.maxLen) || 0));
     if ("options" in r) patch.options = r.options.split(",").map((s) => s.trim()).filter(Boolean);
+    if ("fmt" in r) {
+      const dec = Math.max(0, Math.min(6, Math.floor(Number(r.decimals) || 0)));
+      const sep = (Number(r.sep) & 3) as NumberSep;
+      const format: FieldLogic["format"] = r.fmt === "number" ? { kind: "number", decimals: dec, sep } : r.fmt === "currency" ? { kind: "number", decimals: dec, sep, currency: r.currency || "$", prepend: true } : r.fmt === "percent" ? { kind: "percent", decimals: dec, sep } : r.fmt === "date" ? { kind: "date", pattern: r.date } : { kind: "none" };
+      let calc: FieldLogic["calc"] = { kind: "none" };
+      if (r.calc === "formula") {
+        try {
+          parseExpr(r.formula);
+        } catch (e) {
+          return d.status((e as Error).message);
+        }
+        calc = { kind: "formula", expr: r.formula.trim() };
+      } else if (r.calc === "script") calc = p.logic.calc;
+      else if (r.calc !== "none") calc = { kind: "simple", op: r.calc as CalcOp, fields: r.calcFields.split(",").map((x) => x.trim()).filter(Boolean) };
+      const min = r.min.trim() === "" ? undefined : Number(r.min), max = r.max.trim() === "" ? undefined : Number(r.max);
+      const validate: FieldLogic["validate"] = min !== undefined || max !== undefined ? { kind: "range", min, max } : p.logic.validate.kind === "script" ? p.logic.validate : { kind: "none" };
+      patch.logic = { format, calc, validate };
+    }
     try {
       await d.engine.updateField(doc.info.id, f.page, f.key, patch);
       d.refreshPage(f.page);
