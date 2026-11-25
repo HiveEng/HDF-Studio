@@ -1,6 +1,7 @@
 import { createEngine } from "./engine/client";
 import type { DocInfo, OutlineNode, SearchHit } from "./engine/core";
-import { pickFiles, filesFromList, saveFile, saveMany, baseName, isTauri, type OpenedFile } from "./platform";
+import { pickFiles, filesFromList, saveFile, saveMany, saveText, baseName, isTauri, type OpenedFile } from "./platform";
+import { setupAnnotate, TOOLS } from "./ui/annotate";
 import { parseRanges, formatRanges } from "./engine/ranges";
 import { ask, confirmDialog } from "./ui/dialog";
 import { openBatch, type BatchDeps } from "./ui/batch";
@@ -24,8 +25,6 @@ interface Tab {
   hitIndex: number;
   selected: Set<number>;
   anchor: number;
-  undo: Uint8Array[];
-  redo: Uint8Array[];
 }
 const tabs: Tab[] = [];
 let active: Tab | null = null;
@@ -164,6 +163,7 @@ function buildView() {
   drawHighlights();
   renderResults();
   updateCurrentPage();
+  annot?.refreshComments();
 }
 
 function applyZoom(z: number, keepCenter = true) {
@@ -382,7 +382,7 @@ async function openFiles(files: OpenedFile[]) {
   buildView();
 }
 function addTab(info: DocInfo, name: string, path: string | null, dirty = false) {
-  const tab: Tab = { info, name, path, dirty, zoom: 1, fit: "width", page: 0, scrollTop: 0, query: "", hits: [], hitIndex: -1, selected: new Set(), anchor: 0, undo: [], redo: [] };
+  const tab: Tab = { info, name, path, dirty, zoom: 1, fit: "width", page: 0, scrollTop: 0, query: "", hits: [], hitIndex: -1, selected: new Set(), anchor: 0 };
   tabs.push(tab);
   active = tab;
   return tab;
@@ -459,11 +459,7 @@ async function mutate(label: string, op: (t: Tab) => Promise<DocInfo>) {
   if (!active) return;
   const t = active;
   try {
-    const snap = await engine.snapshot(t.info.id);
     const info = await op(t);
-    t.undo.push(snap);
-    if (t.undo.length > 30) t.undo.shift();
-    t.redo = [];
     t.info = info;
     t.dirty = true;
     t.hits = [];
@@ -479,14 +475,12 @@ async function mutate(label: string, op: (t: Tab) => Promise<DocInfo>) {
 async function undoRedo(dir: "undo" | "redo") {
   if (!active) return;
   const t = active;
-  const from = dir === "undo" ? t.undo : t.redo;
-  const to = dir === "undo" ? t.redo : t.undo;
-  const data = from.pop();
-  if (!data) return status(`Nothing to ${dir}`);
-  to.push(await engine.snapshot(t.info.id));
-  t.info = await engine.replace(t.info.id, data);
+  const info = await (dir === "undo" ? engine.undo(t.info.id) : engine.redo(t.info.id));
+  if (!info) return status(`Nothing to ${dir}`);
+  t.info = info;
   t.dirty = true;
   t.selected.clear();
+  t.page = Math.min(t.page, info.pageCount - 1);
   buildView();
   status(dir === "undo" ? "Undone" : "Redone");
 }
@@ -676,6 +670,51 @@ const batchDeps: BatchDeps = {
   },
 };
 
+// ---------- Comments & markup ----------
+function refreshPage(i: number) {
+  for (const el of [pageEl(i), thumbsEl.children[i]?.querySelector(".page") as HTMLElement | undefined]) {
+    if (!el) continue;
+    delete el.dataset.scale;
+    if (el.dataset.visible === "1" && active) {
+      const thumb = el.parentElement?.classList.contains("thumb");
+      const scale = thumb ? +((THUMB_W / active.info.pageSizes[i][0]) * dpr()).toFixed(3) : +(active.zoom * dpr()).toFixed(3);
+      enqueue({ el, tab: active, page: i, scale });
+    }
+  }
+}
+const annot = setupAnnotate({
+  engine,
+  doc: () => active,
+  pagesEl,
+  viewer,
+  commentsEl: $("#side-comments"),
+  refreshPage,
+  changed: (label) => {
+    if (!active) return;
+    active.dirty = true;
+    renderTabs();
+    status(`${label}. Ctrl+Z to undo.`);
+  },
+  goToPage,
+  status,
+  saveText: async (name, text) => void (await saveText(name, text)),
+});
+const toolsEl = $("#tools");
+for (const t of TOOLS) {
+  const b = document.createElement("button");
+  b.dataset.tool = t.id;
+  b.textContent = t.label;
+  b.title = t.title;
+  b.onclick = () => annot.setTool(t.id);
+  toolsEl.append(b);
+}
+const colorInput = Object.assign(document.createElement("input"), { type: "color", value: "#d62828", title: "Markup colour (leave as is for each tool's default)" });
+colorInput.oninput = () => annot.setColor(colorInput.value.match(/\w\w/g)!.map((h) => parseInt(h, 16) / 255) as [number, number, number]);
+const resetColor = Object.assign(document.createElement("button"), { textContent: "Default colours", title: "Use each tool's default colour" });
+resetColor.onclick = () => annot.setColor(null);
+toolsEl.append(Object.assign(document.createElement("span"), { className: "sep" }), colorInput, resetColor);
+annot.setTool("hand");
+
 // ---------- Theme ----------
 function setTheme(dark: boolean) {
   document.documentElement.classList.toggle("dark", dark);
@@ -727,6 +766,18 @@ const commands: Command[] = [
   { id: "selectAll", title: "Select all pages", run: () => { if (!active) return; active.selected = new Set(active.info.pageSizes.keys()); [...thumbsEl.children].forEach((el) => el.classList.add("selected")); showSidePanel("thumbs"); } },
   { id: "batch", title: "Batch: run a recipe on many files…", keys: "Ctrl+B", run: () => openBatch(batchDeps) },
   { id: "recipeCurrent", title: "Apply a recipe to this document (stamp, Bates, watermark, protect…)", run: async () => active && openBatch(batchDeps, { files: [{ name: active.name, path: active.path, data: await engine.save(active.info.id) }] }) },
+  { id: "tool-hand", title: "Hand tool / select comments", keys: "V", run: () => annot.setTool("hand") },
+  { id: "tool-select", title: "Select text tool", keys: "T", run: () => annot.setTool("select") },
+  { id: "tool-highlight", title: "Highlight tool", keys: "H", run: () => annot.setTool("highlight") },
+  { id: "tool-underline", title: "Underline tool", keys: "U", run: () => annot.setTool("underline") },
+  { id: "tool-strike", title: "Strikeout tool", keys: "K", run: () => annot.setTool("strike") },
+  { id: "tool-note", title: "Sticky note tool", keys: "N", run: () => annot.setTool("note") },
+  { id: "tool-text", title: "Text box tool", keys: "X", run: () => annot.setTool("text") },
+  { id: "tool-rect", title: "Rectangle tool", keys: "R", run: () => annot.setTool("rect") },
+  { id: "tool-ellipse", title: "Ellipse tool", keys: "O", run: () => annot.setTool("ellipse") },
+  { id: "tool-arrow", title: "Arrow tool", keys: "A", run: () => annot.setTool("arrow") },
+  { id: "tool-ink", title: "Pen tool", keys: "P", run: () => annot.setTool("ink") },
+  { id: "showComments", title: "Show comments", run: () => (showSidePanel("comments"), annot.refreshComments()) },
   { id: "palette", title: "Show all commands", keys: "Ctrl+K", run: () => openPalette() },
 ];
 const byId = Object.fromEntries(commands.map((c) => [c.id, c]));

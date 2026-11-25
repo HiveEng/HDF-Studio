@@ -61,3 +61,18 @@ test("combine with bookmarks, insertFrom, extract, split", () => {
   const byBm = e.split(src.id, { bookmarks: true });
   assert.deepEqual(byBm.map((p) => p.suffix), ["Chapter 1", "Chapter 2", "Chapter 3", "Chapter 4"]);
 });
+
+test("undo/redo through MuPDF's journal, including nested ops", () => {
+  const e = new Engine();
+  const { id } = e.open(makeSamplePdf(3, "U"));
+  e.deletePages(id, [0]); // deletePages -> rearrange (nested) = one step
+  e.rotatePages(id, [0], 90);
+  assert.equal(e.history(id).steps.length, 2);
+  e.undo(id);
+  assert.deepEqual(e.info(id).pageSizes[0], [612, 792]);
+  e.undo(id);
+  assert.equal(e.info(id).pageCount, 3);
+  assert.equal(e.undo(id), null);
+  e.redo(id);
+  assert.equal(e.info(id).pageCount, 2);
+});

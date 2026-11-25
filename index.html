@@ -38,6 +38,7 @@
       <button data-cmd="toggleTheme" title="Toggle dark mode">Theme</button>
     </div>
   </header>
+  <div id="tools" role="toolbar" aria-label="Comment and markup tools"></div>
   <nav id="tabs"></nav>
   <main>
     <aside id="sidebar">
@@ -45,6 +46,7 @@
         <button data-side="thumbs" class="active">Pages</button>
         <button data-side="outline">Outline</button>
         <button data-side="results">Results</button>
+        <button data-side="comments">Comments</button>
       </div>
       <div id="thumb-tools" class="thumb-tools">
         <button data-cmd="rotateLeft" title="Rotate selected left (Ctrl+[)">⟲</button>
@@ -57,6 +59,7 @@
       <div id="side-thumbs" class="side-panel" tabindex="0"></div>
       <div id="side-outline" class="side-panel hidden"></div>
       <div id="side-results" class="side-panel hidden"></div>
+      <div id="side-comments" class="side-panel hidden"></div>
     </aside>
     <section id="viewer" tabindex="0">
       <div id="empty">
