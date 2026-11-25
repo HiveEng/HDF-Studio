@@ -3,6 +3,7 @@ import type { DocInfo, OutlineNode, SearchHit } from "./engine/core";
 import { pickFiles, filesFromList, saveFile, saveMany, saveText, saveBytes, baseName, isTauri, type OpenedFile } from "./platform";
 import { setupAnnotate, TOOLS } from "./ui/annotate";
 import { setupForms } from "./ui/forms";
+import { setupEdit } from "./ui/edit";
 import { getSignature, clearSignature, pngSize } from "./ui/signature";
 import { parseRanges, formatRanges } from "./engine/ranges";
 import { ask, confirmDialog } from "./ui/dialog";
@@ -169,6 +170,7 @@ function buildView() {
   updateCurrentPage();
   annot.refreshComments();
   updateRedactButton();
+  editUI.invalidate();
   showSignatureStatus();
   const shown = active;
   formsUI.render().then(() => {
@@ -803,6 +805,24 @@ const annot = setupAnnotate({
   sign: (page, at) => (pendingPlacement ? pendingPlacement(page, at) : placeSignature(page, at)),
 });
 
+// ---------- Edit text & images ----------
+const editUI = setupEdit({
+  engine,
+  doc: () => active,
+  pagesEl,
+  viewer,
+  refreshPage,
+  changed: (label) => {
+    if (!active) return;
+    active.dirty = true;
+    renderTabs();
+    status(`${label}. Ctrl+Z to undo.`);
+  },
+  status,
+  pickImage: async () => (await pickFiles(false, ["png", "jpg", "jpeg"]))[0]?.data ?? null,
+  saveBytes: async (name, data) => void (await saveBytes(name, data)),
+});
+
 // ---------- Forms & signatures ----------
 let pendingPlacement: ((page: number, at: [number, number]) => Promise<void>) | null = null;
 async function placeSignature(page: number, at: [number, number], rect?: number[]) {
@@ -1056,6 +1076,11 @@ const commands: Command[] = [
   { id: "unprotect", title: "Remove password protection", run: () => unprotectFlow() },
   { id: "tool-sign", title: "Sign: place your signature", keys: "G", run: () => annot.setTool("sign") },
   { id: "newSignature", title: "Create a new signature…", run: async () => { clearSignature(); if (await getSignature(true)) annot.setTool("sign"); } },
+  { id: "tool-edit", title: "Edit tool: change page text and images", keys: "E", run: () => annot.setTool("edit") },
+  { id: "insertImage", title: "Insert image…", run: () => (annot.setTool("edit"), editUI.insertImage()) },
+  { id: "replaceImage", title: "Replace selected image…", run: () => editUI.replaceSelectedImage() },
+  { id: "saveImage", title: "Save selected image as PNG…", run: () => editUI.saveSelectedImage() },
+  { id: "textStyle", title: "Font, size and colour for new text…", run: () => editUI.setTextStyle() },
   { id: "signCert", title: "Sign with a certificate (.pfx / .p12)…", run: () => signWithCertificate() },
   { id: "verifySigs", title: "Validate signatures", run: () => showSignatureDetails() },
   { id: "makeCert", title: "Create a self-signed certificate…", run: () => createCertificate() },

@@ -82,7 +82,7 @@ npm run hdfstudio -- recipes          # list built-in recipes and step types
 | Delete selected pages (in thumbnails) | Delete |
 | Tools: hand, select text, highlight, underline, strikeout | V, T, H, U, K |
 | Tools: note, text box, rectangle, ellipse, arrow, pen | N, X, R, O, A, P |
-| Tools: sign, redact | G, D |
+| Tools: sign, redact, edit page text & images | G, D, E |
 | Find and redact | Ctrl+Shift+R |
 | Select pages | Click, Ctrl+click, Shift+click; drag to reorder; drop PDFs between thumbnails to insert |
 
@@ -96,7 +96,7 @@ npm run hdfstudio -- recipes          # list built-in recipes and step types
 | 4 | Comment & review | Highlight, notes, shapes, ink, stamps, replies, XFDF import/export | MuPDF annotations |
 | 5 | Redaction & security | Permanent redaction (text, images, vector art), find-and-redact by text/regex/patterns, hidden-data removal, AES-256 passwords and permissions | Done |
 | 6 | Forms & e-signatures | Fill/flatten forms, CSV mail merge, drawn/typed/image signatures, certificate (PKCS#7, .pfx) digital signatures, validation, batch signing | Done (form designer and timestamps next) |
-| 7 | Edit text & images | Edit existing text runs, add text, replace/move/insert images | Content-stream editing on MuPDF |
+| 7 | Edit text & images | Edit existing text blocks in place (font/size/colour matched), add text, move/resize/replace/insert/delete/export images | Done (custom font embedding next) |
 | 8 | Create & convert | Images, XPS, EPUB, HTML, text to PDF; PDF to images, text, HTML; Office files via optional LibreOffice | MuPDF document writers |
 | 9 | OCR | Make scanned PDFs searchable (invisible text layer), batch OCR | Tesseract (Apache-2.0) |
 | 10 | Compare | Side-by-side text diff and visual (pixel) diff with change list | Engine text extraction + render diff |

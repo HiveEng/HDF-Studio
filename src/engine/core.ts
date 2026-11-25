@@ -8,6 +8,7 @@ import type { AnnotSpec, AnnotInfo, Pt, RGB } from "./annotations";
 import * as redact from "./redact";
 import * as forms from "./forms";
 import * as digisign from "./digisign";
+import * as edit from "./edit";
 export { safeName };
 
 export interface OutlineNode {
@@ -40,6 +41,7 @@ export class Engine {
   private docs = new Map<number, mupdf.Document>();
   /** Bytes as opened, for signature validation (signatures cover the file as it was signed). */
   private originals = new Map<number, Uint8Array>();
+  private passwords = new Map<number, string>();
   private nextId = 1;
 
   open(data: Uint8Array, nameHint = "file.pdf"): DocInfo {
@@ -51,6 +53,7 @@ export class Engine {
     const id = this.nextId++;
     this.docs.set(id, doc);
     this.originals.set(id, data);
+    this.segmentStart.set(id, data);
     if (doc.needsPassword()) {
       return { id, pageCount: 0, pageSizes: [], title: null, outline: [], needsPassword: true };
     }
@@ -59,7 +62,9 @@ export class Engine {
 
   unlock(id: number, password: string): DocInfo | null {
     const doc = this.get(id);
-    return doc.authenticatePassword(password) ? this.info(id) : null;
+    if (!doc.authenticatePassword(password)) return null;
+    this.passwords.set(id, password);
+    return this.info(id);
   }
 
   info(id: number): DocInfo {
@@ -137,16 +142,68 @@ export class Engine {
     }
   }
 
+  /**
+   * Serialize the document. MuPDF's undo journal can't roll back across a save, so the live document
+   * is swapped for a fresh copy of the saved state; earlier history is kept as a whole-state checkpoint.
+   */
   save(id: number, options = "garbage,compress"): Uint8Array {
     const doc = this.get(id).asPDF();
     if (!doc) throw new Error("Only PDF documents can be saved");
-    const buf = doc.saveToBuffer(options);
+    const write = (d: mupdf.PDFDocument, o: string) => {
+      const buf = d.saveToBuffer(o);
+      try {
+        return new Uint8Array(buf.asUint8Array());
+      } finally {
+        buf.destroy();
+      }
+    };
+    const incremental = /incremental/.test(options);
+    const changed = doc.canUndo() || doc.canRedo();
+    // Plain write keeps object numbers stable, so open comments/fields keep their identities.
+    const raw = write(doc, incremental ? "incremental" : "");
+    if (changed) {
+      this.pushCheckpoint(id, this.segmentStart.get(id) ?? raw, "undo");
+      this.checkpoints.redo.delete(id);
+    }
+    this.swapIn(id, raw);
+    if (incremental || options === "") return raw;
+    const tmp = this.reopen(id, raw);
     try {
-      return new Uint8Array(buf.asUint8Array());
+      return write(tmp, options);
     } finally {
-      buf.destroy();
+      tmp.destroy();
     }
   }
+
+  private checkpoints = { undo: new Map<number, Uint8Array[]>(), redo: new Map<number, Uint8Array[]>() };
+  private segmentStart = new Map<number, Uint8Array>();
+
+  private pushCheckpoint(id: number, data: Uint8Array, which: "undo" | "redo") {
+    const m = this.checkpoints[which];
+    const list = m.get(id) ?? [];
+    list.push(data);
+    if (list.length > 20) list.shift();
+    m.set(id, list);
+  }
+
+  private reopen(id: number, data: Uint8Array): mupdf.PDFDocument {
+    const d = mupdf.Document.openDocument(data, "pdf").asPDF()!;
+    const pw = this.passwords.get(id);
+    if (d.needsPassword() && pw) d.authenticatePassword(pw);
+    return d;
+  }
+
+  /** Make `data` the live document for `id`, with a fresh undo journal. */
+  private swapIn(id: number, data: Uint8Array) {
+    const fresh = this.reopen(id, data);
+    fresh.enableJournal();
+    this.get(id).destroy();
+    this.docs.set(id, fresh);
+    this.segmentStart.set(id, data);
+    this.dropTextCache(id);
+  }
+
+
 
   // ---------- Organize & combine (mutating ops return fresh DocInfo) ----------
 
@@ -290,14 +347,11 @@ export class Engine {
 
   /** Replace an open document's contents in place (used by undo/redo). */
   replace(id: number, data: Uint8Array): DocInfo {
-    this.dropTextCache(id);
-    this.get(id).destroy();
-    const doc = mupdf.Document.openDocument(data, "pdf");
-    doc.asPDF()?.enableJournal();
-    this.docs.set(id, doc);
+    this.swapIn(id, data);
     this.originals.set(id, data);
     return this.info(id);
   }
+
 
   /** Fast full copy of the current state for undo (no garbage collection or compression). */
   snapshot(id: number): Uint8Array {
@@ -476,11 +530,67 @@ export class Engine {
     return digisign.makeSelfSignedP12(name, password, email);
   }
 
+  // ---------- Edit text & images ----------
+
+  textBlocks(id: number, pageIndex: number): edit.TextBlock[] {
+    const page = this.get(id).loadPage(pageIndex);
+    try {
+      return edit.textBlocks(page);
+    } finally {
+      page.destroy();
+    }
+  }
+
+  replaceText(id: number, pageIndex: number, bbox: number[], text: string, style: edit.TextStyle): void {
+    this.op(id, "Edit text", () => edit.replaceText(this.pdf(id), pageIndex, bbox, text, style));
+    this.dropTextCache(id);
+  }
+
+  addText(id: number, pageIndex: number, at: [number, number], text: string, style: edit.TextStyle): number[] {
+    const r = this.op(id, "Add text", () => edit.addText(this.pdf(id), pageIndex, at, text, style));
+    this.dropTextCache(id);
+    return r;
+  }
+
+  imageBlocks(id: number, pageIndex: number): edit.ImageBlock[] {
+    const page = this.get(id).loadPage(pageIndex);
+    try {
+      return edit.imageBlocks(page);
+    } finally {
+      page.destroy();
+    }
+  }
+
+  insertImage(id: number, pageIndex: number, rect: number[], data: Uint8Array): void {
+    this.op(id, "Insert image", () => edit.insertImage(this.pdf(id), pageIndex, rect, data));
+  }
+
+  deleteImage(id: number, pageIndex: number, bbox: number[]): void {
+    this.op(id, "Delete image", () => edit.deleteImage(this.pdf(id), pageIndex, bbox));
+  }
+
+  moveImage(id: number, pageIndex: number, index: number, to: number[], replacement?: Uint8Array): void {
+    this.op(id, replacement ? "Replace image" : "Move image", () => edit.moveImage(this.pdf(id), pageIndex, index, to, replacement));
+  }
+
+  extractImage(id: number, pageIndex: number, index: number): Uint8Array {
+    const page = this.get(id).loadPage(pageIndex);
+    try {
+      return edit.extractImage(page, index);
+    } finally {
+      page.destroy();
+    }
+  }
+
   close(id: number): void {
     this.dropTextCache(id);
     this.docs.get(id)?.destroy();
     this.docs.delete(id);
     this.originals.delete(id);
+    this.passwords.delete(id);
+    this.segmentStart.delete(id);
+    this.checkpoints.undo.delete(id);
+    this.checkpoints.redo.delete(id);
   }
 
   private depth = 0;
@@ -502,23 +612,43 @@ export class Engine {
 
   undo(id: number): DocInfo | null {
     const doc = this.pdf(id);
-    if (!doc.canUndo()) return null;
-    doc.undo();
+    if (doc.canUndo()) {
+      doc.undo();
+      return this.info(id);
+    }
+    const prev = this.checkpoints.undo.get(id)?.pop();
+    if (!prev) return null;
+    this.pushCheckpoint(id, this.segmentStart.get(id)!, "redo");
+    this.swapIn(id, prev);
     return this.info(id);
   }
 
+
   redo(id: number): DocInfo | null {
     const doc = this.pdf(id);
-    if (!doc.canRedo()) return null;
-    doc.redo();
+    if (doc.canRedo()) {
+      doc.redo();
+      return this.info(id);
+    }
+    const next = this.checkpoints.redo.get(id)?.pop();
+    if (!next) return null;
+    this.pushCheckpoint(id, this.segmentStart.get(id)!, "undo");
+    this.swapIn(id, next);
     return this.info(id);
   }
+
 
   history(id: number): { canUndo: boolean; canRedo: boolean; steps: string[]; position: number } {
     const doc = this.pdf(id);
     const j = doc.getJournal() as { position: number; steps: string[] };
-    return { canUndo: doc.canUndo(), canRedo: doc.canRedo(), steps: j.steps, position: j.position };
+    return {
+      canUndo: doc.canUndo() || !!this.checkpoints.undo.get(id)?.length,
+      canRedo: doc.canRedo() || !!this.checkpoints.redo.get(id)?.length,
+      steps: j.steps,
+      position: j.position,
+    };
   }
+
 
   private pdf(id: number): mupdf.PDFDocument {
     const doc = this.get(id).asPDF();

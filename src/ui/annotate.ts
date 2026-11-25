@@ -4,7 +4,7 @@ import type { AnnotInfo, AnnotSpec, Pt, RGB } from "../engine/annotations";
 import type { DocInfo } from "../engine/core";
 import { ask } from "./dialog";
 
-export type Tool = "hand" | "select" | "highlight" | "underline" | "strike" | "squiggly" | "note" | "text" | "rect" | "ellipse" | "arrow" | "ink" | "redact" | "sign";
+export type Tool = "hand" | "select" | "highlight" | "underline" | "strike" | "squiggly" | "note" | "text" | "rect" | "ellipse" | "arrow" | "ink" | "redact" | "sign" | "edit";
 
 export interface AnnotateDeps {
   engine: {
@@ -32,6 +32,7 @@ export interface AnnotateDeps {
 export const TOOLS: { id: Tool; label: string; key: string; title: string }[] = [
   { id: "hand", label: "✋", key: "V", title: "Hand / select comments (V)" },
   { id: "select", label: "I", key: "T", title: "Select text (T)" },
+  { id: "edit", label: "Edit", key: "E", title: "Edit page text and images (E): click text to change it, click empty space to add text, drag images to move them" },
   { id: "highlight", label: "Highlight", key: "H", title: "Highlight text (H)" },
   { id: "underline", label: "U̲", key: "U", title: "Underline text (U)" },
   { id: "strike", label: "S̶", key: "K", title: "Strike out text (K)" },
@@ -155,7 +156,7 @@ export function setupAnnotate(d: AnnotateDeps) {
   let drag: null | { el: HTMLElement; index: number; start: Pt; last: Pt; points: Pt[]; busy: boolean; pending: boolean; scroll?: [number, number, number, number] } = null;
 
   d.pagesEl.addEventListener("pointerdown", async (e) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || tool === "edit") return; // the Edit tool has its own handlers
     const hit = pageOf(e);
     const doc = d.doc();
     if (!hit || !doc) return;
@@ -300,6 +301,7 @@ export function setupAnnotate(d: AnnotateDeps) {
   });
 
   d.pagesEl.addEventListener("dblclick", async (e) => {
+    if (tool === "edit") return;
     if (tool === "hand" && selected) return editSelected();
     if (tool !== "select") return;
     const hit = pageOf(e);

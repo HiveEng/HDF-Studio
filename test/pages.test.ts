@@ -76,3 +76,20 @@ test("undo/redo through MuPDF's journal, including nested ops", () => {
   e.redo(id);
   assert.equal(e.info(id).pageCount, 2);
 });
+
+test("undo still works after saving, including password-protected files", () => {
+  const e = new Engine();
+  const { id } = e.open(makeSamplePdf(2, "S"));
+  e.rotatePages(id, [0], 90);
+  e.save(id);
+  e.undo(id);
+  assert.deepEqual(e.info(id).pageSizes[0], [612, 792]);
+  const enc = e.save(id, "garbage,encrypt=aes-256,user-password=u,owner-password=o");
+  const d = e.open(enc);
+  e.unlock(d.id, "u");
+  e.deletePages(d.id, [0]);
+  const again = e.open(e.save(d.id));
+  assert.equal(again.needsPassword, true, "encryption kept on save");
+  e.undo(d.id);
+  assert.equal(e.info(d.id).pageCount, 2);
+});

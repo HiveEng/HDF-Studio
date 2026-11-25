@@ -167,3 +167,6 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 #sigbanner.good { background: #def7ec; color: #03543f; border-bottom: 1px solid #84e1bc; }
 #sigbanner.bad { background: #fde8e8; color: #9b1c1c; border-bottom: 1px solid #f8b4b4; }
 .modal input[readonly], .modal input:disabled { opacity: .85; }
+.page svg.edit-ov .hover { fill: rgba(15, 139, 141, .06); stroke: var(--accent); stroke-width: 1; stroke-dasharray: 3 2; vector-effect: non-scaling-stroke; }
+.page svg.edit-ov .selimg { fill: rgba(15, 139, 141, .12); stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.page .text-editor { position: absolute; z-index: 3; box-sizing: content-box; margin: -2px 0 0 -3px; padding: 1px 2px; border: 1px solid var(--accent); background: #fff; resize: none; overflow: hidden; outline: none; white-space: pre-wrap; box-shadow: 0 2px 8px rgba(0,0,0,.2); }

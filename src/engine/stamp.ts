@@ -95,7 +95,7 @@ export function stampText(doc: mupdf.PDFDocument, o: StampOptions): number {
   return pages.length;
 }
 
-function ensureDict(doc: mupdf.PDFDocument, parent: mupdf.PDFObject, key: string): mupdf.PDFObject {
+export function ensureDict(doc: mupdf.PDFDocument, parent: mupdf.PDFObject, key: string): mupdf.PDFObject {
   let d = parent.get(key);
   if (d.isNull()) {
     d = doc.newDictionary();
@@ -105,7 +105,7 @@ function ensureDict(doc: mupdf.PDFDocument, parent: mupdf.PDFObject, key: string
 }
 
 /** Wrap existing page content in q…Q and append our drawing so it can't be affected by leftover state. */
-function wrapContents(doc: mupdf.PDFDocument, pageObj: mupdf.PDFObject, append: string) {
+export function wrapContents(doc: mupdf.PDFDocument, pageObj: mupdf.PDFObject, append: string) {
   const old = pageObj.get("Contents");
   const arr = doc.newArray();
   arr.push(doc.addStream("q\n", {}));
