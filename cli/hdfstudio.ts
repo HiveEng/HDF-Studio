@@ -595,6 +595,8 @@ export async function main(argv: string[]): Promise<number> {
       const tenant = args.flags["ms-tenant"] as string | undefined, client = args.flags["ms-client"] as string | undefined;
       if (!!tenant !== !!client) throw new Error("Microsoft sign-in needs both --ms-tenant and --ms-client");
       const domains = ((args.flags.domain as string) ?? "").split(",").map((d) => d.trim()).filter(Boolean);
+      if (tenant && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tenant)) throw new Error("--ms-tenant must be the Directory (tenant) ID, a GUID like 1b2c3d4e-…, from the app registration's Overview page");
+      if (client && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(client)) throw new Error("--ms-client must be the Application (client) ID, a GUID, from the app registration's Overview page");
       if (tenant && !domains.length) throw new Error("Say which email domains may sign in, e.g. --domain hiveng.ca");
       const server = await startReviewServer({
         port: Number(args.flags.port ?? 8787),

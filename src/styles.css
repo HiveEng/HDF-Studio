@@ -271,6 +271,13 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 #viewer .page { user-select: none; touch-action: none; }
 .comment-tools { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-bottom: 8px; }
 .comment-tools button { font-size: 12px; padding: 2px 6px; border-color: var(--border); }
+.review-bar { border: 1px solid var(--border); border-left: 3px solid var(--muted); border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; font-size: 12px; display: grid; gap: 3px; }
+.review-bar.live { border-left-color: var(--hive-cyan); }
+.review-bar.error { border-left-color: var(--hive-yellow); }
+.review-bar .rb-status { font-weight: 600; }
+.review-bar .rb-who { opacity: .8; }
+.review-bar .rb-actions { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
+.review-bar .rb-actions button { font-size: 12px; padding: 2px 6px; }
 .comment { border-left: 4px solid var(--border); padding: 6px 8px; margin-bottom: 6px; background: var(--bg); border-radius: 4px; cursor: pointer; }
 .comment.active { outline: 2px solid var(--accent); }
 .comment .meta { display: flex; justify-content: space-between; gap: 6px; font-size: 12px; }

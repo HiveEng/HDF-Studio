@@ -18,6 +18,7 @@ import { ocrBytes, ocrStep } from "./ocr/pipeline";
 import { startWatching, openWatchPanel } from "./ui/watch";
 import { showCheckReport } from "./ui/check";
 import { showAltTextDialog } from "./ui/accessibility";
+import { setupReview } from "./ui/review";
 import type { WatchFs } from "./automation/watch";
 
 const engine = createEngine();
@@ -411,8 +412,9 @@ async function openFiles(files: OpenedFile[]) {
         }
         info = (await engine.unlock(info.id, pw)) ?? info;
       }
-            addTab(info, f.name, f.path);
+      addTab(info, f.name, f.path);
       if (f.path) remember(f.path);
+      void review.opened(info.id);
       status(`${f.name}: ${info.pageCount} page${info.pageCount === 1 ? "" : "s"}`);
     } catch (e) {
       if ((e as Error).message !== "cancelled") status(`Could not open ${f.name}: ${(e as Error).message}`);
@@ -433,6 +435,7 @@ function switchTab(t: Tab) {
 }
 async function closeTab(t: Tab) {
   if (t.dirty && !(await confirmDialog(`Close ${t.name} without saving?`, "Close without saving"))) return;
+  review.closed(t.info.id);
   await engine.close(t.info.id);
   const i = tabs.indexOf(t);
   tabs.splice(i, 1);
@@ -540,6 +543,7 @@ async function undoRedo(dir: "undo" | "redo") {
   t.selected.clear();
   t.page = Math.min(t.page, info.pageCount - 1);
   buildView();
+  review.nudge(t.info.id);
   status(dir === "undo" ? "Undone" : "Redone");
 }
 
@@ -1111,6 +1115,7 @@ const annot = setupAnnotate({
     if (!active) return;
     active.dirty = true;
     renderTabs();
+    review.nudge(active.info.id);
     status(`${label}. Ctrl+Z to undo.`);
   },
   goToPage,
@@ -1118,6 +1123,37 @@ const annot = setupAnnotate({
   saveText: async (name, text) => void (await saveText(name, text)),
   sign: (page, at) => (pendingPlacement ? pendingPlacement(page, at) : placeSignature(page, at)),
   pickReviews: () => pickFiles(true, ["pdf", "xfdf"]),
+  reviewBar: (id) => review.bar(id),
+});
+
+// ---------- Shared review (live comments) ----------
+const review = setupReview({
+  engine,
+  doc: () => active,
+  openCopy: async (name, pdf) => {
+    try {
+      const info = await engine.open(pdf, name);
+      addTab(info, name, null);
+      buildView();
+      return info.id;
+    } catch (e) {
+      status(`Could not open the review copy: ${(e as Error).message}`);
+      return null;
+    }
+  },
+  changed: (id, r) => {
+    const t = tabs.find((x) => x.info.id === id);
+    if (!t) return;
+    t.dirty = true;
+    renderTabs();
+    if (t === active) {
+      for (let i = 0; i < t.info.pageCount; i++) refreshPage(i);
+      annot.refreshComments();
+      status(`${r.pulled} comment change${r.pulled === 1 ? "" : "s"} from other reviewers`);
+    }
+  },
+  stateChanged: () => annot.refreshComments(),
+  status,
 });
 
 // ---------- Edit text & images ----------
@@ -1520,6 +1556,10 @@ const commands: Command[] = [
   { id: "prepareForm", title: "Prepare form: add, move and edit form fields", keys: "Ctrl+Shift+F", run: () => designUI.toggle() },
   { id: "detectFields", title: "Detect form fields: make a flat form fillable automatically", run: () => designUI.detect() },
   { id: "showComments", title: "Show comments", run: () => (showSidePanel("comments"), annot.refreshComments()) },
+  { id: "startReview", title: "Start a shared review (upload this PDF, comment together live)…", run: () => (showSidePanel("comments"), review.startReview()) },
+  { id: "joinReview", title: "Join a shared review from a link…", run: () => review.joinReview() },
+  { id: "leaveReview", title: "Leave the shared review (stop syncing comments)", run: () => review.leaveReview() },
+  { id: "msSignOut", title: "Sign out of Microsoft (shared review)", run: () => review.signOut() },
   { id: "mergeReviews", title: "Merge reviewers' comments (from their PDF copies or XFDF files)…", run: () => (showSidePanel("comments"), annot.mergeReviews()) },
   { id: "tool-redact", title: "Redact tool (mark text or area)", keys: "D", run: () => useTool("redact") },
   { id: "findRedact", title: "Find and redact (text, emails, phone numbers, regex)…", keys: "Ctrl+Shift+R", run: () => findAndRedact() },

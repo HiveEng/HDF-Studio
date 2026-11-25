@@ -32,6 +32,8 @@ export interface AnnotateDeps {
   sign(page: number, at: Pt): Promise<void>;
   /** Let the user choose reviewers' PDFs or XFDF files. */
   pickReviews(): Promise<{ name: string; data: Uint8Array }[]>;
+  /** Shared review status bar for a document, if it's in one. */
+  reviewBar?(id: number): HTMLElement | null;
 }
 
 export const TOOLS: { id: Tool; label: string; key: string; title: string }[] = [
@@ -436,6 +438,8 @@ export function setupAnnotate(d: AnnotateDeps) {
     };
     const people = [...new Set(list.map((a) => a.author).filter(Boolean))].sort();
 
+    const rb = d.reviewBar?.(doc.info.id);
+    if (rb) el.append(rb);
     const head = document.createElement("div");
     head.className = "comment-tools";
     head.innerHTML = `<button data-a="merge" class="primary" title="Bring in comments from reviewers' copies of this PDF, or from XFDF comment files. Comments already here are skipped.">Merge reviews…</button><button data-a="summary" title="Copy a text summary of all comments">Copy summary</button><button data-a="xfdf" title="Export comments as XFDF for other PDF apps">Export XFDF</button><button data-a="author" title="Name shown on your comments">Author: ${author().replace(/[<&]/g, "")}</button>`;
