@@ -6,7 +6,8 @@
     "test": "node --import tsx --test test/*.test.ts",
     "dev": "vite",
     "build": "tsc -p . && vite build",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "quire": "tsx cli/quire.ts"
   },
   "license": "AGPL-3.0-or-later",
   "dependencies": {

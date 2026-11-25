@@ -34,6 +34,33 @@ npm test                # engine tests (Node)
 npm run tauri build     # Windows installers in src-tauri/target/release/bundle/
 ```
 
+## Batch and the `quire` command line tool
+
+The **Batch** panel (Ctrl+B) runs a recipe over any number of PDFs. A recipe is a list of steps, one per
+line, e.g.
+
+```
+stamp text="Page {page} of {pages}" position=bottom-center
+stamp text={bates} position=bottom-right batesPrefix=ACME batesDigits=6
+stamp text=CONFIDENTIAL position=diagonal
+protect ownerPassword=s3cret allowCopy=false
+```
+
+Steps: `rotate`, `delete`, `keep`, `reverse`, `stamp` (headers/footers, page numbers, Bates, watermarks),
+`metadata` (set or scrub), `protect` (AES-256 passwords and permissions), `unprotect`, `flatten`,
+`compress`, `split`. Save your own recipes next to the built-in ones. Bates numbers continue across files.
+
+The same recipes run from the terminal:
+
+```sh
+npm run quire -- run "Bates" "D:/Case 42/Exhibits" -r -o "D:/Case 42/Stamped"
+npm run quire -- run - *.pdf --step 'stamp text="DRAFT" position=diagonal' --name "{name}-draft"
+npm run quire -- merge -o binder.pdf ch1.pdf ch2.pdf ch3.pdf
+npm run quire -- split big.pdf --bookmarks
+npm run quire -- search "invoice 1042" ./archive -r --csv > hits.csv
+npm run quire -- recipes          # list built-in recipes and step types
+```
+
 ## Keyboard
 
 | Action | Keys |
@@ -45,14 +72,20 @@ npm run tauri build     # Windows installers in src-tauri/target/release/bundle/
 | Go to page, next/prev page, first/last | Ctrl+G, PageDown / PageUp, Home / End |
 | Next/previous tab, close tab | Ctrl+Tab / Ctrl+Shift+Tab, Ctrl+W |
 | Toggle sidebar | F4 |
+| Batch panel | Ctrl+B |
+| Undo / redo | Ctrl+Z / Ctrl+Y |
+| Merge files | Ctrl+Shift+M |
+| Rotate selected pages left/right | Ctrl+[ / Ctrl+] |
+| Delete selected pages (in thumbnails) | Delete |
+| Select pages | Click, Ctrl+click, Shift+click; drag to reorder; drop PDFs between thumbnails to insert |
 
 ## Roadmap
 
 | # | Area | What it covers | How |
 |---|---|---|---|
 | 1 | View & search | Tabs, thumbnails, outline, zoom, full-text search | Done |
-| 2 | Organize & combine | Merge, split, reorder, rotate, extract, delete, insert pages | MuPDF page grafting |
-| 3 | Automation | Batch panel, saved recipes, `quire` CLI, watch folders | Engine core shared by UI and CLI |
+| 2 | Organize & combine | Merge, split, reorder, rotate, extract, delete, insert pages | Done |
+| 3 | Automation | Batch panel, saved recipes, `quire` CLI, stamps/Bates/watermarks; watch folders next | Done (watch folders pending) |
 | 4 | Comment & review | Highlight, notes, shapes, ink, stamps, replies, XFDF import/export | MuPDF annotations |
 | 5 | Redaction & security | Permanent redaction (text, images, vector art), search-and-redact, metadata scrub, passwords and permissions (AES-256) | MuPDF `applyRedactions`, encrypted save |
 | 6 | Forms & e-signatures | Fill/flatten forms, drawn/typed/image signatures, certificate (PKCS#7) digital signatures, signature validation | MuPDF widgets; certificate signing in the Rust shell |

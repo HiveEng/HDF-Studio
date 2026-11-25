@@ -3,6 +3,7 @@ import type { DocInfo, OutlineNode, SearchHit } from "./engine/core";
 import { pickFiles, filesFromList, saveFile, saveMany, baseName, isTauri, type OpenedFile } from "./platform";
 import { parseRanges, formatRanges } from "./engine/ranges";
 import { ask, confirmDialog } from "./ui/dialog";
+import { openBatch, type BatchDeps } from "./ui/batch";
 
 const engine = createEngine();
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
@@ -661,6 +662,20 @@ async function rangeOp(title: string, okLabel: string, run: (pages: number[]) =>
   }
 }
 
+// ---------- Batch ----------
+const batchDeps: BatchDeps = {
+  runRecipe: (data, name, recipe, ctx) => engine.runRecipe(data, name, recipe, ctx),
+  pickFiles: () => pickFiles(true),
+  filesFromList,
+  openTabsAsFiles: () => Promise.all(tabs.map(async (t) => ({ name: t.name, path: t.path, data: await engine.save(t.info.id) }))),
+  saveMany,
+  openOutput: async (name, data) => {
+    const info = await engine.open(data, name);
+    addTab(info, name, null, true);
+    buildView();
+  },
+};
+
 // ---------- Theme ----------
 function setTheme(dark: boolean) {
   document.documentElement.classList.toggle("dark", dark);
@@ -710,6 +725,8 @@ const commands: Command[] = [
   { id: "reversePages", title: "Reverse page order", run: () => mutate("Reversed page order", (t) => engine.reversePages(t.info.id)) },
   { id: "duplicateSelected", title: "Duplicate selected pages", run: () => { const p = targetPages(); return mutate("Duplicated", (t) => { const n = t.info.pageCount; const order = [...Array(n).keys()]; order.splice(p[p.length - 1] + 1, 0, ...p); return engine.rearrange(t.info.id, order); }); } },
   { id: "selectAll", title: "Select all pages", run: () => { if (!active) return; active.selected = new Set(active.info.pageSizes.keys()); [...thumbsEl.children].forEach((el) => el.classList.add("selected")); showSidePanel("thumbs"); } },
+  { id: "batch", title: "Batch: run a recipe on many files…", keys: "Ctrl+B", run: () => openBatch(batchDeps) },
+  { id: "recipeCurrent", title: "Apply a recipe to this document (stamp, Bates, watermark, protect…)", run: async () => active && openBatch(batchDeps, { files: [{ name: active.name, path: active.path, data: await engine.save(active.info.id) }] }) },
   { id: "palette", title: "Show all commands", keys: "Ctrl+K", run: () => openPalette() },
 ];
 const byId = Object.fromEntries(commands.map((c) => [c.id, c]));

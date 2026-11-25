@@ -1,6 +1,9 @@
 // Engine core: thin, UI-agnostic wrapper over MuPDF (mupdf.js, AGPL-3.0).
 // Runs in a Web Worker in the app and directly in Node for the CLI and tests.
 import * as mupdf from "mupdf";
+import { runRecipe, type Recipe } from "./recipes";
+import { safeName } from "./util";
+export { safeName };
 
 export interface OutlineNode {
   title: string;
@@ -271,6 +274,11 @@ export class Engine {
     return this.save(id, "");
   }
 
+  /** Run a batch recipe on raw file bytes (no open document needed). */
+  runRecipe(data: Uint8Array, fileName: string, recipe: Recipe, ctx?: { batesOffset?: number; password?: string }) {
+    return runRecipe(data, fileName, recipe, ctx);
+  }
+
   close(id: number): void {
     this.docs.get(id)?.destroy();
     this.docs.delete(id);
@@ -321,8 +329,4 @@ function saveAndDestroy(doc: mupdf.PDFDocument, options = "garbage,compress"): U
     buf.destroy();
     doc.destroy();
   }
-}
-
-export function safeName(s: string): string {
-  return s.replace(/[\\/:*?"<>|\x00-\x1f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
 }
