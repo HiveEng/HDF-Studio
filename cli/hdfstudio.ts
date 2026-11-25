@@ -80,6 +80,9 @@ Usage:
                                                     Tag for accessibility (headings, lists, tables, images)
   hdfstudio check <files|folders...> [--json]           PDF/A, accessibility and security check (exit 1 on errors)
   hdfstudio pdfa <files|folders...> [-o dir]            Convert to PDF/A-2b for archiving (needs Ghostscript)
+  hdfstudio review-server [--port 8787] [--data ./reviews] [--token code]
+        [--ms-tenant <tenant id> --ms-client <app id> --domain hiveng.ca]
+                                                    Run the shared review server (Microsoft 365 sign-in recommended)
   hdfstudio recipes                                     List built-in recipes and step types
   hdfstudio run <recipe> <files|folders...> [options]   Apply a recipe to every PDF
       <recipe> is a built-in name (quotes or a unique prefix), a .json file, or "-" to use --step only
@@ -586,6 +589,24 @@ export async function main(argv: string[]): Promise<number> {
         }
       }
       return failed ? 1 : 0;
+    }
+    case "review-server": {
+      const { startReviewServer } = await import("../src/review/server");
+      const tenant = args.flags["ms-tenant"] as string | undefined, client = args.flags["ms-client"] as string | undefined;
+      if (!!tenant !== !!client) throw new Error("Microsoft sign-in needs both --ms-tenant and --ms-client");
+      const domains = ((args.flags.domain as string) ?? "").split(",").map((d) => d.trim()).filter(Boolean);
+      if (tenant && !domains.length) throw new Error("Say which email domains may sign in, e.g. --domain hiveng.ca");
+      const server = await startReviewServer({
+        port: Number(args.flags.port ?? 8787),
+        dataDir: (args.flags.data as string) ?? "reviews",
+        token: args.flags.token as string | undefined,
+        microsoft: tenant ? { kind: "microsoft", tenant, clientId: client!, domains } : undefined,
+        log: (m) => log(`${new Date().toISOString()} ${m}`),
+      });
+      log(`Review server running on port ${Number(args.flags.port ?? 8787)} (${tenant ? `Microsoft sign-in, ${domains.map((d) => "@" + d).join(", ")} only` : args.flags.token ? "access code required" : "OPEN: anyone who can reach it"}). Ctrl+C to stop.`);
+      void server;
+      await new Promise(() => {});
+      return 0;
     }
     case "recipes": {
       console.log("Built-in recipes:");

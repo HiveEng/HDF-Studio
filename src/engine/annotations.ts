@@ -514,6 +514,7 @@ export function importXfdf(doc: mupdf.PDFDocument, xml: string): { added: number
       }
       if (/hidden/.test(x.attrs.flags ?? "")) o.put("F", 2 | 4 | 8 | 16);
       if (x.attrs.subject) o.put("Subj", doc.newString(x.attrs.subject));
+      if (/^D:\d{8}/.test(x.attrs.date ?? "")) o.put("M", doc.newString(x.attrs.date));
       if (x.attrs.inreplyto) pendingIrt.push([o, x.attrs.inreplyto]);
       if (x.attrs.name) existing.set(x.attrs.name, o);
       added++;
@@ -528,4 +529,91 @@ export function importXfdf(doc: mupdf.PDFDocument, xml: string): { added: number
     if (p) o.put("IRT", p);
   }
   return { added, skipped, authors };
+}
+
+// ---------- Shared review sync ----------
+
+/** True if some comment lacks a unique name (call ensureNames inside an undoable operation). */
+export function needsNames(doc: mupdf.PDFDocument): boolean {
+  for (let i = 0; i < doc.countPages(); i++) {
+    const annots = (doc.findPage(i) as mupdf.PDFObject).get("Annots");
+    if (!annots.isArray()) continue;
+    for (let k = 0; k < annots.length; k++) {
+      const o = annots.get(k);
+      const sub = o.get("Subtype").asName();
+      if (o.get("NM").isNull() && sub !== "Link" && sub !== "Popup" && sub !== "Widget") return true;
+    }
+  }
+  return false;
+}
+
+export interface CommentItem { name: string; author: string; xfdf: string }
+
+/** Every comment as its own XFDF element, keyed by its unique name. */
+export function commentItems(doc: mupdf.PDFDocument): CommentItem[] {
+  const xml = exportXfdf(doc, "");
+  const body = /<annots>([\s\S]*)<\/annots>/.exec(xml)?.[1] ?? "";
+  const out: CommentItem[] = [];
+  for (const m of body.matchAll(/<([a-z]+) ([^>]*)>([\s\S]*?)<\/\1>/g)) {
+    const name = /\bname="([^"]*)"/.exec(m[2])?.[1];
+    if (!name) continue;
+    const author = /\btitle="([^"]*)"/.exec(m[2])?.[1] ?? "";
+    out.push({ name: unesc(name), author: unesc(author), xfdf: m[0] });
+  }
+  return out;
+}
+
+function annotsByName(doc: mupdf.PDFDocument) {
+  const map = new Map<string, { page: number; obj: mupdf.PDFObject }>();
+  for (let i = 0; i < doc.countPages(); i++) {
+    const annots = (doc.findPage(i) as mupdf.PDFObject).get("Annots");
+    if (!annots.isArray()) continue;
+    for (let k = 0; k < annots.length; k++) {
+      const nm = annots.get(k).get("NM");
+      if (nm.isString()) map.set(nm.asString(), { page: i, obj: annots.get(k) });
+    }
+  }
+  return map;
+}
+
+function removeAnnotObj(doc: mupdf.PDFDocument, page: number, obj: mupdf.PDFObject) {
+  const p = doc.loadPage(page) as mupdf.PDFPage;
+  try {
+    const a = p.getAnnotations().find((x) => x.getObject().asIndirect() === obj.asIndirect());
+    if (a) p.deleteAnnotation(a);
+  } finally {
+    p.destroy();
+  }
+}
+
+/** Apply changes from other reviewers: replace or add comments (XFDF elements) and remove deleted ones. */
+export function applyCommentChanges(doc: mupdf.PDFDocument, upserts: string[], deletes: string[]): { added: number; updated: number; removed: number } {
+  let byName = annotsByName(doc);
+  let removed = 0, updated = 0;
+  for (const n of deletes) {
+    const hit = byName.get(n);
+    if (hit) {
+      removeAnnotObj(doc, hit.page, hit.obj);
+      removed++;
+    }
+  }
+  const names = upserts.map((x) => unesc(/\bname="([^"]*)"/.exec(x)?.[1] ?? ""));
+  for (const n of names) {
+    const hit = byName.get(n);
+    if (hit) {
+      removeAnnotObj(doc, hit.page, hit.obj);
+      updated++;
+    }
+  }
+  const r = upserts.length ? importXfdf(doc, `<xfdf><annots>${upserts.join("")}</annots></xfdf>`) : { added: 0 };
+  // Replies to a comment that was just replaced still point at the old object: re-link by name.
+  byName = annotsByName(doc);
+  for (const { obj } of byName.values()) {
+    const irt = obj.get("IRT");
+    if (!irt.isDictionary()) continue;
+    const nm = irt.get("NM");
+    const current = nm.isString() ? byName.get(nm.asString()) : undefined;
+    if (current && current.obj.asIndirect() !== irt.asIndirect()) obj.put("IRT", current.obj);
+  }
+  return { added: r.added - updated, updated, removed };
 }

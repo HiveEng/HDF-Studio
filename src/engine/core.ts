@@ -456,6 +456,38 @@ export class Engine {
     return this.op(id, "Import comments", () => annots.importXfdf(this.pdf(id), xml));
   }
 
+  // Shared review
+  /** Comments as individual XFDF items (gives unnamed comments a name first). */
+  commentItems(id: number): annots.CommentItem[] {
+    const doc = this.pdf(id);
+    if (annots.needsNames(doc)) this.op(id, "Name comments", () => annots.ensureNames(doc));
+    return annots.commentItems(doc);
+  }
+
+  applyCommentChanges(id: number, upserts: string[], deletes: string[]) {
+    return this.op(id, "Sync review comments", () => annots.applyCommentChanges(this.pdf(id), upserts, deletes));
+  }
+
+  /** Shared review this file belongs to ("server-url#review-id"), stored in the document info. */
+  reviewLink(id: number): string | null {
+    const info = this.pdf(id).getTrailer().get("Info");
+    const v = info.isDictionary() ? info.get("HDFStudioReview") : null;
+    return v?.isString() ? v.asString() : null;
+  }
+
+  setReviewLink(id: number, link: string | null): void {
+    this.op(id, link ? "Join shared review" : "Leave shared review", () => {
+      const doc = this.pdf(id);
+      let info = doc.getTrailer().get("Info");
+      if (!info.isDictionary()) {
+        info = doc.addObject(doc.newDictionary());
+        doc.getTrailer().put("Info", info);
+      }
+      if (link) info.put("HDFStudioReview", doc.newString(link));
+      else info.delete("HDFStudioReview");
+    });
+  }
+
   exportXfdf(id: number, fileName: string): string {
     return annots.exportXfdf(this.pdf(id), fileName);
   }
