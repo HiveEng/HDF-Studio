@@ -25,6 +25,8 @@ interface Tab {
   hitIndex: number;
   selected: Set<number>;
   anchor: number;
+  /** Extra save options: encryption, decrypt, sanitize. */
+  saveExtra: string[];
 }
 const tabs: Tab[] = [];
 let active: Tab | null = null;
@@ -163,7 +165,8 @@ function buildView() {
   drawHighlights();
   renderResults();
   updateCurrentPage();
-  annot?.refreshComments();
+  annot.refreshComments();
+  updateRedactButton();
 }
 
 function applyZoom(z: number, keepCenter = true) {
@@ -382,7 +385,7 @@ async function openFiles(files: OpenedFile[]) {
   buildView();
 }
 function addTab(info: DocInfo, name: string, path: string | null, dirty = false) {
-  const tab: Tab = { info, name, path, dirty, zoom: 1, fit: "width", page: 0, scrollTop: 0, query: "", hits: [], hitIndex: -1, selected: new Set(), anchor: 0 };
+  const tab: Tab = { info, name, path, dirty, zoom: 1, fit: "width", page: 0, scrollTop: 0, query: "", hits: [], hitIndex: -1, selected: new Set(), anchor: 0, saveExtra: [] };
   tabs.push(tab);
   active = tab;
   return tab;
@@ -422,7 +425,7 @@ function renderTabs() {
 async function save(saveAs: boolean) {
   if (!active) return;
   const t = active;
-  const bytes = await engine.save(t.info.id);
+  const bytes = await engine.save(t.info.id, ["garbage", "compress", ...t.saveExtra].join(","));
   const p = await saveFile(bytes, t.name, t.path, saveAs);
   if (p) {
     t.path = p;
@@ -715,6 +718,105 @@ resetColor.onclick = () => annot.setColor(null);
 toolsEl.append(Object.assign(document.createElement("span"), { className: "sep" }), colorInput, resetColor);
 annot.setTool("hand");
 
+// ---------- Redaction & security ----------
+const redactBtn = Object.assign(document.createElement("button"), { className: "primary hidden", title: "Permanently remove everything marked for redaction" });
+redactBtn.onclick = () => applyRedactionsFlow();
+async function updateRedactButton() {
+  if (!active) return redactBtn.classList.add("hidden");
+  let n = 0;
+  try {
+    n = await engine.redactionCount(active.info.id);
+  } catch { /* not a PDF */ }
+  redactBtn.textContent = `Apply ${n} redaction${n === 1 ? "" : "s"}`;
+  redactBtn.classList.toggle("hidden", n === 0);
+}
+async function findAndRedact() {
+  if (!active) return;
+  const t = active;
+  const r = await ask("Find and mark for redaction", [
+    { name: "kind", label: "Find", type: "select", value: "text", options: [["text", "Text"], ["email", "Email addresses"], ["phone", "Phone numbers"], ["ssn", "US Social Security numbers"], ["card", "Credit card numbers"], ["date", "Dates (numeric)"], ["money", "Money amounts"], ["regex", "Regular expression"]] },
+    { name: "q", label: "Text or expression", placeholder: "e.g. Jane Doe   or   ACME-\\d{6}", hint: "Leave empty for the built-in patterns. Marks are reviewable; nothing is removed until you apply." },
+    { name: "pages", label: "Pages", value: "all" },
+    { name: "case", label: "Match case", type: "select", value: "no", options: [["no", "No"], ["yes", "Yes"]] },
+  ], "Mark matches");
+  if (!r) return;
+  try {
+    const pages = parseRanges(r.pages, t.info.pageCount);
+    const o = r.kind === "text" ? { text: r.q } : r.kind === "regex" ? { regex: r.q } : { pattern: r.kind as "email" };
+    if (("text" in o && !o.text) || ("regex" in o && !o.regex)) return status("Type something to find");
+    const n = await engine.markRedactions(t.info.id, { ...o, pages, caseSensitive: r.case === "yes" });
+    t.dirty = true;
+    for (const p of pages) refreshPage(p);
+    renderTabs();
+    annot.refreshComments();
+    updateRedactButton();
+    status(n ? `Marked ${n} match${n === 1 ? "" : "es"} for redaction. Review them in Comments, then click "Apply".` : "No matches");
+  } catch (e) {
+    status((e as Error).message);
+  }
+}
+async function applyRedactionsFlow() {
+  if (!active) return;
+  const t = active;
+  const n = await engine.redactionCount(t.info.id);
+  if (!n) return status("Nothing is marked for redaction. Use the Redact tool (D) or Find and redact.");
+  const r = await ask(`Permanently redact ${n} marked area${n === 1 ? "" : "s"}?`, [
+    { name: "images", label: "Images under marks", type: "select", value: "pixels", options: [["pixels", "Blank out only the covered pixels"], ["remove", "Remove the whole image"], ["none", "Keep images"]] },
+    { name: "boxes", label: "Fill removed areas", type: "select", value: "black", options: [["black", "Black boxes"], ["none", "Leave blank (white)"]] },
+    { name: "clean", label: "Also remove hidden data (metadata, scripts, attachments)", type: "select", value: "yes", options: [["yes", "Yes"], ["no", "No"]] },
+  ], "Redact permanently");
+  if (!r) return;
+  const info = await engine.applyRedactions(t.info.id, { images: r.images as "pixels", blackBoxes: r.boxes === "black" });
+  if (r.clean === "yes") await engine.sanitize(t.info.id);
+  if (!t.saveExtra.includes("sanitize")) t.saveExtra.push("sanitize");
+  t.info = info;
+  t.dirty = true;
+  buildView();
+  updateRedactButton();
+  status(`Redacted ${n} area${n === 1 ? "" : "s"} on ${info.pagesChanged} page${info.pagesChanged === 1 ? "" : "s"}. The content is removed for good when you save (Ctrl+Z still works until then).`);
+}
+async function sanitizeFlow() {
+  if (!active) return;
+  const r = await ask("Remove hidden data", [{ name: "comments", label: "Also remove all comments and markup", type: "select", value: "no", options: [["no", "No, keep comments"], ["yes", "Yes, remove them"]] }], "Remove");
+  if (!r) return;
+  const rep = await engine.sanitize(active.info.id, { removeComments: r.comments === "yes" });
+  if (!active.saveExtra.includes("sanitize")) active.saveExtra.push("sanitize");
+  active.dirty = true;
+  renderTabs();
+  if (rep.comments) buildView();
+  status(`Removed: ${[rep.metadata && "metadata", rep.javascript && `${rep.javascript} script(s)`, rep.attachments && `${rep.attachments} attachment(s)`, rep.openAction && "auto-run action", rep.comments && `${rep.comments} comment(s)`].filter(Boolean).join(", ") || "nothing found (metadata cleared)"}. Save to write the clean file.`);
+}
+async function protectFlow() {
+  if (!active) return;
+  const r = await ask("Protect with a password (AES-256)", [
+    { name: "user", label: "Password to open (optional)", type: "password" },
+    { name: "owner", label: "Permissions password (required)", type: "password", hint: "Needed to change the restrictions below." },
+    { name: "print", label: "Printing", type: "select", value: "yes", options: [["yes", "Allowed"], ["no", "Not allowed"]] },
+    { name: "copy", label: "Copying text and images", type: "select", value: "no", options: [["yes", "Allowed"], ["no", "Not allowed"]] },
+    { name: "edit", label: "Editing and page changes", type: "select", value: "no", options: [["yes", "Allowed"], ["no", "Not allowed"]] },
+    { name: "comments", label: "Comments and form filling", type: "select", value: "yes", options: [["yes", "Allowed"], ["no", "Not allowed"]] },
+  ], "Protect");
+  if (!r) return;
+  if (!r.owner) return status("A permissions password is required");
+  if (/[,=]/.test(r.owner + r.user)) return status("Passwords can't contain commas or equals signs");
+  const { protectionOptions } = await import("./engine/redact");
+  active.saveExtra = active.saveExtra.filter((o) => o !== "decrypt" && !/^(encrypt|owner-password|user-password|permissions)/.test(o));
+  active.saveExtra.push(protectionOptions({ userPassword: r.user || undefined, ownerPassword: r.owner, allowPrint: r.print === "yes", allowCopy: r.copy === "yes", allowEdit: r.edit === "yes", allowComments: r.comments === "yes", allowForms: r.comments === "yes" }));
+  active.dirty = true;
+  renderTabs();
+  status("Protection will be applied when you save (Ctrl+S or Ctrl+Shift+S).");
+}
+async function unprotectFlow() {
+  if (!active) return;
+  active.saveExtra = active.saveExtra.filter((o) => !/^(encrypt|owner-password|user-password|permissions)/.test(o));
+  active.saveExtra.push("decrypt");
+  active.dirty = true;
+  renderTabs();
+  status((await engine.isEncrypted(active.info.id)) ? "Password protection will be removed when you save." : "This document isn't password protected.");
+}
+annot.onRedactions(updateRedactButton);
+toolsEl.append(redactBtn);
+
 // ---------- Theme ----------
 function setTheme(dark: boolean) {
   document.documentElement.classList.toggle("dark", dark);
@@ -778,6 +880,12 @@ const commands: Command[] = [
   { id: "tool-arrow", title: "Arrow tool", keys: "A", run: () => annot.setTool("arrow") },
   { id: "tool-ink", title: "Pen tool", keys: "P", run: () => annot.setTool("ink") },
   { id: "showComments", title: "Show comments", run: () => (showSidePanel("comments"), annot.refreshComments()) },
+  { id: "tool-redact", title: "Redact tool (mark text or area)", keys: "D", run: () => annot.setTool("redact") },
+  { id: "findRedact", title: "Find and redact (text, emails, phone numbers, regex)…", keys: "Ctrl+Shift+R", run: () => findAndRedact() },
+  { id: "applyRedactions", title: "Apply redactions permanently…", run: () => applyRedactionsFlow() },
+  { id: "sanitize", title: "Remove hidden data (metadata, scripts, attachments)…", run: () => sanitizeFlow() },
+  { id: "protect", title: "Protect with password and permissions…", run: () => protectFlow() },
+  { id: "unprotect", title: "Remove password protection", run: () => unprotectFlow() },
   { id: "palette", title: "Show all commands", keys: "Ctrl+K", run: () => openPalette() },
 ];
 const byId = Object.fromEntries(commands.map((c) => [c.id, c]));

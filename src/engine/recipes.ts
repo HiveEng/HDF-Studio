@@ -4,6 +4,7 @@ import * as mupdf from "mupdf";
 import { parseRanges } from "./ranges";
 import { stampText, type Position } from "./stamp";
 import { safeName } from "./util";
+import { markMatches, applyRedactions, sanitize, protectionOptions, REDACT_PATTERNS } from "./redact";
 
 export type Step =
   | { op: "rotate"; pages?: string; degrees: 90 | 180 | 270 | -90 }
@@ -16,7 +17,9 @@ export type Step =
   | { op: "unprotect"; password?: string }
   | { op: "flatten" }
   | { op: "compress"; level?: "fast" | "max" }
-  | { op: "split"; every?: number; bookmarks?: boolean };
+  | { op: "split"; every?: number; bookmarks?: boolean }
+  | { op: "redact"; text?: string; regex?: string; pattern?: string; caseSensitive?: boolean; images?: "pixels" | "remove" | "none" }
+  | { op: "sanitize"; removeComments?: boolean };
 
 export interface Recipe {
   name: string;
@@ -42,6 +45,8 @@ export const STEP_LABELS: Record<Step["op"], string> = {
   flatten: "Flatten annotations and form fields",
   compress: "Compress",
   split: "Split into several files",
+  redact: "Find and permanently redact (text, regex or pattern: email, phone, ssn, card, date, money)",
+  sanitize: "Remove hidden data (metadata, JavaScript, attachments)",
 };
 
 /** Ready-made recipes; users can save their own alongside these. */
@@ -56,6 +61,8 @@ export const BUILTIN_RECIPES: Recipe[] = [
   { name: "Remove first page", steps: [{ op: "delete", pages: "1" }] },
   { name: "Split into single pages", steps: [{ op: "split", every: 1 }], output: "{name} - {part}" },
   { name: "Rotate all pages 90°", steps: [{ op: "rotate", degrees: 90 }] },
+  { name: "Redact emails and phone numbers", steps: [{ op: "redact", pattern: "email" }, { op: "redact", pattern: "phone" }, { op: "sanitize" }] },
+  { name: "Remove hidden data", steps: [{ op: "sanitize" }] },
 ];
 
 function hexColor(c?: string): [number, number, number] | undefined {
@@ -63,7 +70,6 @@ function hexColor(c?: string): [number, number, number] | undefined {
   return m ? [1, 2, 3].map((i) => parseInt(m[i], 16) / 255) as [number, number, number] : undefined;
 }
 
-const PERM = { print: 4, edit: 8, copy: 16, annotate: 32, fill: 256, extract: 512, assemble: 1024, printHigh: 2048 };
 
 /**
  * Run a recipe on one input file. `batesOffset` lets Bates numbers continue across files in a batch:
@@ -124,16 +130,10 @@ export function runRecipe(input: Uint8Array, fileName: string, recipe: Recipe, c
           if (step[k] !== undefined) doc.setMetaData(`info:${k[0].toUpperCase()}${k.slice(1)}`, step[k]!);
         }
         break;
-      case "protect": {
-        let p = PERM.fill | PERM.annotate | PERM.extract;
-        if (step.allowPrint !== false) p |= PERM.print | PERM.printHigh;
-        if (step.allowCopy !== false) p |= PERM.copy;
-        if (step.allowEdit) p |= PERM.edit | PERM.assemble;
+      case "protect":
         saveOpts = saveOpts.filter((o) => o !== "decrypt");
-        saveOpts.push("encrypt=aes-256", `owner-password=${step.ownerPassword}`, `permissions=${p | ~0xffff}`);
-        if (step.userPassword) saveOpts.push(`user-password=${step.userPassword}`);
+        saveOpts.push(protectionOptions(step));
         break;
-      }
       case "unprotect":
         saveOpts.push("decrypt");
         break;
@@ -146,6 +146,17 @@ export function runRecipe(input: Uint8Array, fileName: string, recipe: Recipe, c
         break;
       case "split":
         splitStep = step;
+        break;
+      case "redact": {
+        if (step.pattern && !(step.pattern in REDACT_PATTERNS)) throw new Error(`Unknown pattern "${step.pattern}" (use ${Object.keys(REDACT_PATTERNS).join(", ")})`);
+        markMatches(doc, { text: step.text, regex: step.regex, pattern: step.pattern as never, caseSensitive: step.caseSensitive });
+        applyRedactions(doc, { images: step.images });
+        if (!saveOpts.includes("sanitize")) saveOpts.push("sanitize");
+        break;
+      }
+      case "sanitize":
+        sanitize(doc, { removeComments: step.removeComments });
+        if (!saveOpts.includes("sanitize")) saveOpts.push("sanitize");
         break;
     }
   }
@@ -236,4 +247,6 @@ export const STEP_EXAMPLES: Record<Step["op"], string> = {
   flatten: "flatten",
   compress: "compress level=max",
   split: "split every=1",
+  redact: "redact pattern=email",
+  sanitize: "sanitize removeComments=false",
 };

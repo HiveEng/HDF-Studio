@@ -4,7 +4,7 @@ import type { AnnotInfo, AnnotSpec, Pt, RGB } from "../engine/annotations";
 import type { DocInfo } from "../engine/core";
 import { ask } from "./dialog";
 
-export type Tool = "hand" | "select" | "highlight" | "underline" | "strike" | "squiggly" | "note" | "text" | "rect" | "ellipse" | "arrow" | "ink";
+export type Tool = "hand" | "select" | "highlight" | "underline" | "strike" | "squiggly" | "note" | "text" | "rect" | "ellipse" | "arrow" | "ink" | "redact";
 
 export interface AnnotateDeps {
   engine: {
@@ -40,6 +40,7 @@ export const TOOLS: { id: Tool; label: string; key: string; title: string }[] = 
   { id: "ellipse", label: "◯", key: "O", title: "Ellipse (O)" },
   { id: "arrow", label: "↗", key: "A", title: "Arrow (A)" },
   { id: "ink", label: "Pen", key: "P", title: "Freehand pen (P)" },
+  { id: "redact", label: "Redact", key: "D", title: "Mark text or an area for redaction (D). Nothing is removed until you apply." },
 ];
 
 const MARKUP: Partial<Record<Tool, "Highlight" | "Underline" | "StrikeOut" | "Squiggly">> = { highlight: "Highlight", underline: "Underline", strike: "StrikeOut", squiggly: "Squiggly" };
@@ -88,6 +89,7 @@ export function setupAnnotate(d: AnnotateDeps) {
   };
   const colorHex = (c: RGB | null) => (c ? "#" + c.map((v) => Math.round(v * 255).toString(16).padStart(2, "0")).join("") : "#d62828");
 
+  let onRedactionsChanged: () => void = () => {};
   async function commit(page: number, spec: AnnotSpec, label: string) {
     const doc = d.doc();
     if (!doc) return;
@@ -96,6 +98,7 @@ export function setupAnnotate(d: AnnotateDeps) {
     d.refreshPage(page);
     d.changed(label);
     refreshComments();
+    if (spec.type === "Redact") onRedactionsChanged();
   }
 
   function setTool(t: Tool) {
@@ -142,6 +145,7 @@ export function setupAnnotate(d: AnnotateDeps) {
     d.refreshPage(a.page);
     d.changed("Deleted comment");
     refreshComments();
+    if (a.type === "Redact") onRedactionsChanged();
     return true;
   }
 
@@ -188,6 +192,9 @@ export function setupAnnotate(d: AnnotateDeps) {
       case "text":
         svg.append(svgEl("rect", { ...box, ...stroke }));
         break;
+      case "redact":
+        svg.append(svgEl("rect", { ...box, stroke: "#d62828", "stroke-width": 1.5, fill: "rgba(0,0,0,.15)" }));
+        break;
       case "ellipse":
         svg.append(svgEl("ellipse", { cx: box.x + box.width / 2, cy: box.y + box.height / 2, rx: box.width / 2, ry: box.height / 2, ...stroke }));
         break;
@@ -232,6 +239,17 @@ export function setupAnnotate(d: AnnotateDeps) {
     const rect = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])];
     const small = rect[2] - rect[0] < 4 && rect[3] - rect[1] < 4;
     const clear = () => overlay(cur.el, cur.index).querySelectorAll(".preview").forEach((n) => n.remove());
+    if (tool === "redact") {
+      while (cur.busy) await new Promise((r) => setTimeout(r, 10));
+      // Whole words only, so a partial drag never leaves fragments of sensitive text behind.
+      const r = small ? { quads: [] as number[][] } : await d.engine.selectText(doc.info.id, cur.index, a, b, "words");
+      clear();
+      // Text under the drag → mark those words; otherwise mark the dragged area (images, drawings).
+      const textMode = !(e as PointerEvent).altKey && r.quads.length > 0;
+      if (textMode) await commit(cur.index, { type: "Redact", quads: r.quads }, "Marked for redaction");
+      else if (!small) await commit(cur.index, { type: "Redact", rect }, "Marked area for redaction");
+      return;
+    }
     if (tool === "select" || MARKUP[tool]) {
       // wait for the last selection query to land
       while (cur.busy) await new Promise((r) => setTimeout(r, 10));
@@ -361,5 +379,5 @@ export function setupAnnotate(d: AnnotateDeps) {
     }
   }
 
-  return { setTool, refreshComments, get tool() { return tool; }, setColor: (c: RGB | null) => (color = c), selectAnnot, deleteSelected, editSelected };
+  return { onRedactions: (f: () => void) => (onRedactionsChanged = f), setTool, refreshComments, get tool() { return tool; }, setColor: (c: RGB | null) => (color = c), selectAnnot, deleteSelected, editSelected };
 }

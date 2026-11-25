@@ -5,6 +5,7 @@ import { runRecipe, type Recipe } from "./recipes";
 import { safeName } from "./util";
 import * as annots from "./annotations";
 import type { AnnotSpec, AnnotInfo, Pt, RGB } from "./annotations";
+import * as redact from "./redact";
 export { safeName };
 
 export interface OutlineNode {
@@ -371,6 +372,33 @@ export class Engine {
 
   commentSummary(id: number): string {
     return annots.summarizeComments(this.pdf(id));
+  }
+
+  // ---------- Redaction & security ----------
+
+  markRedactions(id: number, o: redact.FindRedactOptions): number {
+    return this.op(id, "Mark for redaction", () => redact.markMatches(this.pdf(id), o));
+  }
+
+  redactionCount(id: number): number {
+    return redact.countMarks(this.pdf(id));
+  }
+
+  applyRedactions(id: number, o?: redact.ApplyOptions): DocInfo & { pagesChanged: number } {
+    return this.op(id, "Apply redactions", () => {
+      const pagesChanged = redact.applyRedactions(this.pdf(id), o);
+      return { ...this.info(id), pagesChanged };
+    });
+  }
+
+  sanitize(id: number, opts?: { removeComments?: boolean }): redact.SanitizeReport {
+    return this.op(id, "Sanitize", () => redact.sanitize(this.pdf(id), opts));
+  }
+
+  /** Is the open document encrypted (so saving should keep or remove protection)? */
+  isEncrypted(id: number): boolean {
+    const t = this.pdf(id).getTrailer();
+    return !t.get("Encrypt").isNull();
   }
 
   close(id: number): void {
