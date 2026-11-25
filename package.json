@@ -4,7 +4,9 @@
   "description": "HDF Studio: open-source PDF reader and editor",
   "scripts": {
     "test": "node --import tsx --test test/*.test.ts",
+    "predev": "node scripts/ocr-assets.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/ocr-assets.mjs",
     "build": "tsc -p . && vite build",
     "tauri": "tauri",
     "hdfstudio": "tsx cli/hdfstudio.ts"
@@ -14,10 +16,12 @@
     "@tauri-apps/api": "^2.12.5",
     "@tauri-apps/plugin-dialog": "^2.8.4",
     "@tauri-apps/plugin-fs": "^2.7.1",
+    "@tesseract.js-data/eng": "^1.0.0",
     "fflate": "^0.8.3",
     "lucide": "^1.80.0",
     "mupdf": "^1.28.6",
-    "node-forge": "^1.4.4"
+    "node-forge": "^1.4.4",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.6",

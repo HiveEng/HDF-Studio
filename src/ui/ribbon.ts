@@ -8,7 +8,7 @@ import {
   ImagePlus, Replace, ImageDown, Stamp, FileInput, FilePlus2, Copy, Trash2, RotateCcw, RotateCw, ArrowUpDown,
   LayoutGrid, Merge, FileOutput, Scissors, Signature, PenLine, BadgeCheck, FileKey, ShieldCheck, Sheet,
   FileSpreadsheet, Eraser, SquareDashed, ScanSearch, Shredder, Lock, LockOpen, File, FileDown, Workflow, ListChecks,
-  MoveHorizontal, Maximize, PanelLeft, Search,
+  MoveHorizontal, Maximize, PanelLeft, Search, ScanText, ScanLine,
 } from "lucide";
 
 export function icon(node: IconNode, size = 18): SVGElement {
@@ -86,6 +86,10 @@ export const TASKS: Task[] = [
         { cmd: "replaceImage", label: "Replace", icon: Replace },
         { cmd: "saveImage", label: "Save image", icon: ImageDown },
       ] },
+      { label: "Scans", items: [
+        { cmd: "ocr", label: "Recognize text", icon: ScanText, big: true, hint: "OCR: make scanned pages searchable and copyable" },
+        { cmd: "ocrPage", label: "This page", icon: ScanLine },
+      ] },
       { label: "Page marks", items: [
         { cmd: "recipeCurrent", label: "Watermark, numbers & Bates", icon: Stamp, big: true },
       ] },
@@ -155,6 +159,9 @@ export const TASKS: Task[] = [
         { cmd: "createPdf", label: "From files", icon: FilePlus, big: true, hint: "Word, Excel, PowerPoint, images, HTML, text" },
         { cmd: "newBlank", label: "Blank PDF", icon: File, big: true },
         { cmd: "mergeFiles", label: "Combine files", icon: Merge, big: true },
+      ] },
+      { label: "Scans", items: [
+        { cmd: "ocr", label: "Recognize text", icon: ScanText, big: true, hint: "OCR: make scanned pages searchable and copyable" },
       ] },
       { label: "Export", items: [
         { cmd: "exportAs", label: "Export", icon: FileDown, big: true, hint: "Word, PNG/JPEG images, HTML, text or SVG" },

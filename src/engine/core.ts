@@ -9,6 +9,7 @@ import * as redact from "./redact";
 import * as forms from "./forms";
 import * as digisign from "./digisign";
 import * as edit from "./edit";
+import * as ocr from "./ocr";
 import * as convert from "./convert";
 export { safeName };
 
@@ -551,6 +552,23 @@ export class Engine {
     const r = this.op(id, "Add text", () => edit.addText(this.pdf(id), pageIndex, at, text, style));
     this.dropTextCache(id);
     return r;
+  }
+
+  // ---------- OCR ----------
+  /** Pages with no real text (scans, photos). */
+  pagesWithoutText(id: number): number[] {
+    return ocr.pagesWithoutText(this.get(id));
+  }
+
+  ocrImage(id: number, pageIndex: number, dpi = 300): { png: Uint8Array; scale: number } {
+    return ocr.pageImage(this.get(id), pageIndex, dpi);
+  }
+
+  /** Write recognised text as an invisible, searchable layer. One undo step per call. */
+  addTextLayer(id: number, pages: { page: number; lines: ocr.OcrLine[] }[]): number {
+    const n = this.op(id, "Recognize text", () => pages.reduce((s, p) => s + ocr.addTextLayer(this.pdf(id), p.page, p.lines), 0));
+    this.dropTextCache(id);
+    return n;
   }
 
   imageBlocks(id: number, pageIndex: number): edit.ImageBlock[] {

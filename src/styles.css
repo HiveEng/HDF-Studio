@@ -80,7 +80,8 @@ button.primary.danger { background: var(--danger); color: #fff; }
 #appbar .icon-btn:hover { background: var(--appbar-hover); }
 .search { display: flex; align-items: center; gap: 2px; height: 30px; padding: 0 2px 0 8px; border-radius: 8px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.12); width: clamp(180px, 22vw, 300px); }
 .search:focus-within { background: var(--panel); color: var(--text); border-color: var(--focus); }
-.search:focus-within .icon-btn, .search:focus-within .search-icon { color: var(--muted); }
+#appbar .search:focus-within .icon-btn, .search:focus-within .search-icon { color: var(--muted); }
+#appbar .search:focus-within .icon-btn:hover { background: var(--hover); color: var(--text); }
 .search-icon { display: grid; color: var(--appbar-muted); }
 #searchInput { flex: 1; min-width: 0; background: transparent; border: 0; padding: 4px 6px; color: inherit; }
 #searchInput:focus { outline: none; }
@@ -291,3 +292,10 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 .page svg.edit-ov .hover { fill: rgba(5, 199, 242, .06); stroke: var(--accent); stroke-width: 1; stroke-dasharray: 3 2; vector-effect: non-scaling-stroke; }
 .page svg.edit-ov .selimg { fill: rgba(5, 199, 242, .12); stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
 .page .text-editor { position: absolute; z-index: 3; box-sizing: content-box; margin: -2px 0 0 -3px; padding: 1px 2px; border: 1px solid var(--accent); background: #fff; resize: none; overflow: hidden; outline: none; white-space: pre-wrap; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+.modal.progress { width: min(420px, 92vw); }
+.modal.progress .bar { height: 8px; border-radius: 8px; background: var(--hover); overflow: hidden; }
+.modal.progress .bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--hive-lime), var(--hive-cyan)); border-radius: 8px; transition: width .2s; }
+.notice { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 10px; padding: 7px 10px 7px 14px; background: color-mix(in srgb, var(--hive-cyan) 12%, var(--panel)); border-bottom: 1px solid color-mix(in srgb, var(--hive-cyan) 35%, var(--border)); }
+.notice > span { flex: 1; }
+.notice svg { color: var(--accent); }
+.notice .icon-btn { width: 26px; height: 26px; }

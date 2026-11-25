@@ -62,7 +62,8 @@ protect ownerPassword=s3cret allowCopy=false
 
 Steps: `rotate`, `delete`, `keep`, `reverse`, `stamp` (headers/footers, page numbers, Bates, watermarks),
 `metadata` (set or scrub), `protect` (AES-256 passwords and permissions), `unprotect`, `flatten`,
-`compress`, `split`. Save your own recipes next to the built-in ones. Bates numbers continue across files.
+`compress`, `split`, `redact`, `sanitize` and `ocr` (recognize text in scans; always runs first, so a
+later `redact` step finds the text). Save your own recipes next to the built-in ones. Bates numbers continue across files.
 
 The same recipes run from the terminal:
 
@@ -75,6 +76,8 @@ npm run hdfstudio -- search "invoice 1042" ./archive -r --csv > hits.csv
 npm run hdfstudio -- fill form.pdf people.csv --name "{Last} - {First}" --flatten
 npm run hdfstudio -- sign ./contracts --cert me.pfx --password **** --reason Approved --page 1 --rect "350,700,570,760"
 npm run hdfstudio -- verify ./contracts
+npm run hdfstudio -- ocr ./scans -r -o ./searchable     # make scanned PDFs searchable
+npm run hdfstudio -- run "OCR scans, then redact" ./scans -o ./clean
 npm run hdfstudio -- recipes          # list built-in recipes and step types
 ```
 
@@ -98,6 +101,7 @@ npm run hdfstudio -- recipes          # list built-in recipes and step types
 | Tools: note, text box, rectangle, ellipse, arrow, pen | N, X, R, O, A, P |
 | Tools: sign, redact, edit page text & images | G, D, E |
 | Find and redact | Ctrl+Shift+R |
+| Recognize text (OCR) | Ctrl+Shift+O |
 | Select pages | Click, Ctrl+click, Shift+click; drag to reorder; drop PDFs between thumbnails to insert |
 
 ## Roadmap
@@ -111,8 +115,8 @@ npm run hdfstudio -- recipes          # list built-in recipes and step types
 | 5 | Redaction & security | Permanent redaction (text, images, vector art), find-and-redact by text/regex/patterns, hidden-data removal, AES-256 passwords and permissions | Done |
 | 6 | Forms & e-signatures | Fill/flatten forms, CSV mail merge, drawn/typed/image signatures, certificate (PKCS#7, .pfx) digital signatures, validation, batch signing | Done (form designer and timestamps next) |
 | 7 | Edit text & images | Edit existing text blocks in place (font/size/colour matched), add text, move/resize/replace/insert/delete/export images | Done (custom font embedding next) |
-| 8 | Create & convert | Images, XPS, EPUB, HTML, text to PDF; PDF to images, text, HTML; Office files via optional LibreOffice | MuPDF document writers |
-| 9 | OCR | Make scanned PDFs searchable (invisible text layer), batch OCR | Tesseract (Apache-2.0) |
+| 8 | Create & convert | Images, XPS, EPUB, HTML, text to PDF; PDF to Word, images, text, HTML, SVG; Office files via optional LibreOffice | Done |
+| 9 | OCR | Make scanned PDFs searchable (invisible text layer), offline English bundled, scan detection on open, batch and CLI OCR | Done (more languages next) |
 | 10 | Compare | Side-by-side text diff and visual (pixel) diff with change list | Engine text extraction + render diff |
 | 11 | Compliance | PDF/A conversion and checks, accessibility checks, audit log of batch runs | Later phase |
 | 12 | Collaboration | Shared review threads on comments, review status | Later phase |

@@ -10,6 +10,8 @@ import { getSignature, clearSignature, pngSize } from "./ui/signature";
 import { parseRanges, formatRanges } from "./engine/ranges";
 import { ask, confirmDialog } from "./ui/dialog";
 import { openBatch, type BatchDeps } from "./ui/batch";
+import { showProgress } from "./ui/progress";
+import { ocrBytes, ocrStep } from "./ocr/pipeline";
 
 const engine = createEngine();
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
@@ -32,6 +34,9 @@ interface Tab {
   anchor: number;
   /** Extra save options: encryption, decrypt, sanitize. */
   saveExtra: string[];
+  /** Pages without text, checked once on open (null = not checked yet); hidden once dismissed. */
+  scanned?: number[] | null;
+  scanNoticeDismissed?: boolean;
 }
 const tabs: Tab[] = [];
 let active: Tab | null = null;
@@ -177,6 +182,7 @@ function buildView() {
   updateRedactButton();
   editUI.invalidate();
   showSignatureStatus();
+  showScanNotice();
   const shown = active;
   formsUI.render().then(() => {
     const n = formsUI.fields.filter((f) => f.type !== "signature" && f.type !== "button").length;
@@ -397,7 +403,7 @@ async function openFiles(files: OpenedFile[]) {
       }
             addTab(info, f.name, f.path);
       if (f.path) remember(f.path);
-      status(`${f.name}: ${info.pageCount} pages`);
+      status(`${f.name}: ${info.pageCount} page${info.pageCount === 1 ? "" : "s"}`);
     } catch (e) {
       if ((e as Error).message !== "cancelled") status(`Could not open ${f.name}: ${(e as Error).message}`);
     }
@@ -699,6 +705,94 @@ async function rangeOp(title: string, okLabel: string, run: (pages: number[]) =>
 }
 
 
+// ---------- OCR: make scanned pages searchable ----------
+const scanBanner = Object.assign(document.createElement("div"), { id: "scanbanner", className: "notice hidden" });
+$("#sigbanner").after(scanBanner);
+async function showScanNotice() {
+  scanBanner.classList.add("hidden");
+  const t = active;
+  if (!t || t.scanNoticeDismissed) return;
+  if (t.scanned == null) t.scanned = await engine.pagesWithoutText(t.info.id).catch(() => []);
+  if (t !== active || !t.scanned.length) return;
+  const n = t.scanned.length;
+  scanBanner.replaceChildren(
+    icon(I.ScanText, 16),
+    Object.assign(document.createElement("span"), { textContent: n === t.info.pageCount ? "This document looks scanned: its text can't be searched or copied yet." : `${n} page${n === 1 ? " has" : "s have"} no searchable text.` }),
+    Object.assign(document.createElement("button"), { className: "primary", textContent: "Recognize text", onclick: () => { t.scanNoticeDismissed = true; recognizeText(t.scanned!); } }),
+    Object.assign(document.createElement("button"), { className: "icon-btn", title: "Dismiss", onclick: () => { t.scanNoticeDismissed = true; scanBanner.classList.add("hidden"); } }),
+  );
+  (scanBanner.lastElementChild as HTMLElement).append(icon(I.X, 16));
+  scanBanner.classList.remove("hidden");
+}
+let recognizer: Promise<import("./ocr/recognize").Recognizer> | null = null;
+let ocrPageProgress: (f: number) => void = () => {};
+function getRecognizer() {
+  if (!recognizer) {
+    // Worker, engine and English data ship with the app (see scripts/ocr-assets.mjs): no internet needed.
+    const base = new URL("/ocr/", location.href).href;
+    recognizer = import("./ocr/recognize").then((m) =>
+      m.createRecognizer("eng", { workerPath: base + "worker.min.js", corePath: base, langPath: base + "lang", cacheMethod: "none", gzip: true, workerBlobURL: false }, (f) => ocrPageProgress(f)),
+    );
+    recognizer.catch(() => (recognizer = null));
+  }
+  return recognizer;
+}
+async function recognizeText(pagesArg?: number[]) {
+  if (!active) return;
+  const t = active;
+  let pages = pagesArg;
+  if (!pages) {
+    const scanned = await engine.pagesWithoutText(t.info.id);
+    const r = await ask(
+      "Recognize text (OCR)",
+      [
+        {
+          name: "which", label: "Pages", type: "select", value: scanned.length ? "scanned" : "current",
+          options: [["scanned", `Pages without text (${scanned.length})`], ["all", `All pages (${t.info.pageCount})`], ["current", `Current page (${t.page + 1})`], ["range", "Page range…"]],
+          hint: "Adds an invisible text layer over the scan. The page looks the same but becomes searchable and copyable.",
+        },
+        { name: "range", label: "Page range (if chosen above)", placeholder: "e.g. 1-3, 8", value: "" },
+      ],
+      "Recognize",
+    );
+    if (!r) return;
+    try {
+      pages = r.which === "scanned" ? scanned : r.which === "all" ? [...Array(t.info.pageCount).keys()] : r.which === "current" ? [t.page] : parseRanges(r.range, t.info.pageCount);
+    } catch (e) {
+      return status((e as Error).message);
+    }
+    if (!pages.length) return status("Every page already has text. Choose All pages to recognize them anyway.");
+  }
+  const prog = showProgress("Recognizing text");
+  const done: { page: number; lines: import("./engine/ocr").OcrLine[] }[] = [];
+  const started = Date.now();
+  try {
+    prog.set(0, "Starting the OCR engine…");
+    const rec = await getRecognizer();
+    for (const [k, p] of pages.entries()) {
+      if (prog.cancelled) break;
+      ocrPageProgress = (f) => prog.set((k + f) / pages!.length, `Page ${p + 1} (${k + 1} of ${pages!.length})`);
+      ocrPageProgress(0);
+      const img = await engine.ocrImage(t.info.id, p, 300);
+      done.push({ page: p, lines: await rec.recognize(img.png, img.scale) });
+    }
+    const words = done.length ? await engine.addTextLayer(t.info.id, done) : 0;
+    if (done.length) {
+      t.dirty = true;
+      t.scanned = null;
+      t.hits = [];
+      if (t === active) buildView();
+    }
+    const secs = ((Date.now() - started) / 1000).toFixed(1);
+    status(`${prog.cancelled ? "Stopped. " : ""}Recognized ${words} words on ${done.length} page${done.length === 1 ? "" : "s"} in ${secs} s. Search and copy now work. Ctrl+Z to undo.`);
+  } catch (e) {
+    status(`OCR failed: ${(e as Error).message ?? e}`);
+  } finally {
+    ocrPageProgress = () => {};
+    prog.close();
+  }
+}
+
 // ---------- Digital (certificate) signatures ----------
 const sigBanner = $("#sigbanner");
 async function showSignatureStatus() {
@@ -857,7 +951,11 @@ async function exportAs() {
 
 // ---------- Batch ----------
 const batchDeps: BatchDeps = {
-  runRecipe: (data, name, recipe, ctx) => engine.runRecipe(data, name, recipe, ctx),
+  runRecipe: async (data, name, recipe, ctx) => {
+    const step = ocrStep(recipe);
+    if (step) data = (await ocrBytes(engine, await getRecognizer(), data, name, step.pages ?? "scanned", ctx.password)).data;
+    return engine.runRecipe(data, name, recipe, ctx);
+  },
   pickFiles: () => pickFiles(true),
   filesFromList,
   openTabsAsFiles: () => Promise.all(tabs.map(async (t) => ({ name: t.name, path: t.path, data: await engine.save(t.info.id) }))),
@@ -1182,6 +1280,8 @@ const commands: Command[] = [
   { id: "exportForm", title: "Export form data (CSV)", run: () => exportFormData() },
   { id: "clearForm", title: "Clear all form fields", run: async () => { if (!active) return; await engine.clearForm(active.info.id); active.dirty = true; buildView(); } },
   { id: "flatten", title: "Flatten comments and form fields…", run: async () => { if (!active) return; const r = await ask("Flatten", [{ name: "w", label: "What to flatten", type: "select", value: "both", options: [["both", "Comments and form fields"], ["fields", "Form fields only"], ["comments", "Comments only"]] }], "Flatten"); if (!r) return; active.info = await engine.flatten(active.info.id, r.w !== "fields", r.w !== "comments"); active.dirty = true; buildView(); status("Flattened. Ctrl+Z to undo."); } },
+  { id: "ocr", title: "Recognize text (OCR): make scanned pages searchable…", keys: "Ctrl+Shift+O", run: () => recognizeText() },
+  { id: "ocrPage", title: "Recognize text on this page (OCR)", run: () => active && recognizeText([active.page]) },
   { id: "palette", title: "Show all commands", keys: "Ctrl+K", run: () => openPalette() },
 ];
 const byId = Object.fromEntries(commands.map((c) => [c.id, c]));

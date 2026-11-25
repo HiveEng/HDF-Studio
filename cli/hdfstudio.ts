@@ -10,6 +10,16 @@ import { canOpen, needsOffice } from "../src/engine/convert";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { rmSync, mkdtempSync } from "node:fs";
+import { createRequire } from "node:module";
+import { createRecognizer, type Recognizer } from "../src/ocr/recognize";
+import { ocrBytes, ocrStep } from "../src/ocr/pipeline";
+
+/** Tesseract with the bundled English data (no download needed). Other languages: --lang and --lang-path. */
+function recognizerFor(lang: string, langPath?: string): Promise<Recognizer> {
+  const req = createRequire(import.meta.url);
+  const bundled = join(dirname(req.resolve("@tesseract.js-data/eng/package.json")), "4.0.0_best_int");
+  return createRecognizer(lang, { langPath: langPath ?? bundled, cacheMethod: "none", gzip: true });
+}
 
 const HELP = `hdfstudio - batch PDF tools (AGPL-3.0)
 
@@ -33,6 +43,8 @@ Usage:
                                                     Images, HTML, text, EPUB, XPS (and Office files via LibreOffice) to PDF
   hdfstudio export <files|folders...> --to png|jpg|docx|html|txt|svg [--dpi 150] [--pages 1-3] [-o dir]
                                                     PDF to images, Word, HTML, text or SVG
+  hdfstudio ocr <files|folders...> [-o dir] [--all] [--lang eng] [--lang-path dir]
+                                                    Make scanned PDFs searchable (adds an invisible text layer)
   hdfstudio recipes                                     List built-in recipes and step types
   hdfstudio run <recipe> <files|folders...> [options]   Apply a recipe to every PDF
       <recipe> is a built-in name (quotes or a unique prefix), a .json file, or "-" to use --step only
@@ -51,7 +63,7 @@ type Args = { _: string[]; flags: Record<string, string | boolean>; steps: strin
 function parseArgs(argv: string[]): Args {
   const a: Args = { _: [], flags: {}, steps: [] };
   const alias: Record<string, string> = { o: "out", r: "recursive", q: "quiet", h: "help" };
-  const bools = new Set(["recursive", "quiet", "help", "csv", "bookmarks", "dry-run", "continue-bates", "flatten", "each"]);
+  const bools = new Set(["recursive", "quiet", "help", "csv", "bookmarks", "dry-run", "continue-bates", "flatten", "each", "all"]);
   for (let i = 0; i < argv.length; i++) {
     const t = argv[i];
     if (t.startsWith("-") && t !== "-") {
@@ -126,7 +138,7 @@ function findRecipe(name: string, steps: string[]): Recipe {
 
 const fmtSize = (n: number) => (n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.round(n / 1024)} KB`);
 
-export function main(argv: string[]): number {
+export async function main(argv: string[]): Promise<number> {
   const args = parseArgs(argv);
   const [cmd, ...rest] = args._;
   const log = (...m: unknown[]) => !args.flags.quiet && console.log(...m);
@@ -306,6 +318,32 @@ export function main(argv: string[]): number {
       }
       return 0;
     }
+    case "ocr": {
+      const files = collect(rest, recursive);
+      if (!files.length) throw new Error("usage: hdfstudio ocr <files|folders...>");
+      const rec = await recognizerFor((args.flags.lang as string) ?? "eng", args.flags["lang-path"] as string | undefined);
+      let failed = 0;
+      try {
+        for (const f of files) {
+          const dir = (args.flags.out as string) ?? join(dirname(f), "hdfstudio-out");
+          try {
+            const t0 = Date.now();
+            const r = await ocrBytes(e, rec, readFileSync(f), basename(f), args.flags.all ? "all" : "scanned", args.flags.password as string | undefined);
+            mkdirSync(dir, { recursive: true });
+            const target = join(dir, basename(f));
+            if (resolve(target) === resolve(f)) throw new Error("output would overwrite the input; use -o");
+            writeFileSync(target, r.data);
+            log(`✓ ${f}: ${r.pages ? `${r.words} words on ${r.pages} page(s)` : "already searchable"} in ${((Date.now() - t0) / 1000).toFixed(1)} s -> ${target}`);
+          } catch (err) {
+            failed++;
+            console.error(`✗ ${f}: ${(err as Error).message}`);
+          }
+        }
+      } finally {
+        await rec.terminate();
+      }
+      return failed ? 1 : 0;
+    }
     case "recipes": {
       console.log("Built-in recipes:");
       for (const r of BUILTIN_RECIPES) console.log(`  ${r.name}`);
@@ -322,6 +360,8 @@ export function main(argv: string[]): number {
       if (!recipe.steps.length) throw new Error("Recipe has no steps");
       const files = collect(paths, recursive);
       const continueBates = args.flags["continue-bates"] !== false;
+      const ocr = ocrStep(recipe);
+      const rec = ocr && !args.flags["dry-run"] ? await recognizerFor(ocr.lang ?? "eng", args.flags["lang-path"] as string | undefined) : null;
       let bates = 0, ok = 0, failed = 0;
       const started = Date.now();
       for (const f of files) {
@@ -331,7 +371,9 @@ export function main(argv: string[]): number {
             log(`would process ${f} -> ${dir}`);
             continue;
           }
-          const res = runRecipe(readFileSync(f), basename(f), recipe, { batesOffset: continueBates ? bates : 0, password: args.flags.password as string | undefined });
+          let input: Uint8Array = readFileSync(f);
+          if (rec) input = (await ocrBytes(e, rec, input, basename(f), ocr!.pages ?? "scanned", args.flags.password as string | undefined)).data;
+          const res = runRecipe(input, basename(f), recipe, { batesOffset: continueBates ? bates : 0, password: args.flags.password as string | undefined });
           bates += res.pagesStamped;
           mkdirSync(dir, { recursive: true });
           for (const o of res.outputs) {
@@ -346,6 +388,7 @@ export function main(argv: string[]): number {
           console.error(`✗ ${f}: ${(err as Error).message}`);
         }
       }
+      await rec?.terminate();
       log(`${ok} done, ${failed} failed, ${((Date.now() - started) / 1000).toFixed(1)} s (${recipe.name})`);
       return failed ? 1 : 0;
     }
@@ -358,7 +401,7 @@ export function main(argv: string[]): number {
 
 if (process.argv[1] && /hdfstudio(\.ts|\.mjs|\.js)?$/.test(process.argv[1])) {
   try {
-    process.exitCode = main(process.argv.slice(2));
+    process.exitCode = await main(process.argv.slice(2));
   } catch (err) {
     console.error(`hdfstudio: ${(err as Error).message}`);
     process.exitCode = 1;

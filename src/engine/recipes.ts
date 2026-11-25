@@ -19,7 +19,9 @@ export type Step =
   | { op: "compress"; level?: "fast" | "max" }
   | { op: "split"; every?: number; bookmarks?: boolean }
   | { op: "redact"; text?: string; regex?: string; pattern?: string; caseSensitive?: boolean; images?: "pixels" | "remove" | "none" }
-  | { op: "sanitize"; removeComments?: boolean };
+  | { op: "sanitize"; removeComments?: boolean }
+  /** Recognize text in scans. Always runs first, before the other steps, so later steps (redact) see the text. */
+  | { op: "ocr"; pages?: "scanned" | "all"; lang?: string };
 
 export interface Recipe {
   name: string;
@@ -47,6 +49,7 @@ export const STEP_LABELS: Record<Step["op"], string> = {
   split: "Split into several files",
   redact: "Find and permanently redact (text, regex or pattern: email, phone, ssn, card, date, money)",
   sanitize: "Remove hidden data (metadata, JavaScript, attachments)",
+  ocr: "Recognize text in scans (OCR), runs before the other steps",
 };
 
 /** Ready-made recipes; users can save their own alongside these. */
@@ -63,6 +66,8 @@ export const BUILTIN_RECIPES: Recipe[] = [
   { name: "Rotate all pages 90°", steps: [{ op: "rotate", degrees: 90 }] },
   { name: "Redact emails and phone numbers", steps: [{ op: "redact", pattern: "email" }, { op: "redact", pattern: "phone" }, { op: "sanitize" }] },
   { name: "Remove hidden data", steps: [{ op: "sanitize" }] },
+  { name: "Make scans searchable (OCR)", steps: [{ op: "ocr", pages: "scanned" }] },
+  { name: "OCR scans, then redact emails and phone numbers", steps: [{ op: "ocr", pages: "scanned" }, { op: "redact", pattern: "email" }, { op: "redact", pattern: "phone" }, { op: "sanitize" }] },
 ];
 
 function hexColor(c?: string): [number, number, number] | undefined {
@@ -154,6 +159,8 @@ export function runRecipe(input: Uint8Array, fileName: string, recipe: Recipe, c
         if (!saveOpts.includes("sanitize")) saveOpts.push("sanitize");
         break;
       }
+      case "ocr":
+        break; // done by the caller beforehand (recognition runs outside the PDF engine)
       case "sanitize":
         sanitize(doc, { removeComments: step.removeComments });
         if (!saveOpts.includes("sanitize")) saveOpts.push("sanitize");
@@ -249,4 +256,5 @@ export const STEP_EXAMPLES: Record<Step["op"], string> = {
   split: "split every=1",
   redact: "redact pattern=email",
   sanitize: "sanitize removeComments=false",
+  ocr: "ocr pages=scanned",
 };
