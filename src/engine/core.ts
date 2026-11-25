@@ -4,6 +4,7 @@ import * as scale from "./scale";
 import * as overlay from "./overlay";
 import * as nav from "./navigation";
 import * as snap from "./snap";
+import * as office from "./officeexport";
 import * as mlist from "./markuplist";
 import type { Scale } from "./measure";
 import type { Xf } from "./xform";
@@ -941,7 +942,9 @@ export class Engine {
     return convert.toImages(this.get(id), pages, dpi, format, quality);
   }
 
-  exportAs(id: number, format: "html" | "xhtml" | "text" | "svg" | "docx"): Uint8Array[] {
+  exportAs(id: number, format: "html" | "xhtml" | "text" | "svg" | "docx" | "xlsx" | "pptx", o: { oneSheet?: boolean; editableText?: boolean } = {}): Uint8Array[] {
+    if (format === "xlsx") return [office.toXlsx(this.get(id), o)];
+    if (format === "pptx") return [office.toPptx(this.get(id), o)];
     return format === "docx" ? [convert.toDocx(this.get(id))] : convert.exportWith(this.get(id), format);
   }
 

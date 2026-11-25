@@ -235,7 +235,7 @@ export const TASKS: Task[] = [
         { cmd: "saveAsPdfa", label: "PDF/A", icon: Archive, big: true, hint: "For long-term archiving (needs Ghostscript)" },
       ] },
       { label: "Export", items: [
-        { cmd: "exportAs", label: "Export", icon: FileDown, big: true, hint: "Word, PNG/JPEG images, HTML, text or SVG" },
+        { cmd: "exportAs", label: "Export", icon: FileDown, big: true, hint: "Word, Excel, PowerPoint, images, HTML, text or SVG" },
       ] },
     ],
   },

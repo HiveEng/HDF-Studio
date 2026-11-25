@@ -1162,11 +1162,14 @@ async function exportAs() {
   if (!active) return;
   const t = active;
   const r = await ask("Export", [
-    { name: "to", label: "Format", type: "select", value: "docx", options: [["docx", "Word document (.docx)"], ["png", "Images (PNG)"], ["jpg", "Images (JPEG)"], ["html", "Web page (HTML)"], ["txt", "Plain text"], ["svg", "SVG (one per page)"]] },
+    { name: "to", label: "Format", type: "select", value: localStorage.getItem("hdfstudio.exportTo") ?? "docx", options: [["docx", "Word document (.docx)"], ["xlsx", "Excel workbook (.xlsx): tables and schedules"], ["pptx", "PowerPoint (.pptx): one slide per page"], ["png", "Images (PNG)"], ["jpg", "Images (JPEG)"], ["html", "Web page (HTML)"], ["txt", "Plain text"], ["svg", "SVG (one per page)"]] },
     { name: "pages", label: "Pages (images)", value: "all" },
     { name: "dpi", label: "Resolution (images)", type: "select", value: "150", options: [["72", "72 dpi (screen)"], ["150", "150 dpi"], ["300", "300 dpi (print)"], ["600", "600 dpi"]] },
+    { name: "sheets", label: "Excel: sheets", type: "select", value: "page", options: [["page", "One sheet per page"], ["one", "Everything on one sheet"]] },
+    { name: "slides", label: "PowerPoint: text", type: "select", value: "edit", options: [["edit", "Editable text boxes over the page"], ["image", "Pictures of the pages only"]] },
   ], "Export");
   if (!r) return;
+  localStorage.setItem("hdfstudio.exportTo", r.to);
   const stem = t.name.replace(/\.pdf$/i, "");
   try {
     if (r.to === "png" || r.to === "jpg") {
@@ -1174,7 +1177,8 @@ async function exportAs() {
       const dir = await saveMany(imgs.map((im) => ({ name: `${stem}-p${im.page + 1}.${r.to}`, data: im.data })));
       status(`Exported ${imgs.length} image${imgs.length > 1 ? "s" : ""}${dir ? ` to ${dir}` : ""}`);
     } else {
-      const outs = await engine.exportAs(t.info.id, r.to === "txt" ? "text" : (r.to as "docx"));
+      status(`Exporting ${stem}.${r.to}…`);
+      const outs = await engine.exportAs(t.info.id, r.to === "txt" ? "text" : (r.to as "docx"), { oneSheet: r.sheets === "one", editableText: r.slides === "edit" });
       if (outs.length === 1) await saveBytes(`${stem}.${r.to}`, outs[0]);
       else await saveMany(outs.map((o, i) => ({ name: `${stem}-p${i + 1}.${r.to}`, data: o })));
       status(`Exported ${stem}.${r.to}`);
