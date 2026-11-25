@@ -431,6 +431,28 @@ export class Engine {
     return annots.annotationAt(this.pdf(id), pageIndex, p);
   }
 
+  addReply(id: number, pageIndex: number, parentKey: number, text: string, author: string, state?: string): number {
+    return this.op(id, state ? `Set status: ${state}` : "Reply to comment", () => annots.addReply(this.pdf(id), pageIndex, parentKey, text, author, state));
+  }
+
+  /** Bring in comments from a reviewer's copy of this PDF (skips ones already here). */
+  mergeComments(id: number, data: Uint8Array): { added: number; authors: Record<string, number> } {
+    const src = mupdf.Document.openDocument(data, "application/pdf") as mupdf.PDFDocument;
+    try {
+      if (src.needsPassword()) throw new Error("That copy is password protected. Open and unlock it first.");
+      return this.op(id, "Merge comments", () => {
+        annots.ensureNames(this.pdf(id));
+        return annots.mergeAnnotations(this.pdf(id), src);
+      });
+    } finally {
+      src.destroy();
+    }
+  }
+
+  importXfdf(id: number, xml: string): { added: number; skipped: number; authors: Record<string, number> } {
+    return this.op(id, "Import comments", () => annots.importXfdf(this.pdf(id), xml));
+  }
+
   exportXfdf(id: number, fileName: string): string {
     return annots.exportXfdf(this.pdf(id), fileName);
   }

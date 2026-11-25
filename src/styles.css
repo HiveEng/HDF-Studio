@@ -276,6 +276,24 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 .comment .meta { display: flex; justify-content: space-between; gap: 6px; font-size: 12px; }
 .comment .body { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 2px; }
 .comment .body:empty { display: none; }
+.comment-filters { display: flex; gap: 6px; margin-bottom: 6px; }
+.comment-filters select { flex: 1; min-width: 0; font-size: 12px; padding: 3px 4px; }
+.comment-count { font-size: 12px; margin-bottom: 6px; }
+.comment .meta { flex-wrap: wrap; align-items: center; }
+.comment .meta .when { margin-left: auto; text-align: right; }
+.status-badge { flex: none; align-self: center; font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 999px; line-height: 18px; margin-right: 4px; white-space: nowrap; }
+.status-badge.s-accepted, .status-badge.s-completed { background: color-mix(in srgb, var(--hive-lime) 45%, transparent); color: var(--text); }
+.status-badge.s-rejected { background: color-mix(in srgb, var(--danger) 22%, transparent); color: var(--text); }
+.status-badge.s-cancelled { background: var(--hover); color: var(--muted); }
+.comment .replies { margin-top: 6px; border-top: 1px solid var(--border); padding-top: 4px; display: grid; gap: 3px; font-size: 12.5px; }
+.comment .reply { padding-left: 10px; border-left: 2px solid var(--border-strong); white-space: pre-wrap; overflow-wrap: anywhere; }
+.comment .reply .who { font-weight: 600; }
+.comment .reply.state { color: var(--muted); font-style: italic; }
+.comment .reply.state .who { font-weight: 500; }
+.comment-actions { display: none; gap: 4px; margin-top: 6px; }
+.comment:hover .comment-actions, .comment.active .comment-actions, .comment:focus-within .comment-actions { display: flex; }
+.comment-actions button { font-size: 12px; padding: 1px 8px; }
+
 .page .field { position: absolute; box-sizing: border-box; margin: 0; padding: 0 3px; font: calc(var(--z, 1) * 11px) / 1.1 Helvetica, Arial, sans-serif; color: #000; background: rgba(214, 233, 255, .92); border: 1px solid rgba(5, 145, 177, .5); border-radius: 2px; }
 .page .field:focus { outline: 2px solid var(--accent); background: #fff; }
 .page textarea.field { resize: none; }

@@ -1079,6 +1079,7 @@ const annot = setupAnnotate({
   status,
   saveText: async (name, text) => void (await saveText(name, text)),
   sign: (page, at) => (pendingPlacement ? pendingPlacement(page, at) : placeSignature(page, at)),
+  pickReviews: () => pickFiles(true, ["pdf", "xfdf"]),
 });
 
 // ---------- Edit text & images ----------
@@ -1402,6 +1403,7 @@ const commands: Command[] = [
   { id: "tool-arrow", title: "Arrow tool", keys: "A", run: () => useTool("arrow") },
   { id: "tool-ink", title: "Pen tool", keys: "P", run: () => useTool("ink") },
   { id: "showComments", title: "Show comments", run: () => (showSidePanel("comments"), annot.refreshComments()) },
+  { id: "mergeReviews", title: "Merge reviewers' comments (from their PDF copies or XFDF files)…", run: () => (showSidePanel("comments"), annot.mergeReviews()) },
   { id: "tool-redact", title: "Redact tool (mark text or area)", keys: "D", run: () => useTool("redact") },
   { id: "findRedact", title: "Find and redact (text, emails, phone numbers, regex)…", keys: "Ctrl+Shift+R", run: () => findAndRedact() },
   { id: "applyRedactions", title: "Apply redactions permanently…", run: () => applyRedactionsFlow() },

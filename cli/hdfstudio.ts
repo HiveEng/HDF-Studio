@@ -61,6 +61,8 @@ Usage:
   hdfstudio watch <folder> --recipe <name|file.json> [-o dir] [--keep] [--interval 3]
                                                     Keep running: process every PDF dropped into the folder
                                                     (originals move to <folder>/processed unless --keep)
+  hdfstudio comments <file.pdf> [reviews.pdf|.xfdf ...] [-o out.pdf] [--xfdf out.xfdf]
+                                                    List comments with replies and status; merge reviewers' copies
   hdfstudio check <files|folders...> [--json]           PDF/A, accessibility and security check (exit 1 on errors)
   hdfstudio pdfa <files|folders...> [-o dir]            Convert to PDF/A-2b for archiving (needs Ghostscript)
   hdfstudio recipes                                     List built-in recipes and step types
@@ -434,6 +436,28 @@ export async function main(argv: string[]): Promise<number> {
         }
         await new Promise((r) => setTimeout(r, every));
       }
+    }
+    case "comments": {
+      const [file, ...reviews] = rest;
+      if (!file) throw new Error("usage: hdfstudio comments <file.pdf> [reviews.pdf|.xfdf ...] [-o out.pdf] [--xfdf out.xfdf]");
+      const d = e.open(readFileSync(file), basename(file));
+      for (const r of reviews) {
+        const data = readFileSync(r);
+        const res = /\.xfdf$/i.test(r) ? e.importXfdf(d.id, data.toString("utf8")) : e.mergeComments(d.id, new Uint8Array(data));
+        const who = Object.entries(res.authors).map(([k, v]) => `${k} ${v}`).join(", ");
+        log(`${basename(r)}: ${res.added} new comment(s)${who ? ` (${who})` : ""}`);
+      }
+      if (args.flags.json) console.log(JSON.stringify(e.allAnnotations(d.id).map(({ key, page, type, author, contents, inReplyTo, state, modified }) => ({ key, page: page + 1, type, author, contents, inReplyTo, state, modified })), null, 2));
+      else console.log(e.commentSummary(d.id) || "No comments.");
+      if (args.flags.out) {
+        writeFileSync(args.flags.out as string, e.save(d.id));
+        log(`Saved: ${args.flags.out}`);
+      }
+      if (args.flags.xfdf) {
+        writeFileSync(args.flags.xfdf as string, e.exportXfdf(d.id, basename(file)));
+        log(`XFDF: ${args.flags.xfdf}`);
+      }
+      return 0;
     }
     case "check": {
       const files = collect(rest, recursive);

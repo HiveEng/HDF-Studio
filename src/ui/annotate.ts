@@ -16,6 +16,9 @@ export interface AnnotateDeps {
     allAnnotations(id: number): Promise<AnnotInfo[]>;
     exportXfdf(id: number, name: string): Promise<string>;
     commentSummary(id: number): Promise<string>;
+    addReply(id: number, page: number, parentKey: number, text: string, author: string, state?: string): Promise<number>;
+    mergeComments(id: number, data: Uint8Array): Promise<{ added: number; authors: Record<string, number> }>;
+    importXfdf(id: number, xml: string): Promise<{ added: number; skipped: number; authors: Record<string, number> }>;
   };
   doc(): { info: DocInfo; name: string } | null;
   pagesEl: HTMLElement;
@@ -27,6 +30,8 @@ export interface AnnotateDeps {
   status(msg: string): void;
   saveText(name: string, text: string): Promise<void>;
   sign(page: number, at: Pt): Promise<void>;
+  /** Let the user choose reviewers' PDFs or XFDF files. */
+  pickReviews(): Promise<{ name: string; data: Uint8Array }[]>;
 }
 
 export const TOOLS: { id: Tool; label: string; key: string; title: string }[] = [
@@ -339,21 +344,103 @@ export function setupAnnotate(d: AnnotateDeps) {
     clearTimeout(refreshTimer);
     refreshTimer = window.setTimeout(renderComments, 50);
   }
+  // Filters survive re-renders; reset when the document changes.
+  let filterFor = -1;
+  let fStatus = "all";
+  let fAuthor = "all";
+  // Same values as REVIEW_STATES in the engine (kept here so the UI bundle doesn't pull in mupdf).
+  const REVIEW = ["Accepted", "Rejected", "Cancelled", "Completed", "None"];
+  const STATUS_LABEL: Record<string, string> = { Accepted: "Accepted", Rejected: "Rejected", Cancelled: "Cancelled", Completed: "Completed", None: "Open" };
+
+  async function reply(a: AnnotInfo, state?: string) {
+    const doc = d.doc();
+    if (!doc) return;
+    let text = "";
+    if (!state) {
+      const r = await ask(`Reply to ${a.author || "comment"}`, [{ name: "t", label: "Reply", placeholder: "Write a reply" }], "Reply");
+      if (!r?.t?.trim()) return;
+      text = r.t.trim();
+    } else text = `${author()} set status to ${STATUS_LABEL[state] ?? state}`;
+    await d.engine.addReply(doc.info.id, a.page, a.key, text, author(), state);
+    d.changed(state ? `Status set to ${STATUS_LABEL[state]}` : "Reply added");
+    renderComments();
+  }
+
+  async function setStatus(a: AnnotInfo) {
+    const r = await ask("Set review status", [{ name: "s", label: "Status", type: "select", value: "Accepted", options: REVIEW.map((v) => [v, STATUS_LABEL[v]]) }], "Set status");
+    if (r?.s) await reply(a, r.s);
+  }
+
+  /** Bring in comments from reviewers' copies (PDF) or comment files (XFDF). */
+  async function mergeReviews() {
+    const doc = d.doc();
+    if (!doc) return d.status("Open the PDF you sent for review first");
+    const files = await d.pickReviews();
+    if (!files.length) return;
+    let added = 0;
+    const authors: Record<string, number> = {};
+    const failed: string[] = [];
+    for (const f of files) {
+      try {
+        const isXml = /\.xfdf$/i.test(f.name) || new TextDecoder().decode(f.data.slice(0, 200)).includes("<xfdf");
+        const r = isXml ? await d.engine.importXfdf(doc.info.id, new TextDecoder().decode(f.data)) : await d.engine.mergeComments(doc.info.id, f.data);
+        added += r.added;
+        for (const [k, v] of Object.entries(r.authors)) authors[k] = (authors[k] ?? 0) + v;
+      } catch (e) {
+        failed.push(`${f.name} (${(e as Error).message})`);
+      }
+    }
+    for (let i = 0; i < doc.info.pageSizes.length; i++) d.refreshPage(i);
+    const who = Object.entries(authors).map(([k, v]) => `${k} ${v}`).join(", ");
+    if (added) d.changed(`Merged ${added} comment${added === 1 ? "" : "s"}${who ? ` (${who})` : ""}`);
+    d.status(
+      (added ? `Merged ${added} new comment${added === 1 ? "" : "s"}${who ? ` from ${who}` : ""}.` : "No new comments found; everything is already here.") +
+        (failed.length ? ` Couldn't read: ${failed.join("; ")}` : "") + (added ? " Ctrl+Z to undo." : ""),
+    );
+    renderComments();
+  }
+
   async function renderComments() {
     const doc = d.doc();
     const el = d.commentsEl;
     el.replaceChildren();
     if (!doc) return;
+    if (filterFor !== doc.info.id) {
+      filterFor = doc.info.id;
+      fStatus = fAuthor = "all";
+    }
     let list: AnnotInfo[] = [];
     try {
       list = await d.engine.allAnnotations(doc.info.id);
     } catch {
       /* non-PDF */
     }
+    // Build threads: top-level comments, their replies, and the latest review status.
+    const byKey = new Map(list.map((a) => [a.key, a]));
+    const rootOf = (a: AnnotInfo) => {
+      let r = a;
+      for (let i = 0; i < 50 && r.inReplyTo && byKey.has(r.inReplyTo); i++) r = byKey.get(r.inReplyTo)!;
+      return r;
+    };
+    const tops = list.filter((a) => !a.inReplyTo || !byKey.has(a.inReplyTo));
+    const replies = new Map<number, AnnotInfo[]>();
+    for (const a of list) if (a.inReplyTo && byKey.has(a.inReplyTo)) {
+      const r = rootOf(a).key;
+      replies.set(r, [...(replies.get(r) ?? []), a]);
+    }
+    const when = (a: AnnotInfo) => (a.modified ? Date.parse(a.modified) : 0);
+    for (const v of replies.values()) v.sort((x, y) => when(x) - when(y) || x.key - y.key);
+    const statusOf = (a: AnnotInfo) => {
+      const s = (replies.get(a.key) ?? []).filter((r) => r.state).at(-1)?.state;
+      return s && s !== "None" ? s : "Open";
+    };
+    const people = [...new Set(list.map((a) => a.author).filter(Boolean))].sort();
+
     const head = document.createElement("div");
     head.className = "comment-tools";
-    head.innerHTML = `<span class="muted">${list.length} comment${list.length === 1 ? "" : "s"}</span><button data-a="summary" title="Copy a text summary of all comments">Copy summary</button><button data-a="xfdf" title="Export comments as XFDF for other PDF apps">Export XFDF</button><button data-a="author" title="Name shown on your comments">Author: ${author().replace(/[<&]/g, "")}</button>`;
+    head.innerHTML = `<button data-a="merge" class="primary" title="Bring in comments from reviewers' copies of this PDF, or from XFDF comment files. Comments already here are skipped.">Merge reviews…</button><button data-a="summary" title="Copy a text summary of all comments">Copy summary</button><button data-a="xfdf" title="Export comments as XFDF for other PDF apps">Export XFDF</button><button data-a="author" title="Name shown on your comments">Author: ${author().replace(/[<&]/g, "")}</button>`;
     el.append(head);
+    head.querySelector<HTMLElement>('[data-a="merge"]')!.onclick = () => mergeReviews();
     head.querySelector<HTMLElement>('[data-a="summary"]')!.onclick = async () => {
       const text = await d.engine.commentSummary(doc.info.id);
       await navigator.clipboard.writeText(text).catch(() => {});
@@ -365,19 +452,69 @@ export function setupAnnotate(d: AnnotateDeps) {
       if (r?.n) localStorage.setItem("hdfstudio.author", r.n);
       renderComments();
     };
-    if (!list.length) {
-      el.append(Object.assign(document.createElement("p"), { className: "muted", textContent: "No comments yet. Pick a tool above the page (H for highlight, N for note)." }));
+    if (!tops.length) {
+      el.append(Object.assign(document.createElement("p"), { className: "muted", textContent: "No comments yet. Pick a tool above the page (H for highlight, N for note), or merge reviewers' copies." }));
       return;
     }
-    for (const a of list) {
+
+    // Filters
+    const filters = document.createElement("div");
+    filters.className = "comment-filters";
+    const mkSelect = (label: string, value: string, opts: [string, string][], set: (v: string) => void) => {
+      const s = document.createElement("select");
+      s.title = label;
+      s.setAttribute("aria-label", label);
+      for (const [v, t] of opts) s.append(new Option(t, v, false, v === value));
+      s.onchange = () => (set(s.value), renderComments());
+      return s;
+    };
+    const counts: Record<string, number> = {};
+    for (const t of tops) counts[statusOf(t)] = (counts[statusOf(t)] ?? 0) + 1;
+    filters.append(
+      mkSelect("Filter by status", fStatus, [["all", `All statuses (${tops.length})`], ...["Open", ...REVIEW.filter((r) => r !== "None")].filter((s) => counts[s]).map((s): [string, string] => [s, `${STATUS_LABEL[s] ?? s} (${counts[s]})`])], (v) => (fStatus = v)),
+      mkSelect("Filter by author", fAuthor, [["all", "All reviewers"], ...people.map((p): [string, string] => [p, p])], (v) => (fAuthor = v)),
+    );
+    el.append(filters);
+
+    const shown = tops.filter((t) => (fStatus === "all" || statusOf(t) === fStatus) && (fAuthor === "all" || t.author === fAuthor || (replies.get(t.key) ?? []).some((r) => r.author === fAuthor)));
+    const count = Object.assign(document.createElement("div"), { className: "muted comment-count", textContent: shown.length === tops.length ? `${tops.length} comment${tops.length === 1 ? "" : "s"}` : `${shown.length} of ${tops.length} comments` });
+    el.append(count);
+
+    for (const a of shown) {
       const c = document.createElement("div");
+      const st = statusOf(a);
       c.className = "comment" + (selected?.key === a.key ? " active" : "");
       c.dataset.key = String(a.key);
       c.style.borderLeftColor = a.color.length === 3 ? `rgb(${a.color.map((v) => Math.round(v * 255)).join(",")})` : "var(--border)";
-      c.innerHTML = `<div class="meta"><b></b><span class="muted"></span></div><div class="body"></div>`;
+      c.innerHTML = `<div class="meta"><b></b><span class="muted when"></span></div><div class="body"></div>`;
       c.querySelector("b")!.textContent = TYPE_LABEL[a.type] ?? a.type;
-      c.querySelector(".meta span")!.textContent = `p.${a.page + 1}${a.author ? ` · ${a.author}` : ""}${a.modified ? ` · ${new Date(a.modified).toLocaleDateString()}` : ""}`;
+      if (st !== "Open") {
+        const badge = Object.assign(document.createElement("span"), { className: `status-badge s-${st.toLowerCase()}`, textContent: STATUS_LABEL[st] ?? st });
+        c.querySelector("b")!.after(badge);
+      }
+      c.querySelector(".meta .when")!.textContent = `p.${a.page + 1}${a.author ? ` · ${a.author}` : ""}${a.modified ? ` · ${new Date(a.modified).toLocaleDateString()}` : ""}`;
       c.querySelector(".body")!.textContent = a.contents;
+      const rs = replies.get(a.key) ?? [];
+      if (rs.length) {
+        const box = document.createElement("div");
+        box.className = "replies";
+        for (const r of rs) {
+          const row = document.createElement("div");
+          row.className = "reply" + (r.state ? " state" : "");
+          row.innerHTML = `<span class="who"></span> <span class="text"></span>`;
+          row.querySelector(".who")!.textContent = r.author || "Reviewer";
+          row.querySelector(".text")!.textContent = r.state ? `set status to ${STATUS_LABEL[r.state] ?? r.state}` : r.contents;
+          row.title = r.modified ? new Date(r.modified).toLocaleString() : "";
+          box.append(row);
+        }
+        c.append(box);
+      }
+      const actions = document.createElement("div");
+      actions.className = "comment-actions";
+      actions.innerHTML = `<button data-a="reply">Reply</button><button data-a="status">Status…</button>`;
+      actions.querySelector<HTMLElement>('[data-a="reply"]')!.onclick = (e) => (e.stopPropagation(), reply(a));
+      actions.querySelector<HTMLElement>('[data-a="status"]')!.onclick = (e) => (e.stopPropagation(), setStatus(a));
+      c.append(actions);
       c.onclick = () => {
         d.goToPage(a.page, a.rect[1]);
         setTimeout(() => selectAnnot(a), 50);
@@ -387,5 +524,5 @@ export function setupAnnotate(d: AnnotateDeps) {
     }
   }
 
-  return { onRedactions: (f: () => void) => (onRedactionsChanged = f), setTool, refreshComments, get tool() { return tool; }, setColor: (c: RGB | null) => (color = c), selectAnnot, deleteSelected, editSelected };
+  return { onRedactions: (f: () => void) => (onRedactionsChanged = f), setTool, refreshComments, mergeReviews, get tool() { return tool; }, setColor: (c: RGB | null) => (color = c), selectAnnot, deleteSelected, editSelected };
 }
