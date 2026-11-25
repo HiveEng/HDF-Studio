@@ -74,7 +74,7 @@ npm run hdfstudio -- merge -o binder.pdf ch1.pdf ch2.pdf ch3.pdf
 npm run hdfstudio -- split big.pdf --bookmarks
 npm run hdfstudio -- search "invoice 1042" ./archive -r --csv > hits.csv
 npm run hdfstudio -- fill form.pdf people.csv --name "{Last} - {First}" --flatten
-npm run hdfstudio -- sign ./contracts --cert me.pfx --password **** --reason Approved --page 1 --rect "350,700,570,760"
+npm run hdfstudio -- sign ./contracts --cert me.pfx --password **** --reason Approved --page 1 --rect "350,700,570,760" --tsa
 npm run hdfstudio -- verify ./contracts
 npm run hdfstudio -- ocr ./scans -r -o ./searchable     # make scanned PDFs searchable
 npm run hdfstudio -- run "OCR scans, then redact" ./scans -o ./clean
@@ -121,7 +121,7 @@ npm run hdfstudio -- recipes          # list built-in recipes and step types
 | 3 | Automation | Batch panel, saved recipes, `hdfstudio` CLI, stamps/Bates/watermarks, watch folders (app and CLI) | Done |
 | 4 | Comment & review | Highlight, notes, shapes, ink, stamps, threaded replies, XFDF export and import | Done |
 | 5 | Redaction & security | Permanent redaction (text, images, vector art), find-and-redact by text/regex/patterns, hidden-data removal, AES-256 passwords and permissions | Done |
-| 6 | Forms & e-signatures | Form designer (text, check box, radio, dropdown, list, signature fields; move, resize, properties), Detect fields to make flat forms fillable (app and CLI), fill/flatten, CSV mail merge, drawn/typed/image signatures, certificate (PKCS#7, .pfx) digital signatures, validation, batch signing | Done (timestamps next) |
+| 6 | Forms & e-signatures | Form designer (text, check box, radio, dropdown, list, signature fields; move, resize, properties), Detect fields to make flat forms fillable (app and CLI), fill/flatten, CSV mail merge, drawn/typed/image signatures, certificate (PKCS#7, .pfx) digital signatures with RFC 3161 trusted timestamps, validation (including timestamps), batch signing | Done |
 | 7 | Edit text & images | Edit existing text blocks in place (font/size/colour matched), add text, move/resize/replace/insert/delete/export images | Done (custom font embedding next) |
 | 8 | Create & convert | Images, XPS, EPUB, HTML, text to PDF; PDF to Word, images, text, HTML, SVG; Office files via optional LibreOffice | Done |
 | 9 | OCR | Make scanned PDFs searchable (invisible text layer), offline English bundled, scan detection on open, batch and CLI OCR | Done (more languages next) |

@@ -3,6 +3,7 @@
 // so this runs the same in the desktop app and in the command line tool.
 import * as mupdf from "mupdf";
 import forge from "node-forge";
+import { timestampFromCms, type TimestampInfo } from "./tsa";
 
 const PLACEHOLDER_BYTES = 16384; // room for the CMS blob (certificate chain + signature)
 
@@ -18,6 +19,8 @@ export interface SignOptions {
   contactInfo?: string;
   /** Optional PNG of a handwritten signature to show inside the box. */
   image?: Uint8Array;
+  /** Leave room for a trusted timestamp (added afterwards with tsa.embedTimestamp). */
+  timestamp?: boolean;
 }
 
 export interface Signer {
@@ -90,7 +93,7 @@ export function signPdf(input: Uint8Array, o: SignOptions): Uint8Array {
   const br = doc.newArray();
   for (const v of [0, 1111111111, 2222222222, 3333333333]) br.push(v);
   sig.put("ByteRange", br);
-  sig.put("Contents", doc.newByteString(new Uint8Array(PLACEHOLDER_BYTES)));
+  sig.put("Contents", doc.newByteString(new Uint8Array(o.timestamp ? PLACEHOLDER_BYTES * 2 : PLACEHOLDER_BYTES)));
   const sigRef = doc.addObject(sig);
 
   // Widget annotation / field.
@@ -228,6 +231,8 @@ export interface SignatureCheck {
   intact: boolean;
   /** The signature covers the whole file (no changes were appended after signing). */
   coversWholeFile: boolean;
+  /** Trusted timestamp, if the signature has one. */
+  timestamp?: TimestampInfo | null;
   /** Human summary. */
   status: string;
   error?: string;
@@ -271,11 +276,23 @@ export function verifySignatures(pdf: Uint8Array): SignatureCheck[] {
       attrMd.update(forge.asn1.toDer(set).getBytes());
       const sigOk = (cert.publicKey as forge.pki.rsa.PublicKey).verify(attrMd.digest().getBytes(), cap.signature);
       check.intact = attrDigest === digest && sigOk;
+      try {
+        check.timestamp = timestampFromCms(der);
+        if (check.timestamp?.imprintMatches && check.timestamp.tokenSignatureValid) check.signedAt = check.timestamp.time;
+      } catch {
+        check.timestamp = null;
+      }
       check.status = !check.intact
         ? "INVALID: the document was changed after signing, or the signature is corrupt"
         : check.coversWholeFile
           ? `Valid: signed by ${check.signer.name}${check.signer.selfSigned ? " (self-signed certificate, identity not verified by a third party)" : ` (issued by ${check.signer.issuer})`}`
           : `Valid for the signed revision; the file was changed after this signature (e.g. later signatures or comments)`;
+      const ts = check.timestamp;
+      if (check.intact && ts) {
+        check.status += ts.imprintMatches && ts.tokenSignatureValid
+          ? `. Timestamped by ${ts.authority} on ${ts.time.toISOString().replace("T", " ").slice(0, 16)} UTC`
+          : ". Its timestamp could not be verified";
+      }
     } catch (e) {
       check.error = (e as Error).message;
       check.status = `Could not verify: ${check.error}`;

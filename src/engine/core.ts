@@ -9,6 +9,7 @@ import * as redact from "./redact";
 import * as forms from "./forms";
 import * as design from "./formdesign";
 import * as digisign from "./digisign";
+import * as tsa from "./tsa";
 import * as edit from "./edit";
 import * as ocr from "./ocr";
 import * as cmp from "./compare";
@@ -578,10 +579,18 @@ export class Engine {
   }
 
   /** Sign the document's current state; returns the signed file bytes (write them as-is) and reloads it. */
-  signDigital(id: number, o: digisign.SignOptions): { data: Uint8Array; info: DocInfo } {
+  /** Sign. With o.timestamp, also returns the timestamp request to send to a TSA (see addTimestamp). */
+  signDigital(id: number, o: digisign.SignOptions): { data: Uint8Array; info: DocInfo; tsq?: Uint8Array } {
     const current = this.save(id, this.hasSignatures(id) ? "incremental" : "garbage,compress");
     const data = digisign.signPdf(current, o);
-    return { data, info: this.replace(id, data) };
+    const tsq = o.timestamp ? tsa.timestampRequest(data) : undefined;
+    return { data: data.slice(), info: this.replace(id, data), tsq };
+  }
+
+  /** Embed a TSA's response into the signature just made (signedPdf is the exact signed bytes). */
+  addTimestamp(id: number, signedPdf: Uint8Array, response: Uint8Array): { data: Uint8Array; info: DocInfo } {
+    const data = tsa.embedTimestamp(signedPdf, response);
+    return { data: data.slice(), info: this.replace(id, data) };
   }
 
   certificateInfo(p12: Uint8Array, password: string): digisign.Signer {

@@ -89,3 +89,19 @@ export async function saveBytes(name: string, data: Uint8Array): Promise<string 
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
   return null;
 }
+
+/** POST an RFC 3161 timestamp request. Desktop: through the Rust side (TSAs don't allow browser requests). */
+export async function tsaRequest(url: string, body: Uint8Array): Promise<Uint8Array> {
+  if (isTauri) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return new Uint8Array(await invoke<number[]>("tsa_request", { url, body: Array.from(body) }));
+  }
+  let res: Response;
+  try {
+    res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/timestamp-query" }, body: body as BodyInit });
+  } catch {
+    throw new Error("Could not reach the timestamp server (the browser preview may block it; the desktop app can reach it)");
+  }
+  if (!res.ok) throw new Error(`The timestamp server answered ${res.status}`);
+  return new Uint8Array(await res.arrayBuffer());
+}

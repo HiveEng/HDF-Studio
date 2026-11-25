@@ -109,6 +109,28 @@ async fn pdfa_convert(data: Vec<u8>) -> Result<Vec<u8>, String> {
     result
 }
 
+/// Send an RFC 3161 timestamp request to a timestamp authority and return its answer.
+/// Done here rather than in the webview because TSAs don't allow browser (CORS) requests.
+#[tauri::command]
+async fn tsa_request(url: String, body: Vec<u8>) -> Result<Vec<u8>, String> {
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("The timestamp server address must start with http:// or https://".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let resp = ureq::post(&url)
+            .timeout(std::time::Duration::from_secs(20))
+            .set("Content-Type", "application/timestamp-query")
+            .send_bytes(&body)
+            .map_err(|e| format!("Could not reach the timestamp server: {e}"))?;
+        let mut out = Vec::new();
+        use std::io::Read;
+        resp.into_reader().take(1 << 20).read_to_end(&mut out).map_err(|e| e.to_string())?;
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -122,7 +144,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![startup_files, office_available, office_to_pdf, ghostscript_available, pdfa_convert])
+        .invoke_handler(tauri::generate_handler![startup_files, office_available, office_to_pdf, ghostscript_available, pdfa_convert, tsa_request])
         .run(tauri::generate_context!())
         .expect("error while running HDF Studio");
 }

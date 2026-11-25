@@ -6,6 +6,7 @@ import { Engine } from "../src/engine/core";
 import { runRecipe, parseStep, BUILTIN_RECIPES, STEP_LABELS, type Recipe } from "../src/engine/recipes";
 import { parseRanges } from "../src/engine/ranges";
 import { signPdf, verifySignatures, makeSelfSignedP12 } from "../src/engine/digisign";
+import { timestampRequest, embedTimestamp, TSA_SERVERS } from "../src/engine/tsa";
 import { canOpen, needsOffice } from "../src/engine/convert";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -48,6 +49,7 @@ Usage:
                                                     Detect blanks, lines and boxes on flat forms and add fields
   hdfstudio sign <files|folders...> --cert me.pfx --password pw [-o dir]
         [--reason ".."] [--location ".."] [--page N --rect "x0,y0,x1,y1"]  (points from top-left; omit for invisible)
+        [--tsa [url]]   add a trusted RFC 3161 timestamp (default server: DigiCert)
                                                     Digitally sign one or many PDFs
   hdfstudio verify <files|folders...>                   Validate digital signatures
   hdfstudio make-cert "Your Name" -o me.pfx --password pw [--email you@x.com]
@@ -93,6 +95,7 @@ function parseArgs(argv: string[]): Args {
       k = alias[k] ?? k;
       if (bools.has(k)) a.flags[k] = true;
       else if (k === "step") a.steps.push(argv[++i]);
+      else if (k === "tsa" && !/^https?:\/\//.test(argv[i + 1] ?? "")) a.flags[k] = true; // --tsa alone: default server
       else a.flags[k] = argv[++i];
     } else a._.push(t);
   }
@@ -287,7 +290,15 @@ export async function main(argv: string[]): Promise<number> {
       let ok = 0, failed = 0;
       for (const f of collect(rest, recursive)) {
         try {
-          const out = signPdf(readFileSync(f), { p12, password, page: args.flags.page ? Number(args.flags.page) - 1 : 0, rect, reason: args.flags.reason as string, location: args.flags.location as string });
+          const tsaUrl = args.flags.tsa === true ? TSA_SERVERS[0].url : (args.flags.tsa as string | undefined);
+          let out = signPdf(readFileSync(f), { p12, password, page: args.flags.page ? Number(args.flags.page) - 1 : 0, rect, reason: args.flags.reason as string, location: args.flags.location as string, timestamp: !!tsaUrl });
+          if (tsaUrl) {
+            const res = await fetch(tsaUrl, { method: "POST", headers: { "Content-Type": "application/timestamp-query" }, body: timestampRequest(out) as BodyInit }).catch((e) => {
+              throw new Error(`could not reach the timestamp server ${tsaUrl}: ${(e as Error).message}`);
+            });
+            if (!res.ok) throw new Error(`timestamp server answered ${res.status}`);
+            out = embedTimestamp(out, new Uint8Array(await res.arrayBuffer()));
+          }
           const dir = (args.flags.out as string) ?? join(dirname(f), "hdfstudio-out");
           mkdirSync(dir, { recursive: true });
           const target = join(dir, `${basename(f, extname(f))} (signed).pdf`);

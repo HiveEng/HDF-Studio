@@ -1,6 +1,7 @@
 import { createEngine } from "./engine/client";
 import type { DocInfo, OutlineNode, SearchHit } from "./engine/core";
-import { pickFiles, filesFromList, saveFile, saveMany, saveText, saveBytes, baseName, isTauri, type OpenedFile } from "./platform";
+import { pickFiles, filesFromList, saveFile, saveMany, saveText, saveBytes, baseName, isTauri, tsaRequest, type OpenedFile } from "./platform";
+import { TSA_SERVERS } from "./engine/tsa-servers";
 import { setupAnnotate, type Tool } from "./ui/annotate";
 import { setupRibbon, icon, taskOf } from "./ui/ribbon";
 import * as I from "lucide";
@@ -901,7 +902,7 @@ async function showSignatureDetails(checks?: Awaited<ReturnType<typeof engine.ve
     checks.map((c, i) => ({
       name: `s${i}`,
       label: `${i + 1}. ${c.status}`,
-      value: [c.signer && `Signer: ${c.signer.name}${c.signer.email ? ` <${c.signer.email}>` : ""}`, c.signer && `Issued by: ${c.signer.issuer}${c.signer.selfSigned ? " (self-signed)" : ""}`, c.signedAt && `Signed: ${c.signedAt.toLocaleString()}`, c.reason && `Reason: ${c.reason}`].filter(Boolean).join(" · "),
+      value: [c.signer && `Signer: ${c.signer.name}${c.signer.email ? ` <${c.signer.email}>` : ""}`, c.signer && `Issued by: ${c.signer.issuer}${c.signer.selfSigned ? " (self-signed)" : ""}`, c.signedAt && `Signed: ${c.signedAt.toLocaleString()}${c.timestamp?.tokenSignatureValid ? " (trusted timestamp)" : ""}`, c.timestamp && `Timestamp: ${c.timestamp.authority}${c.timestamp.imprintMatches && c.timestamp.tokenSignatureValid ? "" : " (could not be verified)"}`, c.reason && `Reason: ${c.reason}`].filter(Boolean).join(" · "),
     })),
     "Close",
   );
@@ -917,8 +918,20 @@ async function signWithCertificate() {
     { name: "location", label: "Location (optional)" },
     { name: "visible", label: "Signature box", type: "select", value: "visible", options: [["visible", "Visible: click on the page to place it"], ["invisible", "Invisible (signature panel only)"]] },
     { name: "image", label: "Include my handwritten signature", type: "select", value: "no", options: [["no", "No"], ["yes", "Yes"]] },
+    {
+      name: "tsa", label: "Trusted timestamp", type: "select", value: localStorage.getItem("hdfstudio.tsa") ?? TSA_SERVERS[0].url,
+      options: [...TSA_SERVERS.map((s): [string, string] => [s.url, `${s.name} (free)`]), ["custom", "Other server…"], ["", "None"]],
+      hint: "Proves when you signed, so the signature stays valid after your certificate expires. Needs internet.",
+    },
   ], "Continue");
   if (!r) return;
+  if (r.tsa === "custom") {
+    const c = await ask("Timestamp server", [{ name: "url", label: "Server address (RFC 3161)", value: localStorage.getItem("hdfstudio.tsaCustom") ?? "https://" }], "Use");
+    if (!c?.url) return;
+    localStorage.setItem("hdfstudio.tsaCustom", c.url);
+    r.tsa = c.url;
+  }
+  localStorage.setItem("hdfstudio.tsa", TSA_SERVERS.some((s) => s.url === r.tsa) || !r.tsa ? r.tsa : "custom");
   let signer;
   try {
     signer = await engine.certificateInfo(pfx.data.slice(), r.pw);
@@ -928,14 +941,25 @@ async function signWithCertificate() {
   const image = r.image === "yes" ? (await getSignature()) ?? undefined : undefined;
   const finish = async (page?: number, rect?: number[]) => {
     try {
-      const { data, info } = await engine.signDigital(t.info.id, { p12: pfx.data.slice(), password: r.pw, page, rect, reason: r.reason || undefined, location: r.location || undefined, image });
+      let { data, info, tsq } = await engine.signDigital(t.info.id, { p12: pfx.data.slice(), password: r.pw, page, rect, reason: r.reason || undefined, location: r.location || undefined, image, timestamp: !!r.tsa });
+      let stampNote = "";
+      if (tsq) {
+        status("Signed. Getting a trusted timestamp…");
+        try {
+          const resp = await tsaRequest(r.tsa, tsq);
+          ({ data, info } = await engine.addTimestamp(t.info.id, data, resp));
+          stampNote = " with a trusted timestamp";
+        } catch (e) {
+          stampNote = ` without a timestamp (${(e as Error).message})`;
+        }
+      }
       t.info = info;
       const suggested = t.name.replace(/\.pdf$/i, "") + " (signed).pdf";
       const p = await saveFile(data, suggested, null, true);
       if (p) (t.path = p), (t.name = baseName(p));
       t.dirty = false;
       buildView();
-      status(`Signed as ${signer.name}${p ? ` and saved to ${p}` : " and downloaded"}. Any later change is saved as a new revision so this signature stays valid.`);
+      status(`Signed as ${signer.name}${stampNote}${p ? ` and saved to ${p}` : " and downloaded"}. Any later change is saved as a new revision so this signature stays valid.`);
     } catch (e) {
       status(`Signing failed: ${(e as Error).message}`);
     }
