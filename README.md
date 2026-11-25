@@ -76,7 +76,7 @@ npm run hdfstudio -- search "invoice 1042" ./archive -r --csv > hits.csv
 npm run hdfstudio -- fill form.pdf people.csv --name "{Last} - {First}" --flatten
 npm run hdfstudio -- sign ./contracts --cert me.pfx --password **** --reason Approved --page 1 --rect "350,700,570,760" --tsa
 npm run hdfstudio -- verify ./contracts
-npm run hdfstudio -- ocr ./scans -r -o ./searchable     # make scanned PDFs searchable
+npm run hdfstudio -- ocr ./scans -r -o ./searchable     # make scanned PDFs searchable (add --lang eng+fra for other languages)
 npm run hdfstudio -- run "OCR scans, then redact" ./scans -o ./clean
 npm run hdfstudio -- compare contract-v1.pdf contract-v2.pdf -o changes.pdf
 npm run hdfstudio -- make-fillable ./paper-forms -o ./fillable   # detect fields on flat forms
@@ -124,7 +124,7 @@ npm run hdfstudio -- recipes          # list built-in recipes and step types
 | 6 | Forms & e-signatures | Form designer (text, check box, radio, dropdown, list, signature fields; move, resize, properties), Detect fields to make flat forms fillable (app and CLI), fill/flatten, CSV mail merge, drawn/typed/image signatures, certificate (PKCS#7, .pfx) digital signatures with RFC 3161 trusted timestamps, validation (including timestamps), batch signing | Done |
 | 7 | Edit text & images | Edit existing text blocks in place (font/size/colour matched), add text, move/resize/replace/insert/delete/export images | Done (custom font embedding next) |
 | 8 | Create & convert | Images, XPS, EPUB, HTML, text to PDF; PDF to Word, images, text, HTML, SVG; Office files via optional LibreOffice | Done |
-| 9 | OCR | Make scanned PDFs searchable (invisible text layer), offline English bundled, scan detection on open, batch and CLI OCR | Done (more languages next) |
+| 9 | OCR | Make scanned PDFs searchable (invisible text layer), 44 languages (English bundled; others download once, then work offline; two at a time for mixed documents), any script searchable including Arabic, Hebrew, CJK and Indic, scan detection on open, batch and CLI OCR | Done |
 | 10 | Compare | Word-level diff across the whole document (reflowed text isn't flagged), pixel diff for images and drawings, changes marked as comments with a clickable list, CLI report | Done |
 | 11 | Compliance | Document check (PDF/A, accessibility, security) with one-click fixes; PDF/A-2b conversion via optional Ghostscript plus a built-in sRGB output intent | Done (auto-tagging later) |
 | 12 | Collaboration | Review threads and status (Accepted, Rejected, Completed…), status and reviewer filters, merge reviewers' PDF copies or XFDF files without duplicates, `hdfstudio comments` CLI | Done (live shared review server later) |

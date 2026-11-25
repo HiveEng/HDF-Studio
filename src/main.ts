@@ -2,6 +2,7 @@ import { createEngine } from "./engine/client";
 import type { DocInfo, OutlineNode, SearchHit } from "./engine/core";
 import { pickFiles, filesFromList, saveFile, saveMany, saveText, saveBytes, baseName, isTauri, tsaRequest, type OpenedFile } from "./platform";
 import { TSA_SERVERS } from "./engine/tsa-servers";
+import { OCR_LANGUAGES, BUNDLED_LANGS, langSource } from "./ocr/languages";
 import { setupAnnotate, type Tool } from "./ui/annotate";
 import { setupRibbon, icon, taskOf } from "./ui/ribbon";
 import * as I from "lucide";
@@ -810,18 +811,24 @@ async function showScanNotice() {
   (scanBanner.lastElementChild as HTMLElement).append(icon(I.X, 16));
   scanBanner.classList.remove("hidden");
 }
-let recognizer: Promise<import("./ocr/recognize").Recognizer> | null = null;
+let recognizer: { langs: string; rec: Promise<import("./ocr/recognize").Recognizer> } | null = null;
 let ocrPageProgress: (f: number) => void = () => {};
-function getRecognizer() {
-  if (!recognizer) {
+const ocrLangs = () => localStorage.getItem("hdfstudio.ocrLangs") || "eng";
+function getRecognizer(langs = ocrLangs()) {
+  if (recognizer?.langs !== langs) {
+    recognizer?.rec.then((r) => r.terminate()).catch(() => {});
     // Worker, engine and English data ship with the app (see scripts/ocr-assets.mjs): no internet needed.
+    // Other languages download once from the CDN and are cached in the app's storage.
     const base = new URL("/ocr/", location.href).href;
-    recognizer = import("./ocr/recognize").then((m) =>
-      m.createRecognizer("eng", { workerPath: base + "worker.min.js", corePath: base, langPath: base + "lang", cacheMethod: "none", gzip: true, workerBlobURL: false }, (f) => ocrPageProgress(f)),
+    const { langPath } = langSource(langs, base + "lang");
+    const rec = import("./ocr/recognize").then((m) =>
+      m.createRecognizer(langs, { workerPath: base + "worker.min.js", corePath: base, langPath, cacheMethod: "write", gzip: true, workerBlobURL: false }, (f) => ocrPageProgress(f)),
     );
-    recognizer.catch(() => (recognizer = null));
+    const entry = { langs, rec };
+    recognizer = entry;
+    rec.catch(() => recognizer === entry && (recognizer = null));
   }
-  return recognizer;
+  return recognizer.rec;
 }
 async function recognizeText(pagesArg?: number[]) {
   if (!active) return;
@@ -838,10 +845,13 @@ async function recognizeText(pagesArg?: number[]) {
           hint: "Adds an invisible text layer over the scan. The page looks the same but becomes searchable and copyable.",
         },
         { name: "range", label: "Page range (if chosen above)", placeholder: "e.g. 1-3, 8", value: "" },
+        { name: "lang", label: "Language", type: "select", value: ocrLangs().split("+")[0], options: OCR_LANGUAGES.map(([c, n]): [string, string] => [c, BUNDLED_LANGS.has(c) ? n : `${n} (downloads once)`]) },
+        { name: "lang2", label: "Second language (optional)", type: "select", value: ocrLangs().split("+")[1] ?? "", options: [["", "None"], ...OCR_LANGUAGES.map(([c, n]): [string, string] => [c, n])], hint: "For documents that mix two languages." },
       ],
       "Recognize",
     );
     if (!r) return;
+    localStorage.setItem("hdfstudio.ocrLangs", [...new Set([r.lang, r.lang2].filter(Boolean))].join("+"));
     try {
       pages = r.which === "scanned" ? scanned : r.which === "all" ? [...Array(t.info.pageCount).keys()] : r.which === "current" ? [t.page] : parseRanges(r.range, t.info.pageCount);
     } catch (e) {
@@ -853,8 +863,9 @@ async function recognizeText(pagesArg?: number[]) {
   const done: { page: number; lines: import("./engine/ocr").OcrLine[] }[] = [];
   const started = Date.now();
   try {
-    prog.set(0, "Starting the OCR engine…");
-    const rec = await getRecognizer();
+    const langs = ocrLangs();
+    prog.set(0, langSource(langs, "").needsDownload ? "Starting the OCR engine (the first use of a language downloads it)…" : "Starting the OCR engine…");
+    const rec = await getRecognizer(langs);
     for (const [k, p] of pages.entries()) {
       if (prog.cancelled) break;
       ocrPageProgress = (f) => prog.set((k + f) / pages!.length, `Page ${p + 1} (${k + 1} of ${pages!.length})`);

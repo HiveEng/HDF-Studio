@@ -9,7 +9,8 @@ import { signPdf, verifySignatures, makeSelfSignedP12 } from "../src/engine/digi
 import { timestampRequest, embedTimestamp, TSA_SERVERS } from "../src/engine/tsa";
 import { canOpen, needsOffice } from "../src/engine/convert";
 import { execFileSync } from "node:child_process";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
+import { langSource } from "../src/ocr/languages";
 import { rmSync, mkdtempSync } from "node:fs";
 import { createRequire } from "node:module";
 import { createRecognizer, type Recognizer } from "../src/ocr/recognize";
@@ -26,11 +27,19 @@ const nodeFs: WatchFs = {
   join: (...p) => join(...p),
 };
 
-/** Tesseract with the bundled English data (no download needed). Other languages: --lang and --lang-path. */
+/**
+ * Tesseract with the bundled English data (no download needed). Other languages (--lang fra or
+ * --lang eng+deu) download once and are cached in ~/.hdfstudio/ocr; --lang-path uses local files.
+ */
 function recognizerFor(lang: string, langPath?: string): Promise<Recognizer> {
   const req = createRequire(import.meta.url);
   const bundled = join(dirname(req.resolve("@tesseract.js-data/eng/package.json")), "4.0.0_best_int");
-  return createRecognizer(lang, { langPath: langPath ?? bundled, cacheMethod: "none", gzip: true });
+  if (langPath) return createRecognizer(lang, { langPath, cacheMethod: "none", gzip: true });
+  const src = langSource(lang, bundled);
+  if (!src.needsDownload) return createRecognizer(lang, { langPath: bundled, cacheMethod: "none", gzip: true });
+  const cachePath = join(homedir(), ".hdfstudio", "ocr");
+  mkdirSync(cachePath, { recursive: true });
+  return createRecognizer(lang, { cachePath, cacheMethod: "write", gzip: true });
 }
 
 const HELP = `hdfstudio - batch PDF tools (AGPL-3.0)
@@ -58,7 +67,7 @@ Usage:
                                                     Images, HTML, text, EPUB, XPS (and Office files via LibreOffice) to PDF
   hdfstudio export <files|folders...> --to png|jpg|docx|html|txt|svg [--dpi 150] [--pages 1-3] [-o dir]
                                                     PDF to images, Word, HTML, text or SVG
-  hdfstudio ocr <files|folders...> [-o dir] [--all] [--lang eng] [--lang-path dir]
+  hdfstudio ocr <files|folders...> [-o dir] [--all] [--lang eng+fra] [--lang-path dir]
                                                     Make scanned PDFs searchable (adds an invisible text layer)
   hdfstudio compare <old.pdf> <new.pdf> [-o report.pdf] [--json] [--text-only]
                                                     List what changed (exit code 1 if they differ); -o writes the new file with every change marked

@@ -71,3 +71,23 @@ test("OCR a scan with Tesseract, then redaction removes the pixels too", async (
     await rec.terminate();
   }
 });
+
+test("text layer: any script is searchable and copyable (Cyrillic, Greek, Arabic, Hebrew, CJK, Devanagari)", () => {
+  const e = new Engine();
+  const { id } = e.open(e.blankPdf(1));
+  const before = e.render(id, 0, 1).pixels;
+  const samples = ["Привет", "Ελλάδα", "مرحبا", "שלום", "東京都", "नमस्ते", "café"];
+  e.addTextLayer(id, [{ page: 0, lines: samples.map((t, i) => ({ baseline: 100 + i * 30, size: 18, words: [{ text: t, x0: 72, x1: 200 }] })) }]);
+  const text = e.pageText(id, 0);
+  for (const t of samples) {
+    assert.ok(text.includes(t), `${t} in ${JSON.stringify(text)}`);
+    const [hit] = e.search(id, t);
+    assert.ok(hit, `search finds ${t}`);
+    const xs = hit.quads.flatMap((q) => [q[0], q[2]]);
+    assert.ok(Math.abs(Math.min(...xs) - 72) < 3 && Math.abs(Math.max(...xs) - 200) < 20, `${t} at ${xs}`);
+  }
+  assert.deepEqual(e.render(id, 0, 1).pixels, before, "still invisible");
+  // survives save and reopen
+  const again = e.open(e.save(id));
+  assert.ok(e.pageText(again.id, 0).includes("東京都"));
+});
