@@ -8,7 +8,7 @@ import {
   ImagePlus, Replace, ImageDown, Stamp, FileInput, FilePlus2, Copy, Trash2, RotateCcw, RotateCw, ArrowUpDown,
   LayoutGrid, Merge, FileOutput, Scissors, Signature, PenLine, BadgeCheck, FileKey, ShieldCheck, Sheet,
   FileSpreadsheet, Eraser, SquareDashed, ScanSearch, Shredder, Lock, LockOpen, File, FileDown, Workflow, ListChecks,
-  MoveHorizontal, Maximize, PanelLeft, Search, ScanText, ScanLine, GitCompare, FolderSync, ClipboardCheck, Archive, Languages, Users, Radio, Link2, FormInput, WandSparkles, Accessibility, Images,
+  MoveHorizontal, Maximize, PanelLeft, Search, ScanText, ScanLine, GitCompare, FolderSync, ClipboardCheck, Archive, Languages, Users, FormInput, WandSparkles, Accessibility, Images,
 } from "lucide";
 
 export function icon(node: IconNode, size = 18): SVGElement {
@@ -71,8 +71,6 @@ export const TASKS: Task[] = [
       { label: "Colour", items: [{ el: "color" }] },
       { label: "Review", items: [
         { cmd: "showComments", label: "Comments", icon: MessagesSquare, big: true },
-        { cmd: "startReview", label: "Shared review", icon: Radio, big: true, hint: "Upload this PDF so your team can comment on it together, live" },
-        { cmd: "joinReview", label: "Join review", icon: Link2, hint: "Open a shared review from a link" },
         { cmd: "mergeReviews", label: "Merge reviews", icon: Users, big: true, hint: "Bring in comments from reviewers' copies or XFDF files" },
         { cmd: "compare", label: "Compare files", icon: GitCompare, big: true, hint: "Find every change between two versions" },
         { cmd: "flatten", label: "Flatten", icon: Layers },

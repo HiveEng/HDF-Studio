@@ -106,13 +106,3 @@ export async function tsaRequest(url: string, body: Uint8Array): Promise<Uint8Ar
   return new Uint8Array(await res.arrayBuffer());
 }
 
-// ---------- Microsoft sign-in helpers (desktop app only) ----------
-async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  if (!isTauri) throw new Error("Microsoft sign-in needs the HDF Studio desktop app");
-  const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<T>(cmd, args);
-}
-export const oauthListen = () => tauriInvoke<number>("oauth_listen");
-export const oauthWait = (timeoutSecs: number) => tauriInvoke<string>("oauth_wait", { timeoutSecs });
-export const openUrl = (url: string) => (isTauri ? tauriInvoke<void>("open_url", { url }) : (window.open(url, "_blank"), Promise.resolve()));
-export const httpPostForm = (url: string, body: string) => tauriInvoke<string>("http_post_form", { url, body });

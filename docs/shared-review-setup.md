@@ -1,5 +1,9 @@
 # Shared review: setup for your IT admin
 
+> **Parked (November 2026).** Live shared review was removed from the app. Teams review by merging
+> reviewers' copies (Comment › Merge reviews). The server code and these notes are kept in case it's
+> wanted later; the app-side sign-in and review panel are in git history (commit d0a40a1).
+
 HDF Studio itself needs no login. It opens, edits and saves PDFs on your own computer, works offline,
 and sends nothing anywhere. Sign-in only comes into play for **shared review**, where a team comments
 on the same PDF together and sees each other's comments appear live.
