@@ -14,7 +14,7 @@ import { langSource } from "../src/ocr/languages";
 import { rmSync, mkdtempSync } from "node:fs";
 import { createRequire } from "node:module";
 import { createRecognizer, type Recognizer } from "../src/ocr/recognize";
-import { ocrBytes, ocrStep } from "../src/ocr/pipeline";
+import { ocrBytes, ocrStep, cleanStep } from "../src/ocr/pipeline";
 import { FolderWatcher, type WatchFs } from "../src/automation/watch";
 import { renameSync } from "node:fs";
 
@@ -480,7 +480,7 @@ export async function main(argv: string[]): Promise<number> {
         { id: "cli", folder: resolve(folder), recipe: recipe.name, out: args.flags.out ? resolve(args.flags.out as string) : undefined, afterwards: args.flags.keep ? "keep" : "move", enabled: true },
         nodeFs,
         () => recipe,
-        async (data, name, r) => runRecipe(rec ? (await ocrBytes(e, rec, data, name, ocr!.pages ?? "scanned")).data : data, name, r),
+        async (data, name, r) => runRecipe(rec ? (await ocrBytes(e, rec, data, name, ocr!.pages ?? "scanned", undefined, undefined, cleanStep(r))).data : data, name, r),
         (ev) => (ev.ok ? log(`${ev.at.toLocaleTimeString()} ✓ ${ev.file} ${ev.message}`) : console.error(`${ev.at.toLocaleTimeString()} ✗ ${ev.file}: ${ev.message}`)),
       );
       const every = Math.max(1, Number(args.flags.interval ?? 3)) * 1000;
@@ -646,7 +646,7 @@ export async function main(argv: string[]): Promise<number> {
             continue;
           }
           let input: Uint8Array = readFileSync(f);
-          if (rec) input = (await ocrBytes(e, rec, input, basename(f), ocr!.pages ?? "scanned", args.flags.password as string | undefined)).data;
+          if (rec) input = (await ocrBytes(e, rec, input, basename(f), ocr!.pages ?? "scanned", args.flags.password as string | undefined, undefined, cleanStep(recipe))).data;
           const res = runRecipe(input, basename(f), recipe, { batesOffset: continueBates ? bates : 0, password: args.flags.password as string | undefined });
           bates += res.pagesStamped;
           mkdirSync(dir, { recursive: true });

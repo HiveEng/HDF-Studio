@@ -3,6 +3,7 @@
 import { autoTag, isTagged } from "./autotag";
 import * as mupdf from "mupdf";
 import { parseRanges } from "./ranges";
+import { cleanScans } from "./scanclean";
 import { stampText, type Position } from "./stamp";
 import { safeName } from "./util";
 import { markMatches, applyRedactions, sanitize, protectionOptions, REDACT_PATTERNS } from "./redact";
@@ -23,6 +24,8 @@ export type Step =
   | { op: "sanitize"; removeComments?: boolean }
   /** Recognize text in scans. Always runs first, before the other steps, so later steps (redact) see the text. */
   | { op: "ocr"; pages?: "scanned" | "all"; lang?: string }
+  /** Clean up scanned pages (straighten, remove specks, drop blank pages). Runs before OCR. */
+  | { op: "clean"; straighten?: boolean; despeckle?: boolean; removeBlank?: boolean }
   /** Tag for accessibility (headings, lists, tables, figures); lang like en-US. */
   | { op: "tag"; lang?: string; retag?: boolean };
 
@@ -53,6 +56,7 @@ export const STEP_LABELS: Record<Step["op"], string> = {
   redact: "Find and permanently redact (text, regex or pattern: email, phone, ssn, card, date, money)",
   sanitize: "Remove hidden data (metadata, JavaScript, attachments)",
   ocr: "Recognize text in scans (OCR), runs before the other steps",
+  clean: "Clean up scans: straighten, remove specks, drop blank pages (runs before OCR)",
   tag: "Tag for accessibility (screen readers)",
 };
 
@@ -72,6 +76,7 @@ export const BUILTIN_RECIPES: Recipe[] = [
   { name: "Remove hidden data", steps: [{ op: "sanitize" }] },
   { name: "Make scans searchable (OCR)", steps: [{ op: "ocr", pages: "scanned" }] },
   { name: "Make accessible (tag for screen readers)", steps: [{ op: "tag", lang: "en-US" }] },
+  { name: "Clean up scans, then OCR", steps: [{ op: "clean", straighten: true, despeckle: true, removeBlank: true }, { op: "ocr", pages: "scanned" }] },
   { name: "OCR scans, then tag for accessibility", steps: [{ op: "ocr", pages: "scanned" }, { op: "tag", lang: "en-US" }] },
   { name: "OCR scans, then redact emails and phone numbers", steps: [{ op: "ocr", pages: "scanned" }, { op: "redact", pattern: "email" }, { op: "redact", pattern: "phone" }, { op: "sanitize" }] },
 ];
@@ -167,6 +172,9 @@ export function runRecipe(input: Uint8Array, fileName: string, recipe: Recipe, c
       }
       case "tag":
         if (!isTagged(doc) || step.retag) autoTag(doc, { lang: step.lang, retag: step.retag });
+        break;
+      case "clean":
+        cleanScans(doc, [...Array(doc.countPages()).keys()], { straighten: step.straighten ?? true, despeckle: step.despeckle ?? true, removeBlank: step.removeBlank ?? true });
         break;
       case "ocr":
         break; // done by the caller beforehand (recognition runs outside the PDF engine)
@@ -266,5 +274,6 @@ export const STEP_EXAMPLES: Record<Step["op"], string> = {
   redact: "redact pattern=email",
   sanitize: "sanitize removeComments=false",
   ocr: "ocr pages=scanned",
+  clean: "clean straighten=true despeckle=true removeBlank=true",
   tag: "tag lang=en-US",
 };

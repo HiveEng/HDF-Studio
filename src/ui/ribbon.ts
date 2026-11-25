@@ -8,7 +8,7 @@ import {
   ImagePlus, Replace, ImageDown, Stamp, FileInput, FilePlus2, Copy, Trash2, RotateCcw, RotateCw, ArrowUpDown,
   LayoutGrid, Merge, FileOutput, Scissors, Signature, PenLine, BadgeCheck, FileKey, ShieldCheck, Sheet,
   FileSpreadsheet, Eraser, SquareDashed, ScanSearch, Shredder, Lock, LockOpen, File, FileDown, Workflow, ListChecks,
-  MoveHorizontal, Maximize, PanelLeft, Search, ScanText, ScanLine, GitCompare, FolderSync, ClipboardCheck, Archive, Languages, Users, Printer, FormInput, WandSparkles, Accessibility, Images,
+  MoveHorizontal, Maximize, PanelLeft, Search, ScanText, ScanLine, GitCompare, FolderSync, ClipboardCheck, Archive, Languages, Users, Printer, FormInput, WandSparkles, Sparkles, Accessibility, Images,
   Cloud, MessageSquareQuote, Spline, Pentagon, Ruler, RulerDimensionLine, DraftingCompass, Hash, Scaling, Crosshair, Waypoints, LandPlot, Settings, Split, Link, BookmarkPlus, Paperclip, Layers2,
   Toolbox, SpellCheck, Magnet,
 } from "lucide";
@@ -142,6 +142,7 @@ export const TASKS: Task[] = [
       { label: "Scans", items: [
         { cmd: "scan", label: "Scan", icon: Printer, big: true, hint: "Scan from your scanner into a searchable PDF" },
         { cmd: "ocr", label: "Recognize text", icon: ScanText, big: true, hint: "OCR: make scanned pages searchable and copyable" },
+        { cmd: "cleanScans", label: "Clean up", icon: Sparkles, hint: "Straighten, remove specks, delete blank pages" },
         { cmd: "ocrPage", label: "This page", icon: ScanLine },
       ] },
       { label: "Page marks", items: [
@@ -230,6 +231,7 @@ export const TASKS: Task[] = [
       { label: "Scans", items: [
         { cmd: "scan", label: "Scan", icon: Printer, big: true, hint: "Scan from your scanner into a searchable PDF" },
         { cmd: "ocr", label: "Recognize text", icon: ScanText, big: true, hint: "OCR: make scanned pages searchable and copyable" },
+        { cmd: "cleanScans", label: "Clean up", icon: Sparkles, hint: "Straighten, remove specks, delete blank pages" },
       ] },
       { label: "Archive", items: [
         { cmd: "saveAsPdfa", label: "PDF/A", icon: Archive, big: true, hint: "For long-term archiving (needs Ghostscript)" },

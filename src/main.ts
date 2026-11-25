@@ -23,7 +23,7 @@ import { parseRanges, formatRanges } from "./engine/ranges";
 import { ask, confirmDialog, type Field } from "./ui/dialog";
 import { openBatch, type BatchDeps } from "./ui/batch";
 import { showProgress } from "./ui/progress";
-import { ocrBytes, ocrStep } from "./ocr/pipeline";
+import { ocrBytes, ocrStep, cleanStep } from "./ocr/pipeline";
 import { startWatching, openWatchPanel } from "./ui/watch";
 import { showCheckReport } from "./ui/check";
 import { showAltTextDialog } from "./ui/accessibility";
@@ -894,6 +894,59 @@ function getRecognizer(langs = ocrLangs()) {
   }
   return recognizer.rec;
 }
+// ---------- Scan cleanup (before OCR) ----------
+const CLEAN_OPTIONS: [string, string][] = [["all", "Straighten, remove specks and blank pages"], ["straighten", "Straighten only"], ["none", "No cleanup"]];
+const cleanOpts = (c: string) => ({ straighten: c !== "none", despeckle: c === "all", removeBlank: c === "all" });
+/** Clean `pages` of the active tab. Returns the surviving pages (renumbered after blank pages go). */
+async function runCleanup(t: Tab, pages: number[], o: { straighten?: boolean; despeckle?: boolean; removeBlank?: boolean }): Promise<number[]> {
+  status(`Cleaning up ${pages.length} page${pages.length === 1 ? "" : "s"}…`);
+  const { info, report } = await engine.cleanScans(t.info.id, pages, o);
+  t.info = info;
+  t.dirty = true;
+  t.hits = [];
+  t.scanned = null;
+  t.selected.clear();
+  t.page = Math.min(t.page, info.pageCount - 1);
+  if (t === active) buildView(), void showScanNotice();
+  const parts = [
+    report.straightened.length && `straightened ${report.straightened.length} page${report.straightened.length === 1 ? "" : "s"} (${report.straightened.map((s) => `page ${s.page + 1} by ${Math.abs(s.degrees).toFixed(1)}°`).join(", ")})`,
+    report.despeckled.length && `removed specks on ${report.despeckled.length}`,
+    report.removed.length && `removed ${report.removed.length} blank page${report.removed.length === 1 ? "" : "s"} (${report.removed.map((p) => p + 1).join(", ")})`,
+    report.skipped.length && `left ${report.skipped.length} page${report.skipped.length === 1 ? "" : "s"} with real text alone`,
+  ].filter(Boolean);
+  status(parts.length ? `Cleanup: ${parts.join("; ")}. Ctrl+Z to undo.` : "Cleanup: the pages were already straight and clean.");
+  const gone = new Set(report.removed);
+  return pages.filter((p) => !gone.has(p)).map((p) => p - report.removed.filter((r) => r < p).length);
+}
+async function cleanScansFlow() {
+  if (!active) return;
+  const t = active;
+  const scanned = await engine.pagesWithoutText(t.info.id);
+  const saved = JSON.parse(localStorage.getItem("hdfstudio.clean") ?? "{}");
+  const yesNo: [string, string][] = [["yes", "Yes"], ["no", "No"]];
+  const r = await ask("Clean up scans", [
+    { name: "which", label: "Pages", type: "select", value: scanned.length ? "scanned" : "current", options: [["scanned", `Scanned pages (${scanned.length})`], ["current", `Current page (${t.page + 1})`], ["range", "Page range…"]], hint: "Only pages without real text are changed. Run this before recognizing text (OCR)." },
+    { name: "range", label: "Page range (if chosen above)", placeholder: "e.g. 1-3, 8", value: "" },
+    { name: "straighten", label: "Straighten crooked pages", type: "select", value: saved.straighten ?? "yes", options: yesNo },
+    { name: "despeckle", label: "Remove specks of dust and toner", type: "select", value: saved.despeckle ?? "yes", options: yesNo },
+    { name: "removeBlank", label: "Delete blank pages", type: "select", value: saved.removeBlank ?? "yes", options: yesNo, hint: "Blank backs of double-sided scans, separator sheets." },
+  ], "Clean up");
+  if (!r) return;
+  localStorage.setItem("hdfstudio.clean", JSON.stringify({ straighten: r.straighten, despeckle: r.despeckle, removeBlank: r.removeBlank }));
+  let pages: number[];
+  try {
+    pages = r.which === "scanned" ? scanned : r.which === "current" ? [t.page] : parseRanges(r.range, t.info.pageCount);
+  } catch (e) {
+    return status((e as Error).message);
+  }
+  if (!pages.length) return status("No scanned pages to clean up. Pick the current page or a range to try anyway.");
+  try {
+    await runCleanup(t, pages, { straighten: r.straighten === "yes", despeckle: r.despeckle === "yes", removeBlank: r.removeBlank === "yes" });
+  } catch (e) {
+    status(`Cleanup failed: ${(e as Error).message ?? e}`);
+  }
+}
+
 async function recognizeText(pagesArg?: number[]) {
   if (!active) return;
   const t = active;
@@ -911,6 +964,7 @@ async function recognizeText(pagesArg?: number[]) {
         { name: "range", label: "Page range (if chosen above)", placeholder: "e.g. 1-3, 8", value: "" },
         { name: "lang", label: "Language", type: "select", value: ocrLangs().split("+")[0], options: OCR_LANGUAGES.map(([c, n]): [string, string] => [c, BUNDLED_LANGS.has(c) ? n : `${n} (downloads once)`]) },
         { name: "lang2", label: "Second language (optional)", type: "select", value: ocrLangs().split("+")[1] ?? "", options: [["", "None"], ...OCR_LANGUAGES.map(([c, n]): [string, string] => [c, n])], hint: "For documents that mix two languages." },
+        { name: "clean", label: "Clean up first", type: "select", value: localStorage.getItem("hdfstudio.ocrClean") ?? "straighten", options: CLEAN_OPTIONS, hint: "Straight, clean pages recognize better. Only pages without text are changed." },
       ],
       "Recognize",
     );
@@ -922,6 +976,15 @@ async function recognizeText(pagesArg?: number[]) {
       return status((e as Error).message);
     }
     if (!pages.length) return status("Every page already has text. Choose All pages to recognize them anyway.");
+    localStorage.setItem("hdfstudio.ocrClean", r.clean);
+    if (r.clean !== "none") {
+      try {
+        pages = await runCleanup(t, pages, cleanOpts(r.clean));
+      } catch (e) {
+        status(`Cleanup failed, recognizing anyway: ${(e as Error).message ?? e}`);
+      }
+      if (!pages.length) return;
+    }
   }
   const prog = showProgress("Recognizing text");
   const done: { page: number; lines: import("./engine/ocr").OcrLine[] }[] = [];
@@ -962,6 +1025,7 @@ async function scanDocument() {
     { name: "source", label: "Scan from", type: "select", value: saved.source ?? "flatbed", options: [["flatbed", "Glass (flatbed), page by page"], ["feeder", "Document feeder, all pages"], ["dialog", "The scanner's own window (preview and crop)"]] },
     { name: "mode", label: "Colour", type: "select", value: saved.mode ?? "4", options: [["4", "Black and white (drawings, text): smallest file"], ["2", "Greyscale"], ["1", "Colour"]] },
     { name: "dpi", label: "Resolution", type: "select", value: saved.dpi ?? "300", options: [["150", "150 dpi (draft)"], ["200", "200 dpi"], ["300", "300 dpi (best for OCR)"], ["400", "400 dpi"], ["600", "600 dpi (fine detail)"]] },
+    { name: "clean", label: "Clean up", type: "select", value: saved.clean ?? "all", options: CLEAN_OPTIONS, hint: "Blank pages are the empty backs from the feeder." },
     { name: "ocr", label: "Then", type: "select", value: saved.ocr ?? "ocr", options: [["ocr", "Recognize text so it can be searched and copied"], ["none", "Just make the PDF"]] },
     { name: "dest", label: "Put the pages in", type: "select", value: active ? (saved.dest ?? "new") : "new", options: active ? [["new", "A new document"], ["append", `The end of ${active.name}`], ["after", `${active.name}, after page ${active.page + 1}`]] : [["new", "A new document"]] },
   ], "Scan");
@@ -1002,7 +1066,14 @@ async function scanDocument() {
     pages = images.map((_, i) => at + i);
   }
   status(`Scanned ${images.length} page${images.length === 1 ? "" : "s"}.`);
-  if (r.ocr === "ocr") await recognizeText(pages);
+  if ((r.clean ?? "all") !== "none" && active) {
+    try {
+      pages = await runCleanup(active, pages, cleanOpts(r.clean ?? "all"));
+    } catch (e) {
+      status(`Cleanup failed: ${(e as Error).message ?? e}`);
+    }
+  }
+  if (r.ocr === "ocr" && pages.length) await recognizeText(pages);
 }
 
 // ---------- Digital (certificate) signatures ----------
@@ -1192,7 +1263,7 @@ async function exportAs() {
 const batchDeps: BatchDeps = {
   runRecipe: async (data, name, recipe, ctx) => {
     const step = ocrStep(recipe);
-    if (step) data = (await ocrBytes(engine, await getRecognizer(), data, name, step.pages ?? "scanned", ctx.password)).data;
+    if (step) data = (await ocrBytes(engine, await getRecognizer(), data, name, step.pages ?? "scanned", ctx.password, undefined, cleanStep(recipe))).data;
     return engine.runRecipe(data, name, recipe, ctx);
   },
   pickFiles: () => pickFiles(true),
@@ -1955,6 +2026,7 @@ const commands: Command[] = [
   { id: "flatten", title: "Flatten comments and form fields…", run: async () => { if (!active) return; const r = await ask("Flatten", [{ name: "w", label: "What to flatten", type: "select", value: "both", options: [["both", "Comments and form fields"], ["fields", "Form fields only"], ["comments", "Comments only"]] }], "Flatten"); if (!r) return; active.info = await engine.flatten(active.info.id, r.w !== "fields", r.w !== "comments"); active.dirty = true; buildView(); status("Flattened. Ctrl+Z to undo."); } },
   { id: "scan", title: "Scan from scanner into a searchable PDF…", run: () => void scanDocument() },
   { id: "ocr", title: "Recognize text (OCR): make scanned pages searchable…", keys: "Ctrl+Shift+O", run: () => recognizeText() },
+  { id: "cleanScans", title: "Clean up scans: straighten, remove specks, delete blank pages…", run: () => void cleanScansFlow() },
   { id: "ocrPage", title: "Recognize text on this page (OCR)", run: () => active && recognizeText([active.page]) },
   { id: "compare", title: "Compare files: find what changed between two versions…", keys: "Ctrl+Shift+C", run: () => compareFiles() },
   { id: "checkDoc", title: "Check document: PDF/A, accessibility and security…", run: () => checkDocumentFlow() },

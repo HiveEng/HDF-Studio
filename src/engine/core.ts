@@ -21,6 +21,7 @@ import * as tsa from "./tsa";
 import * as autotag from "./autotag";
 import * as edit from "./edit";
 import * as ocr from "./ocr";
+import * as scanclean from "./scanclean";
 import * as cmp from "./compare";
 import * as check from "./check";
 import { srgbIcc } from "./icc";
@@ -881,6 +882,15 @@ export class Engine {
 
   ocrImage(id: number, pageIndex: number, dpi = 300): { png: Uint8Array; scale: number } {
     return ocr.pageImage(this.get(id), pageIndex, dpi);
+  }
+
+  /** Straighten, despeckle and drop blank scanned pages. One undo step. */
+  cleanScans(id: number, pages: number[], o: scanclean.CleanOptions): { info: DocInfo; report: scanclean.CleanReport } {
+    return this.op(id, "Clean up scans", () => {
+      const report = scanclean.cleanScans(this.pdf(id), pages, o);
+      this.dropTextCache(id);
+      return { info: this.info(id), report };
+    });
   }
 
   /** Write recognised text as an invisible, searchable layer. One undo step per call. */
