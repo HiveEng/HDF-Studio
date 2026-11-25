@@ -9,6 +9,7 @@ import {
   LayoutGrid, Merge, FileOutput, Scissors, Signature, PenLine, BadgeCheck, FileKey, ShieldCheck, Sheet,
   FileSpreadsheet, Eraser, SquareDashed, ScanSearch, Shredder, Lock, LockOpen, File, FileDown, Workflow, ListChecks,
   MoveHorizontal, Maximize, PanelLeft, Search, ScanText, ScanLine, GitCompare, FolderSync, ClipboardCheck, Archive, Languages, Users, Printer, FormInput, WandSparkles, Accessibility, Images,
+  Cloud, MessageSquareQuote, Spline, Pentagon, Ruler, RulerDimensionLine, DraftingCompass, Hash, Scaling, Crosshair, Waypoints, LandPlot, Settings,
 } from "lucide";
 
 export function icon(node: IconNode, size = 18): SVGElement {
@@ -31,6 +32,7 @@ export const TASKS: Task[] = [
         { cmd: "saveAs", label: "Save as", icon: SavePen },
         { cmd: "createPdf", label: "Create PDF", icon: FilePlus },
         { cmd: "compare", label: "Compare", icon: GitCompare },
+        { cmd: "settings", label: "Settings", icon: Settings },
       ] },
       { label: "Tools", items: [
         { cmd: "tool-hand", tool: "hand", label: "Hand", icon: Hand, big: true },
@@ -69,12 +71,38 @@ export const TASKS: Task[] = [
         { cmd: "tool-ellipse", tool: "ellipse", label: "Ellipse", icon: Circle },
         { cmd: "tool-arrow", tool: "arrow", label: "Arrow", icon: MoveUpRight },
       ] },
+      { label: "Engineering", items: [
+        { cmd: "tool-cloud", tool: "cloud", label: "Cloud", icon: Cloud, big: true, hint: "Revision cloud: drag a box around the change" },
+        { cmd: "tool-callout", tool: "callout", label: "Callout", icon: MessageSquareQuote, big: true },
+        { cmd: "tool-stamp", tool: "stamp", label: "Stamp", icon: Stamp, big: true, hint: "Review stamps such as Approved as Noted" },
+        { cmd: "tool-cloudpoly", tool: "cloudpoly", label: "Cloud shape", icon: Cloud },
+        { cmd: "tool-dimension", tool: "dimension", label: "Dimension", icon: RulerDimensionLine },
+        { cmd: "tool-polyline", tool: "polyline", label: "Polyline", icon: Spline },
+        { cmd: "tool-polygon", tool: "polygon", label: "Polygon", icon: Pentagon },
+      ] },
       { label: "Colour", items: [{ el: "color" }] },
       { label: "Review", items: [
         { cmd: "showComments", label: "Comments", icon: MessagesSquare, big: true },
         { cmd: "mergeReviews", label: "Merge reviews", icon: Users, big: true, hint: "Bring in comments from reviewers' copies or XFDF files" },
         { cmd: "compare", label: "Compare files", icon: GitCompare, big: true, hint: "Find every change between two versions" },
         { cmd: "flatten", label: "Flatten", icon: Layers },
+      ] },
+    ],
+  },
+  {
+    id: "measure", label: "Measure",
+    groups: [
+      { label: "Scale", items: [
+        { cmd: "setScale", label: "Set scale", icon: Scaling, big: true, hint: "Pick the drawing scale, e.g. 1/4\" = 1'-0\"" },
+        { cmd: "tool-m-calibrate", tool: "m-calibrate", label: "Calibrate", icon: Crosshair, big: true, hint: "Click both ends of a known dimension" },
+      ] },
+      { label: "Measure", items: [
+        { cmd: "tool-m-length", tool: "m-length", label: "Length", icon: Ruler, big: true },
+        { cmd: "tool-m-area", tool: "m-area", label: "Area", icon: LandPlot, big: true },
+        { cmd: "tool-m-polylength", tool: "m-polylength", label: "Polylength", icon: Waypoints },
+        { cmd: "tool-m-perimeter", tool: "m-perimeter", label: "Perimeter", icon: Pentagon },
+        { cmd: "tool-m-angle", tool: "m-angle", label: "Angle", icon: DraftingCompass },
+        { cmd: "tool-m-count", tool: "m-count", label: "Count", icon: Hash },
       ] },
     ],
   },

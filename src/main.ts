@@ -4,6 +4,8 @@ import { pickFiles, filesFromList, saveFile, saveMany, saveText, saveBytes, base
 import { TSA_SERVERS } from "./engine/tsa-servers";
 import { OCR_LANGUAGES, BUNDLED_LANGS, langSource } from "./ocr/languages";
 import { setupAnnotate, type Tool } from "./ui/annotate";
+import { setupEngineering, ENG_TOOLS } from "./ui/engineering";
+import { openSettings } from "./ui/settings";
 import { setupRibbon, icon, taskOf } from "./ui/ribbon";
 import * as I from "lucide";
 import { setupForms } from "./ui/forms";
@@ -541,6 +543,7 @@ async function undoRedo(dir: "undo" | "redo") {
   t.dirty = true;
   t.selected.clear();
   t.page = Math.min(t.page, info.pageCount - 1);
+  eng.forgetScales();
   buildView();
   status(dir === "undo" ? "Undone" : "Redone");
 }
@@ -1164,6 +1167,26 @@ const annot = setupAnnotate({
 });
 
 
+// ---------- Engineering markups & measurement ----------
+const eng = setupEngineering({
+  engine,
+  doc: () => active,
+  pagesEl,
+  viewer,
+  tool: () => annot.tool,
+  setTool: (t) => useTool(t as Tool),
+  ribbonColor: () => annot.color,
+  refreshPage,
+  changed: (label) => {
+    if (!active) return;
+    active.dirty = true;
+    renderTabs();
+    status(`${label}. Ctrl+Z to undo.`);
+  },
+  refreshComments: () => annot.refreshComments(),
+  status,
+});
+
 // ---------- Edit text & images ----------
 const editUI = setupEdit({
   engine,
@@ -1511,6 +1534,7 @@ const commands: Command[] = [
   { id: "save", title: "Save", keys: "Ctrl+S", run: () => save(false) },
   { id: "print", title: "Print…", keys: "Ctrl+P", run: () => printDoc() },
   { id: "checkUpdates", title: "Check for updates", run: () => checkForUpdates(status, true) },
+  { id: "settings", title: "Settings: your name, units, tool colours and defaults…", keys: "Ctrl+,", run: () => void openSettings({ theme: { dark: () => document.documentElement.classList.contains("dark"), set: setTheme }, checkUpdates: () => checkForUpdates(status, true), status }) },
   { id: "saveAs", title: "Save as…", keys: "Ctrl+Shift+S", run: () => save(true) },
   { id: "closeTab", title: "Close tab", keys: "Ctrl+W", run: () => active && closeTab(active) },
   { id: "nextTab", title: "Next tab", keys: "Ctrl+Tab", run: () => tabs.length > 1 && switchTab(tabs[(tabs.indexOf(active!) + 1) % tabs.length]) },
@@ -1575,6 +1599,8 @@ const commands: Command[] = [
   { id: "unprotect", title: "Remove password protection", run: () => unprotectFlow() },
   { id: "tool-sign", title: "Sign: place your signature", keys: "G", run: () => useTool("sign") },
   { id: "newSignature", title: "Create a new signature…", run: async () => { clearSignature(); if (await getSignature(true)) annot.setTool("sign"); } },
+  ...ENG_TOOLS.map((t) => ({ id: `tool-${t}`, title: `${eng.TOOL_INFO[t].label} tool`, run: () => void eng.start(t) })),
+  { id: "setScale", title: "Set drawing scale…", run: () => void eng.setScale() },
   { id: "tool-edit", title: "Edit tool: change page text and images", keys: "E", run: () => useTool("edit") },
   { id: "insertImage", title: "Insert image…", run: () => (annot.setTool("edit"), editUI.insertImage()) },
   { id: "replaceImage", title: "Replace selected image…", run: () => editUI.replaceSelectedImage() },

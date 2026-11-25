@@ -3,8 +3,10 @@
 import type { AnnotInfo, AnnotSpec, Pt, RGB } from "../engine/annotations";
 import type { DocInfo } from "../engine/core";
 import { ask } from "./dialog";
+import { getPrefs, hexToRgb } from "./prefs";
+import { isEngTool, type EngTool } from "./engineering";
 
-export type Tool = "hand" | "select" | "highlight" | "underline" | "strike" | "squiggly" | "note" | "text" | "rect" | "ellipse" | "arrow" | "ink" | "redact" | "sign" | "edit";
+export type Tool = "hand" | "select" | "highlight" | "underline" | "strike" | "squiggly" | "note" | "text" | "rect" | "ellipse" | "arrow" | "ink" | "redact" | "sign" | "edit" | EngTool;
 
 export interface AnnotateDeps {
   engine: {
@@ -103,6 +105,15 @@ export function setupAnnotate(d: AnnotateDeps) {
   async function commit(page: number, spec: AnnotSpec, label: string) {
     const doc = d.doc();
     if (!doc) return;
+    const group = spec.type === "Ink" ? "ink" : spec.type === "FreeText" ? "text" : spec.type === "Square" || spec.type === "Circle" || spec.type === "Line" ? "shapes" : null;
+    if (group) {
+      const tp = getPrefs().tools[group];
+      const sp = spec as { color?: RGB; width?: number; opacity?: number; fontSize?: number };
+      if (!sp.color || group !== "text") sp.color = hexToRgb(tp.color);
+      if (spec.type === "FreeText") sp.fontSize ??= tp.fontSize;
+      else sp.width ??= tp.width;
+      if ((spec.type === "Square" || spec.type === "Circle") && tp.opacity < 1) sp.opacity = tp.opacity;
+    }
     if (color && spec.type !== "Redact") (spec as { color?: RGB }).color = color;
     await d.engine.addAnnotation(doc.info.id, page, spec, author());
     d.refreshPage(page);
@@ -163,7 +174,7 @@ export function setupAnnotate(d: AnnotateDeps) {
   let drag: null | { el: HTMLElement; index: number; start: Pt; last: Pt; points: Pt[]; busy: boolean; pending: boolean; scroll?: [number, number, number, number] } = null;
 
   d.pagesEl.addEventListener("pointerdown", async (e) => {
-    if (e.button !== 0 || tool === "edit") return; // the Edit tool has its own handlers
+    if (e.button !== 0 || tool === "edit" || isEngTool(tool)) return; // the Edit tool has its own handlers
     const hit = pageOf(e);
     const doc = d.doc();
     if (!hit || !doc) return;
@@ -340,7 +351,7 @@ export function setupAnnotate(d: AnnotateDeps) {
   });
 
   // ----- Comments panel -----
-  const TYPE_LABEL: Record<string, string> = { Text: "Note", FreeText: "Text box", Square: "Rectangle", Circle: "Ellipse", Line: "Arrow", Ink: "Pen", StrikeOut: "Strikeout", Highlight: "Highlight", Underline: "Underline", Squiggly: "Squiggly", Stamp: "Stamp", Redact: "Redaction mark" };
+  const TYPE_LABEL: Record<string, string> = { Text: "Note", FreeText: "Text box", Square: "Rectangle", Circle: "Ellipse", Line: "Arrow", Ink: "Pen", StrikeOut: "Strikeout", Highlight: "Highlight", Underline: "Underline", Squiggly: "Squiggly", Stamp: "Stamp", Redact: "Redaction mark", Polygon: "Polygon", PolyLine: "Polyline" };
   let refreshTimer = 0;
   function refreshComments() {
     clearTimeout(refreshTimer);
@@ -528,5 +539,5 @@ export function setupAnnotate(d: AnnotateDeps) {
     }
   }
 
-  return { onRedactions: (f: () => void) => (onRedactionsChanged = f), setTool, refreshComments, mergeReviews, get tool() { return tool; }, setColor: (c: RGB | null) => (color = c), selectAnnot, deleteSelected, editSelected };
+  return { onRedactions: (f: () => void) => (onRedactionsChanged = f), setTool, refreshComments, mergeReviews, get tool() { return tool; }, get color() { return color; }, setColor: (c: RGB | null) => (color = c), selectAnnot, deleteSelected, editSelected };
 }

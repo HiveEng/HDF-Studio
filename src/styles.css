@@ -412,3 +412,19 @@ body.designing .page .field { display: none; }
 .alt-fields { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; }
 .alt-fields textarea { font: inherit; resize: vertical; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border-strong); background: var(--panel); color: inherit; }
 .modal label.alt-deco { flex-direction: row; align-items: center; gap: 6px; }
+
+/* Settings window */
+.modal.settings { width: min(640px, 94vw); max-height: 88vh; overflow: auto; }
+.set-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.set-tabs button { border: 0; background: none; padding: 6px 12px; border-bottom: 2px solid transparent; border-radius: 0; color: var(--muted); }
+.set-tabs button.active { color: inherit; border-bottom-color: #05C7F2; }
+.set-sec h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 10px 0 6px; }
+.set-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+.set-note { color: var(--muted); font-size: 12.5px; margin: 4px 0 8px; }
+.set-tools { width: 100%; border-collapse: collapse; font-size: 13px; }
+.set-tools th { text-align: left; font-weight: 500; color: var(--muted); padding: 4px 6px; }
+.set-tools td { padding: 3px 6px; border-top: 1px solid var(--border); white-space: nowrap; }
+.set-tools input[type=number] { width: 62px; }
+.set-tools input[type=color] { width: 40px; height: 26px; padding: 0; border: 1px solid var(--border); border-radius: 5px; }
+.set-sec.hidden { display: none; }
+.modal-buttons .grow { flex: 1; }
