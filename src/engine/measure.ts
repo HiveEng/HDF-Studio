@@ -95,30 +95,40 @@ export function parseLength(s: string, unit: Unit): number | null {
 /** Inches → a number in `unit` (ft-in counts in feet). */
 const toUnit = (inches: number, unit: Unit) => (unit === "ft-in" ? inches / 12 : inches / IN_PER[unit]);
 
+/**
+ * Precision: 0–4. Decimal units show that many decimal places; feet-and-inches rounds to
+ * 1", 1/2", 1/4", 1/8" or 1/16". Left out, each unit uses its usual precision.
+ */
+export const PRECISIONS: [string, string][] = [["0", "0  (feet-inches: 1\")"], ["1", "0.0  (1/2\")"], ["2", "0.00  (1/4\")"], ["3", "0.000  (1/8\")"], ["4", "0.0000  (1/16\")"]];
+/** Precision choices worded for one unit. */
+export const precisionOptions = (unit: string): [string, string][] =>
+  unit === "ft-in" ? [["0", 'Nearest 1"'], ["1", '1/2"'], ["2", '1/4"'], ["3", '1/8"'], ["4", '1/16"']] : [["0", "0"], ["1", "0.0"], ["2", "0.00"], ["3", "0.000"], ["4", "0.0000"]];
+
 /** Format a real length given in inches. */
-export function formatLength(inches: number, unit: Unit): string {
+export function formatLength(inches: number, unit: Unit, prec?: number): string {
   if (unit === "ft-in") {
-    const sixteenths = Math.round(Math.abs(inches) * 16);
-    const ft = Math.floor(sixteenths / (12 * 16));
-    const rem = sixteenths - ft * 12 * 16;
-    const whole = Math.floor(rem / 16);
-    let frac = rem - whole * 16;
-    let den = 16;
+    const den0 = prec === undefined ? 16 : [1, 2, 4, 8, 16][Math.max(0, Math.min(4, Math.round(prec)))];
+    const steps = Math.round(Math.abs(inches) * den0);
+    const ft = Math.floor(steps / (12 * den0));
+    const rem = steps - ft * 12 * den0;
+    const whole = Math.floor(rem / den0);
+    let frac = rem - whole * den0;
+    let den = den0;
     while (frac && frac % 2 === 0) (frac /= 2), (den /= 2);
     return `${inches < 0 ? "-" : ""}${ft}'-${whole}${frac ? ` ${frac}/${den}` : ""}"`;
   }
   const v = inches / IN_PER[unit];
-  const d = unit === "mm" ? 0 : unit === "cm" || unit === "in" ? 1 : 2;
+  const d = prec ?? (unit === "mm" ? 0 : unit === "cm" || unit === "in" ? 1 : 2);
   return `${v.toFixed(d)} ${unit === "in" ? "in" : unit}`;
 }
 
 /** Format a real area given in square inches. */
-export function formatArea(sqIn: number, unit: Unit): string {
-  if (unit === "ft-in" || unit === "ft") return `${(sqIn / 144).toFixed(2)} sq ft`;
-  if (unit === "in") return `${sqIn.toFixed(1)} sq in`;
+export function formatArea(sqIn: number, unit: Unit, prec?: number): string {
+  if (unit === "ft-in" || unit === "ft") return `${(sqIn / 144).toFixed(prec ?? 2)} sq ft`;
+  if (unit === "in") return `${sqIn.toFixed(prec ?? 1)} sq in`;
   const per = IN_PER[unit] ** 2;
   const v = sqIn / per;
-  return `${v.toFixed(unit === "m" ? 2 : 0)} ${unit}²`;
+  return `${v.toFixed(prec ?? (unit === "m" ? 2 : 0))} ${unit}²`;
 }
 
 export const dist = (a: Pt, b: Pt) => Math.hypot(b[0] - a[0], b[1] - a[1]);
@@ -152,8 +162,8 @@ export function angleAt(a: Pt, b: Pt, c: Pt): number {
   return (Math.acos(Math.max(-1, Math.min(1, cos))) * 180) / Math.PI;
 }
 
-export const lengthText = (pts: number, s: Scale) => formatLength(pts * s.k, s.unit);
-export const areaText = (sqPts: number, s: Scale) => formatArea(sqPts * s.k * s.k, s.unit);
+export const lengthText = (pts: number, s: Scale, prec?: number) => formatLength(pts * s.k, s.unit, prec);
+export const areaText = (sqPts: number, s: Scale, prec?: number) => formatArea(sqPts * s.k * s.k, s.unit, prec);
 
 /** Read a scale from a page's viewport /Measure dictionary values (ours, or one written by CAD or other PDF apps). */
 export function scaleFromMeasure(m: { hdfK?: number; hdfUnit?: string; ratio?: string; xUnit?: string; xC?: number }): Scale | null {

@@ -21,24 +21,68 @@ export interface FindRedactOptions {
   pages?: number[];
 }
 
+/**
+ * AutoCAD draws SHX-font text as line work and, so it stays searchable, adds an invisible comment over
+ * each text object holding the words ("AutoCAD SHX Text"). Those comments are searched and redacted too.
+ */
+export function isShxComment(a: mupdf.PDFAnnotation): boolean {
+  const o = a.getObject();
+  const s = (k: string) => { const v = o.get(k); return v.isString() ? v.asString() : ""; };
+  return /SHX/i.test(s("T") + " " + s("Subj"));
+}
+
 /** Mark every match with a Redact annotation. Returns the number of marks added. */
 export function markMatches(doc: mupdf.PDFDocument, o: FindRedactOptions): number {
+  return findAndMark(doc, o).count;
+}
+
+/** Like markMatches, and also reports how many searched pages have no real text (drawn-as-lines text needs OCR). */
+export function findAndMark(doc: mupdf.PDFDocument, o: FindRedactOptions): { count: number; textless: number[] } {
   const needle = o.pattern ? REDACT_PATTERNS[o.pattern].regex : o.regex ?? o.text;
   if (!needle) throw new Error("Nothing to search for");
   const opts = [o.pattern || o.regex ? "regexp" : "", o.caseSensitive ? "" : "ignore-case"].filter(Boolean).join(",");
+  const esc = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  let re: RegExp | null = null;
+  try {
+    re = new RegExp(o.pattern || o.regex ? needle : esc(needle), o.caseSensitive ? "g" : "gi");
+  } catch { /* MuPDF-only syntax: page text is still searched */ }
   let count = 0;
+  const textless: number[] = [];
   const pages = o.pages ?? [...Array(doc.countPages()).keys()];
   for (const i of pages) {
     const page = doc.loadPage(i) as mupdf.PDFPage;
-    for (const hit of page.search(needle, opts)) {
-      const a = page.createAnnotation("Redact");
-      a.setQuadPoints(hit);
-      a.update();
-      count++;
+    try {
+      const st = page.toStructuredText("");
+      if (st.asText().replace(/\s+/g, "").length < 10) textless.push(i);
+      st.destroy();
+      for (const hit of page.search(needle, opts)) {
+        const a = page.createAnnotation("Redact");
+        a.setQuadPoints(hit);
+        a.update();
+        count++;
+      }
+      // CAD text kept as comments: mark the matched part of the comment's box (characters spread evenly).
+      for (const c of page.getAnnotations()) {
+        if (!re || c.getType() === "Redact" || !isShxComment(c)) continue;
+        const text = c.getContents() ?? "";
+        if (!text) continue;
+        const [x0, y0, x1, y1] = c.getRect();
+        const wide = x1 - x0 >= y1 - y0 || text.length < 2;
+        for (const m of text.matchAll(re)) {
+          if (!m[0]) continue;
+          const f0 = m.index! / text.length, f1 = (m.index! + m[0].length) / text.length;
+          const r = wide ? [x0 + (x1 - x0) * f0, y0, x0 + (x1 - x0) * f1, y1] : [x0, y0 + (y1 - y0) * f0, x1, y0 + (y1 - y0) * f1];
+          const a = page.createAnnotation("Redact");
+          a.setRect(r as mupdf.Rect);
+          a.update();
+          count++;
+        }
+      }
+    } finally {
+      page.destroy();
     }
-    page.destroy();
   }
-  return count;
+  return { count, textless };
 }
 
 export function countMarks(doc: mupdf.PDFDocument): number {
@@ -67,7 +111,12 @@ export function applyRedactions(doc: mupdf.PDFDocument, o: ApplyOptions = {}): n
   let pages = 0;
   for (let i = 0; i < doc.countPages(); i++) {
     const page = doc.loadPage(i) as mupdf.PDFPage;
-    if (page.getAnnotations().some((a) => a.getType() === "Redact")) {
+    const annots = page.getAnnotations();
+    const marks = annots.filter((a) => a.getType() === "Redact").map((a) => Array.from(a.getBounds()));
+    if (marks.length) {
+      // CAD text comments under a mark would still give the words away.
+      const hits = (r: number[]) => marks.some((m) => m[0] < r[2] && m[2] > r[0] && m[1] < r[3] && m[3] > r[1]);
+      for (const a of annots) if (isShxComment(a) && hits(Array.from(a.getBounds()))) page.deleteAnnotation(a);
       page.applyRedactions(o.blackBoxes !== false, image, lineArt, 0);
       pages++;
     }

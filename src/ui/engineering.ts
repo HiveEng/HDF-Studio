@@ -18,27 +18,27 @@ export const isEngTool = (t: string): t is EngTool => (ENG_TOOLS as readonly str
 
 const TOOL_INFO: Record<EngTool, { label: string; group: ToolGroup; how: string }> = {
   leader: { label: "Leader", group: "callout", how: "Click a text box or callout, then click each point it should point to (several clicks make a multileader)." },
-  cloud: { label: "Revision cloud", group: "cloud", how: "Drag a box around the change." },
-  cloudpoly: { label: "Revision cloud (shape)", group: "cloud", how: "Click each corner; double-click or Enter to finish." },
+  cloud: { label: "Revision cloud", group: "cloud", how: "Click each corner around the change; double-click, right-click or Enter to finish. Or drag for a quick box." },
+  cloudpoly: { label: "Revision cloud (shape)", group: "cloud", how: "Click each corner; double-click, right-click or Enter to finish." },
   callout: { label: "Callout", group: "callout", how: "Click the point the arrow should touch, then click where the text goes, and type." },
-  polyline: { label: "Polyline", group: "lines", how: "Click each point; double-click or Enter to finish." },
-  polygon: { label: "Polygon", group: "lines", how: "Click each corner; double-click or Enter to finish." },
+  polyline: { label: "Polyline", group: "lines", how: "Click each point; double-click, right-click or Enter to finish." },
+  polygon: { label: "Polygon", group: "lines", how: "Click each corner; double-click, right-click or Enter to finish." },
   dimension: { label: "Dimension", group: "dimension", how: "Click (or drag) from one end to the other. Hold Shift for straight lines." },
   stamp: { label: "Stamp", group: "shapes", how: "Click where the stamp goes." },
   "m-length": { label: "Length", group: "measure", how: "Click (or drag) from one end to the other. Hold Shift for straight lines." },
-  "m-polylength": { label: "Polylength", group: "measure", how: "Click each point; double-click or Enter to finish." },
-  "m-area": { label: "Area", group: "measure", how: "Click each corner; double-click or Enter to finish." },
-  "m-perimeter": { label: "Perimeter", group: "measure", how: "Click each corner; double-click or Enter to finish." },
+  "m-polylength": { label: "Polylength", group: "measure", how: "Click each point; double-click, right-click or Enter to finish." },
+  "m-area": { label: "Area", group: "measure", how: "Click each corner; double-click, right-click or Enter to finish." },
+  "m-perimeter": { label: "Perimeter", group: "measure", how: "Click each corner; double-click, right-click or Enter to finish." },
   "m-angle": { label: "Angle", group: "measure", how: "Click a point on the first leg, the corner, then a point on the second leg." },
   "m-count": { label: "Count", group: "count", how: "Click each item to count it." },
   "m-calibrate": { label: "Calibrate", group: "measure", how: "Click both ends of a dimension you know, then type its real length." },
 };
-const TWO_POINT = new Set<EngTool>(["cloud", "callout", "dimension", "m-length", "m-calibrate"]);
-const MULTI = new Set<EngTool>(["cloudpoly", "polyline", "polygon", "m-polylength", "m-area", "m-perimeter"]);
-const CLOSED = new Set<EngTool>(["cloudpoly", "polygon", "m-area", "m-perimeter"]);
+const TWO_POINT = new Set<EngTool>(["callout", "dimension", "m-length", "m-calibrate"]);
+const MULTI = new Set<EngTool>(["cloud", "cloudpoly", "polyline", "polygon", "m-polylength", "m-area", "m-perimeter"]);
+const CLOSED = new Set<EngTool>(["cloud", "cloudpoly", "polygon", "m-area", "m-perimeter"]);
 const NEEDS_SCALE = new Set<EngTool>(["m-length", "m-polylength", "m-area", "m-perimeter"]);
 /** Tools whose points snap to the drawing's line work. */
-const SNAPS = new Set<EngTool>(["m-length", "m-polylength", "m-area", "m-perimeter", "m-angle", "m-calibrate", "m-count", "dimension", "polyline", "polygon", "cloudpoly"]);
+const SNAPS = new Set<EngTool>(["m-length", "m-polylength", "m-area", "m-perimeter", "m-angle", "m-calibrate", "m-count", "dimension", "polyline", "polygon", "cloud", "cloudpoly"]);
 const SNAP_PX = 10;
 const SNAP_LABEL: Record<SnapKind, string> = { end: "Endpoint", intersection: "Intersection", mid: "Midpoint", line: "On line" };
 
@@ -215,10 +215,7 @@ export function setupEngineering(d: EngDeps) {
       }
       return;
     }
-    if (t === "cloud" && all.length >= 2) {
-      const [a, b] = [all[0], all[all.length - 1]];
-      svg.append(el("rect", { x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), width: Math.abs(a[0] - b[0]), height: Math.abs(a[1] - b[1]), ...stroke, "stroke-dasharray": "6 4" }));
-    } else if (t === "callout" && all.length >= 2) {
+    if (t === "callout" && all.length >= 2) {
       svg.append(el("line", { x1: all[0][0], y1: all[0][1], x2: all[1][0], y2: all[1][1], ...stroke }));
       svg.append(el("rect", { x: all[1][0], y: all[1][1] - 10 * ptPerPx, width: 120 * ptPerPx, height: 24 * ptPerPx, ...stroke }));
     } else {
@@ -239,9 +236,10 @@ export function setupEngineering(d: EngDeps) {
     const t = tool();
     if (t === "m-angle" && all.length === 3) return `${angleAt(all[0], all[1], all[2]).toFixed(1)}°`;
     if (!currentScale || !(NEEDS_SCALE.has(t) || t === "dimension")) return t === "m-calibrate" && all.length === 2 ? `${dist(all[0], all[1]).toFixed(1)} pt` : "";
-    if (t === "m-area" && all.length > 2) return areaText(polygonArea(all), currentScale);
-    if (t === "m-perimeter") return lengthText(pathLength(all, true), currentScale);
-    return all.length > 1 ? lengthText(pathLength(all), currentScale) : "";
+    const prec = prefsFor("m-length").precision;
+    if (t === "m-area" && all.length > 2) return areaText(polygonArea(all), currentScale, prec);
+    if (t === "m-perimeter") return lengthText(pathLength(all, true), currentScale, prec);
+    return all.length > 1 ? lengthText(pathLength(all), currentScale, prec) : "";
   }
 
   // ----- committing -----
@@ -265,21 +263,18 @@ export function setupEngineering(d: EngDeps) {
     const s = currentScale;
     const page = pageIndex;
     const measure = s ? measureDict(s) : undefined;
+    const prec = prefsFor("m-length").precision;
     clearPreview();
     try {
       switch (t) {
-        case "cloud": {
-          if (p.length < 2) break;
-          const [a, b] = [p[0], p[p.length - 1]];
-          if (Math.abs(a[0] - b[0]) < 4 || Math.abs(a[1] - b[1]) < 4) break;
-          await commit({ type: "Square", rect: [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])], cloud: true, color, width: pr.width, opacity: pr.opacity }, "Added revision cloud");
+        case "cloud":
+        case "cloudpoly":
+        case "polygon": {
+          if (p.length < 3) break;
+          const cloud = t !== "polygon";
+          await commit({ type: "Polygon", vertices: p, cloud, color, width: pr.width, opacity: pr.opacity }, cloud ? "Added revision cloud" : "Added polygon");
           break;
         }
-        case "cloudpoly":
-        case "polygon":
-          if (p.length < 3) break;
-          await commit({ type: "Polygon", vertices: p, cloud: t === "cloudpoly", color, width: pr.width, opacity: pr.opacity }, t === "cloudpoly" ? "Added revision cloud" : "Added polygon");
-          break;
         case "polyline":
           if (p.length < 2) break;
           await commit({ type: "PolyLine", vertices: p, color, width: pr.width, opacity: pr.opacity }, "Added polyline");
@@ -327,33 +322,34 @@ export function setupEngineering(d: EngDeps) {
         case "m-length": {
           if (p.length < 2 || dist(p[0], p[p.length - 1]) < 4) break;
           const [a, b] = [p[0], p[p.length - 1]];
-          let caption = s ? lengthText(dist(a, b), s) : "";
+          let caption = s ? lengthText(dist(a, b), s, prec) : "";
+          const meas = s ? { kind: "len" as const, value: dist(a, b), k: s.k, unit: s.unit, prec } : undefined;
           if (!caption) {
             const r = await ask("Dimension text", [{ name: "c", label: "Text", placeholder: "e.g. 12'-6\" (set a scale to measure automatically)" }], "Add");
             if (r === null) break;
             caption = r.c;
           }
-          await commit({ type: "Line", a, b, dimension: true, caption, captionSize: pr.fontSize, color, width: pr.width, contents: t === "m-length" ? `Length: ${caption}` : caption, measure: t === "m-length" ? measure : undefined }, t === "m-length" ? `Measured ${caption}` : "Added dimension");
+          await commit({ type: "Line", a, b, dimension: true, caption, captionSize: pr.fontSize, color, width: pr.width, contents: t === "m-length" ? `Length: ${caption}` : caption, measure: t === "m-length" ? measure : undefined, meas: caption === (s && lengthText(dist(a, b), s, prec)) ? meas : undefined }, t === "m-length" ? `Measured ${caption}` : "Added dimension");
           if (t === "m-length") d.status(`Length: ${caption} (scale ${s!.label})`);
           break;
         }
         case "m-polylength": {
           if (p.length < 2 || !s) break;
-          const total = lengthText(pathLength(p), s);
+          const total = lengthText(pathLength(p), s, prec);
           let best = 1;
           for (let i = 1; i < p.length; i++) if (dist(p[i - 1], p[i]) > dist(p[best - 1], p[best])) best = i;
           const mid: Pt = [(p[best - 1][0] + p[best][0]) / 2, (p[best - 1][1] + p[best][1]) / 2];
-          await commit({ type: "PolyLine", vertices: p, color, width: pr.width, intent: "PolyLineDimension", measure, contents: `Length: ${total}`, label: { text: total, at: mid, size: pr.fontSize } }, `Measured ${total}`);
+          await commit({ type: "PolyLine", vertices: p, color, width: pr.width, intent: "PolyLineDimension", measure, contents: `Length: ${total}`, label: { text: total, at: mid, size: pr.fontSize }, meas: { kind: "len", value: pathLength(p), k: s.k, unit: s.unit, prec } }, `Measured ${total}`);
           d.status(`Length: ${total} (scale ${s.label})`);
           break;
         }
         case "m-area":
         case "m-perimeter": {
           if (p.length < 3 || !s) break;
-          const area = areaText(polygonArea(p), s), per = lengthText(pathLength(p, true), s);
+          const area = areaText(polygonArea(p), s, prec), per = lengthText(pathLength(p, true), s, prec);
           const text = t === "m-area" ? area : per;
           const tint: RGB = color.map((v) => 1 - (1 - v) * 0.18) as RGB;
-          await commit({ type: "Polygon", vertices: p, color, width: pr.width, fill: t === "m-area" ? tint : null, intent: "PolygonDimension", measure, contents: `Area: ${area}; Perimeter: ${per}`, label: { text, at: centroid(p), size: pr.fontSize } }, `Measured ${text}`);
+          await commit({ type: "Polygon", vertices: p, color, width: pr.width, fill: t === "m-area" ? tint : null, intent: "PolygonDimension", measure, contents: `Area: ${area}; Perimeter: ${per}`, label: { text, at: centroid(p), size: pr.fontSize }, meas: t === "m-area" ? { kind: "area", value: polygonArea(p), value2: pathLength(p, true), k: s.k, unit: s.unit, prec } : { kind: "per", value: pathLength(p, true), value2: polygonArea(p), k: s.k, unit: s.unit, prec } }, `Measured ${text}`);
           d.status(`Area: ${area} · Perimeter: ${per} (scale ${s.label})`);
           break;
         }
@@ -531,12 +527,35 @@ export function setupEngineering(d: EngDeps) {
     if (!active() || !pageEl || !downAt) return;
     e.stopPropagation();
     const t = tool();
+    const ppx = d.doc()!.info.pageSizes[pageIndex][0] / pageEl.getBoundingClientRect().width;
+    // A drag on the first point of a revision cloud makes a quick box-shaped cloud.
+    if (t === "cloud" && pts.length === 1 && hover && Math.abs(hover[0] - downAt[0]) > 6 * ppx && Math.abs(hover[1] - downAt[1]) > 6 * ppx) {
+      const [a, b] = [pts[0], hover];
+      pts = [a, [b[0], a[1]], b, [a[0], b[1]]];
+      downAt = null;
+      return void finish();
+    }
     // A drag (not a click) completes a two-point tool in one motion.
     if (TWO_POINT.has(t) && pts.length === 1 && hover && dist(downAt, hover) > 6 * (d.doc()!.info.pageSizes[pageIndex][0] / pageEl.getBoundingClientRect().width)) {
       pts.push(hover);
       void finish();
     }
     downAt = null;
+  }, true);
+
+  // A single right-click finishes a multi-point tool (like a double-click), or ends adding leaders.
+  d.pagesEl.addEventListener("contextmenu", (e) => {
+    if (!active() || (!pts.length && !leaderOf)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (tool() === "leader") {
+      reset();
+      d.setTool("hand");
+      return d.status("Done adding leaders");
+    }
+    if (MULTI.has(tool())) return void finish();
+    reset();
+    d.status("Cancelled");
   }, true);
 
   d.pagesEl.addEventListener("dblclick", (e) => {

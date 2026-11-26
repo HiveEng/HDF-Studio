@@ -9,8 +9,8 @@ import { makeSamplePdf } from "./fixtures";
 test("mark by text and regex, apply: text is really gone and survives save", () => {
   const e = new Engine();
   const { id } = e.open(makeSamplePdf(3));
-  assert.equal(e.markRedactions(id, { text: "lazy dog" }), 3);
-  assert.equal(e.markRedactions(id, { regex: "QX-100[02]" }), 2);
+  assert.equal(e.markRedactions(id, { text: "lazy dog" }).count, 3);
+  assert.equal(e.markRedactions(id, { regex: "QX-100[02]" }).count, 2);
   assert.equal(e.redactionCount(id), 5);
   assert.match(e.pageText(id, 0), /lazy dog/, "marking alone doesn't remove anything");
   const r = e.applyRedactions(id);

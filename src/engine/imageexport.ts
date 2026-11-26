@@ -319,3 +319,26 @@ export function rasterPages(doc: mupdf.Document, pages: number[], o: RasterOptio
     }
   });
 }
+
+/** A part of a page (display space, points) as a PNG at `dpi`, markup included; very large areas are scaled down. */
+export function renderArea(page: mupdf.Page, rect: number[], dpi = 300): Uint8Array {
+  const [x0, y0, x1, y1] = [Math.min(rect[0], rect[2]), Math.min(rect[1], rect[3]), Math.max(rect[0], rect[2]), Math.max(rect[1], rect[3])];
+  let s = dpi / 72;
+  const area = (x1 - x0) * (y1 - y0) * s * s;
+  if (area > MAX_PIXELS) s *= Math.sqrt(MAX_PIXELS / area);
+  const e = 1e-6;
+  const bbox: mupdf.Rect = [Math.floor(x0 * s + e), Math.floor(y0 * s + e), Math.ceil(x1 * s - e), Math.ceil(y1 * s - e)];
+  const pix = new mupdf.Pixmap(mupdf.ColorSpace.DeviceRGB, bbox, false);
+  try {
+    pix.clear(255);
+    const dev = new mupdf.DrawDevice(mupdf.Matrix.identity, pix);
+    page.run(dev, mupdf.Matrix.scale(s, s));
+    dev.close();
+    dev.destroy();
+    const r = Math.round(s * 72);
+    pix.setResolution(r, r);
+    return pix.asPNG();
+  } finally {
+    pix.destroy();
+  }
+}

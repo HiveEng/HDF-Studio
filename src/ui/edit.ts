@@ -16,6 +16,7 @@ export interface EditDeps {
     deleteImage(id: number, page: number, bbox: number[]): Promise<void>;
     insertImage(id: number, page: number, rect: number[], data: Uint8Array): Promise<void>;
     extractImage(id: number, page: number, index: number): Promise<Uint8Array>;
+    renderArea(id: number, page: number, rect: number[], dpi: number): Promise<Uint8Array>;
   };
   doc(): { info: { id: number; pageSizes: [number, number][] }; zoom: number } | null;
   pagesEl: HTMLElement;
@@ -329,6 +330,78 @@ export function setupEdit(d: EditDeps) {
     }
   }, true);
 
+  // ----- Extract image: click a picture to save it, or drag a box to save any part of the page -----
+  let picking = false;
+  let pick: null | { el: HTMLElement; index: number; start: [number, number]; last: [number, number] } = null;
+  const endPick = (msg?: string) => {
+    picking = false;
+    pick = null;
+    d.viewer.classList.remove("picking");
+    d.pagesEl.querySelectorAll(".edit-ov .pick").forEach((n) => n.remove());
+    if (msg) d.status(msg);
+  };
+  async function extractImageFlow() {
+    if (selectedImage) return saveSelectedImage();
+    const doc = d.doc();
+    if (!doc) return;
+    picking = true;
+    d.viewer.classList.add("picking");
+    d.status("Click a picture to save it, or drag a box around any part of the drawing to save it as an image (300 dpi). Esc to cancel.");
+  }
+  d.pagesEl.addEventListener("pointerdown", (e) => {
+    if (!picking || e.button !== 0) return;
+    const hit = pageOf(e);
+    if (!hit) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    hit.el.setPointerCapture?.(e.pointerId);
+    const p = pt(hit.el, hit.index, e);
+    pick = { el: hit.el, index: hit.index, start: p, last: p };
+  }, true);
+  d.pagesEl.addEventListener("pointermove", async (e) => {
+    if (!picking) return;
+    e.stopImmediatePropagation();
+    if (pick) {
+      pick.last = pt(pick.el, pick.index, e);
+      const svg = overlay(pick.el, pick.index);
+      svg.querySelectorAll(".pick").forEach((n) => n.remove());
+      const [a, b] = [pick.start, pick.last];
+      svg.append(rectEl([Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])], "pick"));
+      return;
+    }
+    const hit = pageOf(e);
+    if (!hit || !d.doc()) return;
+    const img = imageAt((await blocks(hit.index)).images, pt(hit.el, hit.index, e));
+    const svg = overlay(hit.el, hit.index);
+    svg.querySelectorAll(".pick").forEach((n) => n.remove());
+    if (img) svg.append(polyEl(img.xf, "pick"));
+  }, true);
+  d.pagesEl.addEventListener("pointerup", async (e) => {
+    if (!picking || !pick) return;
+    e.stopImmediatePropagation();
+    const { el, index, start: a, last: b } = pick;
+    pick = null;
+    const doc = d.doc();
+    if (!doc) return endPick();
+    const ppx = ptPerPx(el, doc.info.pageSizes[index][0]);
+    if (Math.abs(a[0] - b[0]) > 6 * ppx && Math.abs(a[1] - b[1]) > 6 * ppx) {
+      const r = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])];
+      endPick("Saving the area as an image…");
+      await d.saveBytes(`page-${index + 1}-area.png`, await d.engine.renderArea(doc.info.id, index, r, 300));
+      return;
+    }
+    const img = imageAt((await blocks(index)).images, a);
+    if (!img) {
+      overlay(el, index).querySelectorAll(".pick").forEach((n) => n.remove());
+      return d.status((await blocks(index)).images.length ? "No picture there. Click a picture, or drag a box to save that area." : "This page has no embedded pictures (drawings are line work). Drag a box to save that area as an image.");
+    }
+    endPick();
+    await d.saveBytes(`image-p${index + 1}-${img.index + 1}.png`, await d.engine.extractImage(doc.info.id, index, img.index));
+  }, true);
+  document.addEventListener("keydown", (e) => {
+    if (picking && e.key === "Escape") (e.preventDefault(), e.stopImmediatePropagation(), endPick("Cancelled"));
+  }, true);
+
   /** Insert an image: next click on a page places it. */
   let pendingImage: Uint8Array | null = null;
   async function insertImage() {
@@ -351,7 +424,7 @@ export function setupEdit(d: EditDeps) {
     after(hit.index, "Inserted image");
   }, true);
 
-  return { invalidate, selectImageAt, rotateSelected, sizeSelected, get selectedImage() { return selectedImage; }, deleteSelectedImage, replaceSelectedImage, saveSelectedImage, insertImage, setTextStyle, closeEditor };
+  return { invalidate, selectImageAt, rotateSelected, sizeSelected, get selectedImage() { return selectedImage; }, deleteSelectedImage, replaceSelectedImage, saveSelectedImage, extractImageFlow, insertImage, setTextStyle, closeEditor };
 }
 
 async function jpegSize(data: Uint8Array): Promise<[number, number]> {

@@ -58,14 +58,25 @@ function toLocal(t: Xf, p: Pt2): Pt2 {
   return [x * c - y * s, x * s + y * c];
 }
 
-export type XfHit = "move" | "rotate" | 0 | 1 | 2 | 3;
+/** Corners 0–3 clockwise from top-left; edges 4–7 are the middles of the top, right, bottom and left sides. */
+export type XfHit = "move" | "rotate" | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
+
+/** Middles of the four sides (top, right, bottom, left). */
+export function edgeMids(t: Xf): Pt2[] {
+  const c = corners(t);
+  return [0, 1, 2, 3].map((i) => [(c[i][0] + c[(i + 1) % 4][0]) / 2, (c[i][1] + c[(i + 1) % 4][1]) / 2] as Pt2);
+}
 
 /** What a press at `p` grabs: a corner, the rotate handle, the body, or nothing. `tol` in points. */
-export function hitXf(t: Xf, p: Pt2, tol: number): XfHit | null {
+export function hitXf(t: Xf, p: Pt2, tol: number, edges = false): XfHit | null {
   const r = rotateHandle(t, tol * 3);
   if (Math.hypot(p[0] - r[0], p[1] - r[1]) <= tol * 1.3) return "rotate";
   const cs = corners(t);
   for (let i = 0; i < 4; i++) if (Math.hypot(p[0] - cs[i][0], p[1] - cs[i][1]) <= tol) return i as 0 | 1 | 2 | 3;
+  if (edges) {
+    const em = edgeMids(t);
+    for (let i = 0; i < 4; i++) if (Math.hypot(p[0] - em[i][0], p[1] - em[i][1]) <= tol) return (4 + i) as 4 | 5 | 6 | 7;
+  }
   const [x, y] = toLocal(t, p);
   return Math.abs(x) <= t.w / 2 && Math.abs(y) <= t.h / 2 ? "move" : null;
 }
@@ -85,9 +96,20 @@ export function dragXf(t0: Xf, grab: XfHit, from: Pt2, to: Pt2, free = false): X
     }
     return { ...t0, angle: norm(a) };
   }
+  if (grab >= 4) {
+    // Side: the opposite side stays put; only that dimension changes.
+    const p = toLocal(t0, to);
+    const horiz = grab === 5 || grab === 7, s0 = grab === 5 || grab === 6 ? 1 : -1;
+    const fixed = horiz ? (-s0 * t0.w) / 2 : (-s0 * t0.h) / 2;
+    const size = Math.max(4, ((horiz ? p[0] : p[1]) - fixed) * s0);
+    const mid = fixed + (s0 * size) / 2;
+    const lc: Pt2 = horiz ? [mid, 0] : [0, mid];
+    const c = Math.cos(rad(t0.angle)), s = Math.sin(rad(t0.angle));
+    return { cx: t0.cx + lc[0] * c - lc[1] * s, cy: t0.cy + lc[0] * s + lc[1] * c, w: horiz ? size : t0.w, h: horiz ? t0.h : size, angle: t0.angle };
+  }
   // Corner: the opposite corner stays put.
   const sign: Pt2[] = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
-  const [sx, sy] = sign[grab];
+  const [sx, sy] = sign[grab as 0 | 1 | 2 | 3];
   const fixed: Pt2 = [(-sx * t0.w) / 2, (-sy * t0.h) / 2];
   const p = toLocal(t0, to);
   let w = Math.max(4, (p[0] - fixed[0]) * sx);

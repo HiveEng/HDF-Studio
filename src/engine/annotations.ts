@@ -1,7 +1,7 @@
 // Comments & markup on top of MuPDF annotations. All coordinates are page space in points
 // (origin top-left, y down, after page rotation) — the same space as search results.
-import { leaderStart } from "./measure";
-import { type Xf, imageMatrix, bounds as xfBounds, xfFromRect } from "./xform";
+import { leaderStart, lengthText, areaText, type Unit } from "./measure";
+import { type Xf, imageMatrix, bounds as xfBounds, xfFromRect, corners as xfCorners } from "./xform";
 import * as mupdf from "mupdf";
 import { calloutGeometry } from "./callout";
 export { calloutGeometry };
@@ -14,8 +14,8 @@ export type AnnotSpec =
   | { type: "Text"; at: Pt; contents: string; color?: RGB; icon?: string }
   | { type: "FreeText"; rect: number[]; contents: string; fontSize?: number; color?: RGB; fill?: RGB | null; width?: number }
   | { type: "Square" | "Circle"; rect: number[]; color?: RGB; fill?: RGB | null; width?: number; contents?: string; cloud?: boolean; opacity?: number; label?: Label }
-  | { type: "Line"; a: Pt; b: Pt; arrow?: boolean; color?: RGB; width?: number; contents?: string; dimension?: boolean; caption?: string; captionSize?: number; measure?: MeasureSpec }
-  | { type: "Polygon" | "PolyLine"; vertices: Pt[]; color?: RGB; fill?: RGB | null; width?: number; contents?: string; cloud?: boolean; opacity?: number; label?: Label; intent?: string; measure?: MeasureSpec }
+  | { type: "Line"; a: Pt; b: Pt; arrow?: boolean; color?: RGB; width?: number; contents?: string; dimension?: boolean; caption?: string; captionSize?: number; measure?: MeasureSpec; meas?: Meas }
+  | { type: "Polygon" | "PolyLine"; vertices: Pt[]; color?: RGB; fill?: RGB | null; width?: number; contents?: string; cloud?: boolean; opacity?: number; label?: Label; intent?: string; measure?: MeasureSpec; meas?: Meas }
   | { type: "Callout"; target: Pt; knee?: Pt; rect: number[]; contents: string; fontSize?: number; color?: RGB; fill?: RGB | null; width?: number; arrow?: string }
   | { type: "ReviewStamp"; rect: number[]; title: string; name: string; date: string; company?: string; color?: RGB }
   | { type: "Ink"; strokes: Pt[][]; color?: RGB; width?: number; contents?: string }
@@ -24,6 +24,8 @@ export type AnnotSpec =
 
 /** Text drawn on the page as part of a markup (a measurement value, a count number). */
 export interface Label { text: string; at: Pt; size?: number; color?: RGB; /** White backing behind the text (default true). */ bg?: boolean }
+/** A measurement's raw value, kept so its label can be re-written at another precision. */
+export interface Meas { kind: "len" | "area" | "per"; /** Points (length) or square points (area). */ value: number; /** The other one: perimeter for areas, area for perimeters. */ value2?: number; k: number; unit: string; prec?: number }
 /** Scale written into a measurement markup's /Measure dictionary so other PDF apps read the same values. */
 export interface MeasureSpec { ratio: string; xUnit: string; xC: number; aUnit: string }
 
@@ -59,6 +61,10 @@ export interface AnnotInfo {
   fill?: number[] | null;
   borderWidth?: number;
   arrow?: string;
+  /** Measurements, dimensions and counts: the label's text size, and the measured value if it can be re-formatted. */
+  label?: { size: number; meas?: Meas };
+  /** Plain text boxes: rotated by this many degrees (clockwise, as seen). */
+  angle?: number;
 }
 
 export const REVIEW_STATES = ["Accepted", "Rejected", "Cancelled", "Completed", "None"] as const;
@@ -107,6 +113,7 @@ export function listAnnotations(doc: mupdf.PDFDocument, pageIndex: number): Anno
           quads: a.hasQuadPoints() ? a.getQuadPoints().map((q) => Array.from(q)) : undefined,
           xf: a.getType() === "Stamp" ? imageStampXf(a) : undefined,
           ...(a.getType() === "FreeText" ? textBoxInfo(page as mupdf.PDFPage, a) : {}),
+          ...labelInfo(a),
           ...threadInfo(a),
         };
       });
@@ -145,7 +152,7 @@ export function addAnnotation(doc: mupdf.PDFDocument, pageIndex: number, spec: A
       case "Callout": {
         a.setRect(spec.rect as mupdf.Rect);
         a.setDefaultAppearance("Helv", spec.fontSize ?? 12, color ?? [0, 0, 0]);
-        a.setCalloutLine(calloutGeometry(spec.rect, spec.target, spec.knee) as mupdf.Point[]);
+        setCallout(doc, page, a, calloutGeometry(spec.rect, spec.target, spec.knee));
         a.setCalloutStyle((spec.arrow ?? "OpenArrow") as mupdf.PDFAnnotationLineEndingStyle);
         a.setIntent("FreeTextCallout");
         a.setBorderWidth(spec.width ?? 1);
@@ -209,6 +216,7 @@ export function addAnnotation(doc: mupdf.PDFDocument, pageIndex: number, spec: A
       o.put("HDFLabel", toPdfArray(doc, [L.text, L.at[0], L.at[1], L.size ?? 10, ...(L.color ?? color ?? [0, 0, 0]), L.bg === false ? 0 : 1]));
     }
     if ("measure" in spec && spec.measure) o.put("Measure", measureObj(doc, spec.measure));
+    if ("meas" in spec && spec.meas) putMeas(doc, o, spec.meas);
     if (spec.type !== "Redact" && spec.type !== "Stamp") a.setAuthor(author);
     const now = new Date();
     a.setCreationDate?.(now);
@@ -219,6 +227,32 @@ export function addAnnotation(doc: mupdf.PDFDocument, pageIndex: number, spec: A
   } finally {
     page.destroy();
   }
+}
+
+function putMeas(doc: mupdf.PDFDocument, o: mupdf.PDFObject, m: Meas) {
+  o.put("HDFMeas", toPdfArray(doc, [m.kind, m.value, m.k, m.unit, m.prec ?? -1, m.value2 ?? 0]));
+}
+
+function labelInfo(a: mupdf.PDFAnnotation): Partial<AnnotInfo> {
+  const o = a.getObject();
+  const L = o.get("HDFLabel");
+  if (!L.isArray()) return {};
+  const M = o.get("HDFMeas");
+  let meas: Meas | undefined;
+  if (M.isArray() && M.length >= 6) {
+    const prec = M.get(4).asNumber();
+    meas = { kind: M.get(0).asString() as Meas["kind"], value: M.get(1).asNumber(), k: M.get(2).asNumber(), unit: M.get(3).asString(), prec: prec >= 0 ? prec : undefined, value2: M.get(5).asNumber() || undefined };
+  }
+  return { label: { size: L.get(3).asNumber(), meas } };
+}
+
+/** A measurement's label and comment text. */
+export function measTexts(m: Meas): { label: string; contents: string } {
+  const s = { k: m.k, unit: m.unit as Unit, label: "" };
+  const len = (v: number) => lengthText(v, s, m.prec), area = (v: number) => areaText(v, s, m.prec);
+  if (m.kind === "len") return { label: len(m.value), contents: `Length: ${len(m.value)}` };
+  const A = m.kind === "area" ? m.value : m.value2 ?? 0, P = m.kind === "area" ? m.value2 ?? 0 : m.value;
+  return { label: m.kind === "area" ? area(A) : len(P), contents: `Area: ${area(A)}; Perimeter: ${len(P)}` };
 }
 
 function toPdfArray(doc: mupdf.PDFDocument, items: (string | number)[]) {
@@ -286,6 +320,7 @@ function fontDict(doc: mupdf.PDFDocument, base: string) {
 function decorate(doc: mupdf.PDFDocument, page: mupdf.PDFPage, a: mupdf.PDFAnnotation) {
   const o = a.getObject();
   if (o.get("HDFImg").isArray()) return drawImageStamp(doc, page, a);
+  if (o.get("HDFTxf").isArray()) return drawRotatedText(doc, page, a);
   const stamp = o.get("HDFStamp");
   const label = o.get("HDFLabel");
   if (!stamp.isArray() && !label.isArray()) return;
@@ -538,6 +573,18 @@ export function mergeAnnotations(doc: mupdf.PDFDocument, src: mupdf.PDFDocument)
   return { added, authors };
 }
 
+/**
+ * Write a callout leader (display space). mupdf's setCalloutLine drops the page's origin offset, so on
+ * drawings whose MediaBox or CropBox doesn't start at 0,0 (most CAD output) the leader landed far from the box.
+ */
+function setCallout(doc: mupdf.PDFDocument, page: mupdf.PDFPage, a: mupdf.PDFAnnotation, pts: Pt[]) {
+  a.setCalloutLine(pts as mupdf.Point[]); // lets mupdf set up the callout bookkeeping; the points are rewritten below
+  const inv = mupdf.Matrix.invert(page.getTransform());
+  const cl = doc.newArray();
+  for (const [x, y] of pts) (cl.push(x * inv[0] + y * inv[2] + inv[4]), cl.push(x * inv[1] + y * inv[3] + inv[5]));
+  a.getObject().put("CL", cl);
+}
+
 /** A text box's own box (without the leader), callout line and style, in display space. */
 function textBoxInfo(page: mupdf.PDFPage, a: mupdf.PDFAnnotation): Partial<AnnotInfo> {
   const o = a.getObject();
@@ -547,10 +594,14 @@ function textBoxInfo(page: mupdf.PDFPage, a: mupdf.PDFAnnotation): Partial<Annot
   const R = [0, 1, 2, 3].map((i) => r.get(i).asNumber());
   const D = rd.isArray() ? [0, 1, 2, 3].map((i) => rd.get(i).asNumber()) : [0, 0, 0, 0];
   const p0 = toDisp(R[0] + D[0], R[1] + D[1]), p1 = toDisp(R[2] - D[2], R[3] - D[3]);
-  const box = [Math.min(p0[0], p1[0]), Math.min(p0[1], p1[1]), Math.max(p0[0], p1[0]), Math.max(p0[1], p1[1])];
+  const txf = o.get("HDFTxf");
+  const turned = txf.isArray() ? readXf(txf) : null;
+  const box = turned ? xfBox(turned) : [Math.min(p0[0], p1[0]), Math.min(p0[1], p1[1]), Math.max(p0[0], p1[0]), Math.max(p0[1], p1[1])];
   const cl = o.get("CL");
   let callout: Pt[] | undefined;
-  if (cl.isArray() && cl.length >= 4) {
+  // mupdf writes a placeholder /CL on every text box, so only a callout's intent makes it one.
+  const it = o.get("IT");
+  if (cl.isArray() && cl.length >= 4 && it.isName() && it.asName() === "FreeTextCallout") {
     const v = Array.from({ length: cl.length }, (_, i) => cl.get(i).asNumber());
     const pts: Pt[] = [];
     for (let i = 0; i + 1 < v.length; i += 2) pts.push(toDisp(v[i], v[i + 1]));
@@ -567,7 +618,9 @@ function textBoxInfo(page: mupdf.PDFPage, a: mupdf.PDFAnnotation): Partial<Annot
   try {
     arrow = callout ? a.getCalloutStyle?.() : undefined;
   } catch { /* none */ }
-  return { box, callout, fontSize, textColor, fill: c.length >= 3 ? Array.from(c) : null, borderWidth: a.hasBorder() ? a.getBorderWidth() : undefined, arrow };
+  // Plain text boxes get the same move / resize / turn handles as pictures.
+  const xf = callout ? undefined : turned ?? xfFromRect(box);
+  return { box, callout, fontSize, textColor, fill: c.length >= 3 ? Array.from(c) : null, borderWidth: a.hasBorder() ? a.getBorderWidth() : undefined, arrow, xf, angle: xf?.angle };
 }
 
 function findAnnot(page: mupdf.PDFPage, key: number) {
@@ -584,6 +637,9 @@ export interface AnnotPatch {
   box?: number[];
   target?: Pt;
   arrow?: string;
+  /** Measurements and dimensions: label text size, and decimal places / fraction (0–4, null = the unit's usual). */
+  labelSize?: number;
+  precision?: number | null;
 }
 
 export function updateAnnotation(doc: mupdf.PDFDocument, pageIndex: number, key: number, patch: AnnotPatch) {
@@ -608,9 +664,22 @@ export function updateAnnotation(doc: mupdf.PDFDocument, pageIndex: number, key:
       if (info.callout || patch.target) {
         const target = patch.target ?? info.callout![0];
         a.setRect(box as mupdf.Rect);
-        a.setCalloutLine(calloutGeometry(box, target) as mupdf.Point[]);
+        setCallout(doc, page, a, calloutGeometry(box, target));
         if (patch.arrow) a.setCalloutStyle(patch.arrow as mupdf.PDFAnnotationLineEndingStyle);
+      } else if (a.getObject().get("HDFTxf").isArray()) {
+        const t = readXf(a.getObject().get("HDFTxf"));
+        a.getObject().put("HDFTxf", toPdfArray(doc, [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2, box[2] - box[0], box[3] - box[1], t.angle]));
       } else a.setRect(box as mupdf.Rect);
+    }
+    const L = a.getObject().get("HDFLabel");
+    if (L.isArray() && patch.labelSize && patch.labelSize > 0) L.put(3, doc.newReal(patch.labelSize));
+    const M = a.getObject().get("HDFMeas");
+    if (L.isArray() && M.isArray() && patch.precision !== undefined) {
+      M.put(4, doc.newReal(patch.precision === null ? -1 : Math.max(0, Math.min(4, Math.round(patch.precision)))));
+      const m = labelInfo(a).label!.meas!;
+      const t = measTexts(m);
+      L.put(0, doc.newString(t.label));
+      if (patch.contents === undefined) a.setContents(/^(Length|Area):/.test(a.getContents() ?? "") ? t.contents : t.label);
     }
     if (patch.rect) a.setRect(patch.rect as mupdf.Rect);
     if (patch.rect && a.getObject().get("HDFStamp").isArray()) a.getObject().put("HDFRect", toPdfArray(doc, patch.rect));
@@ -700,6 +769,60 @@ function drawImageStamp(doc: mupdf.PDFDocument, page: mupdf.PDFPage, a: mupdf.PD
   const ap = doc.newDictionary();
   ap.put("N", doc.addStream(latin1(cs), sd));
   o.put("AP", ap);
+}
+
+const readXf = (x: mupdf.PDFObject): Xf => {
+  const [cx, cy, w, h, angle] = [0, 1, 2, 3, 4].map((i) => x.get(i).asNumber());
+  return { cx, cy, w, h, angle };
+};
+const xfBox = (t: Xf) => [t.cx - t.w / 2, t.cy - t.h / 2, t.cx + t.w / 2, t.cy + t.h / 2];
+
+/**
+ * A text box turned to any angle: mupdf lays the text out in the unturned box, and that
+ * appearance is drawn turned about the box's centre (as seen on screen, whatever the page's /Rotate).
+ */
+function drawRotatedText(doc: mupdf.PDFDocument, page: mupdf.PDFPage, a: mupdf.PDFAnnotation) {
+  const o = a.getObject();
+  const t = readXf(o.get("HDFTxf"));
+  a.setRect(xfBox(t) as mupdf.Rect);
+  a.update();
+  if (!t.angle) return;
+  const inner = o.get("AP").get("N");
+  if (!inner.isStream()) return;
+  const T = page.getTransform(), toUser = mupdf.Matrix.invert(T);
+  const r = (t.angle * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r);
+  const R: mupdf.Matrix = [c, s, -s, c, t.cx - t.cx * c + t.cy * s, t.cy - t.cx * s - t.cy * c];
+  const M = mupdf.Matrix.concat(mupdf.Matrix.concat(T, R), toUser);
+  const uc = xfCorners(t).map(([x, y]) => [x * toUser[0] + y * toUser[2] + toUser[4], x * toUser[1] + y * toUser[3] + toUser[5]]);
+  const xs = uc.map((p) => p[0]), ys = uc.map((p) => p[1]);
+  const ub = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+  const sd = doc.newDictionary();
+  sd.put("Type", doc.newName("XObject"));
+  sd.put("Subtype", doc.newName("Form"));
+  sd.put("BBox", toPdfArray(doc, ub));
+  const res = doc.newDictionary();
+  const xo = doc.newDictionary();
+  xo.put("Fm", inner.isIndirect() ? inner : doc.addObject(inner));
+  res.put("XObject", xo);
+  sd.put("Resources", res);
+  const ap = doc.newDictionary();
+  ap.put("N", doc.addStream(latin1(`q ${Array.from(M).map((v) => v.toFixed(5)).join(" ")} cm /Fm Do Q`), sd));
+  o.put("AP", ap);
+  o.put("Rect", toPdfArray(doc, ub));
+}
+
+/** Move, resize and/or turn a plain text box (display space, angle clockwise as seen). */
+export function transformTextBox(doc: mupdf.PDFDocument, pageIndex: number, key: number, t: Xf) {
+  const page = doc.loadPage(pageIndex) as mupdf.PDFPage;
+  try {
+    const a = findAnnot(page, key);
+    if (a.getType() !== "FreeText") throw new Error("Only text boxes can be turned this way");
+    a.getObject().put("HDFTxf", toPdfArray(doc, [t.cx, t.cy, Math.max(8, t.w), Math.max(8, t.h), t.angle]));
+    a.setModificationDate(new Date());
+    drawRotatedText(doc, page, a);
+  } finally {
+    page.destroy();
+  }
 }
 
 /** Redraw a freshly placed image stamp upright as the page is displayed (mupdf draws it in unrotated page space). */

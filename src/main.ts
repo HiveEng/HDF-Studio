@@ -1820,6 +1820,27 @@ async function textBoxProperties(a: AnnotInfo) {
   }
   if (r.keep !== "this") status(r.keep === "chest" ? "Style saved to the tool chest and used for new ones." : `New ${isCallout ? "callouts" : "text boxes"} will use this style.`);
 }
+/** Text size and precision of a measurement's label (this one, and optionally every new one). */
+async function measureProperties(a: AnnotInfo) {
+  if (!a.label) return;
+  const { precisionOptions } = await import("./engine/measure");
+  const { setToolDefaults } = await import("./ui/prefs");
+  const m = a.label.meas;
+  const r = await ask(m ? "Measurement text" : "Label text", [
+    { name: "size", label: "Text size (pt)", type: "number", value: String(Math.round(a.label.size * 10) / 10) },
+    ...(m ? [{ name: "prec", label: m.unit === "ft-in" ? "Round to" : "Decimal places", type: "select" as const, value: m.prec === undefined ? "auto" : String(m.prec), options: [["auto", m.unit === "ft-in" ? 'Usual (1/16")' : "Usual for the unit"], ...precisionOptions(m.unit)] as [string, string][] }] : []),
+    { name: "keep", label: "Use for", type: "select", value: "this", options: [["this", "This one only"], ["default", "This one and every new measurement"]] },
+  ], "Apply");
+  if (!r) return;
+  const patch: Parameters<typeof engine.updateAnnotation>[3] = {};
+  if (+r.size > 0) patch.labelSize = +r.size;
+  if (m) patch.precision = r.prec === "auto" ? null : +r.prec;
+  await patchAnnot(a, patch, "Updated measurement text");
+  if (r.keep === "default") {
+    setToolDefaults("measure", { ...(+r.size > 0 ? { fontSize: +r.size } : {}), ...(m ? { precision: r.prec === "auto" ? undefined : +r.prec } : {}) });
+    status("New measurements will use this text size and precision.");
+  }
+}
 async function annotProperties(a: AnnotInfo) {
   if (a.type === "FreeText" && a.box) return textBoxProperties(a);
   const isText = a.type === "FreeText";
@@ -1827,7 +1848,7 @@ async function annotProperties(a: AnnotInfo) {
   const r = await ask(`${a.type === "FreeText" ? "Text box" : a.type === "Stamp" ? "Stamp" : "Markup"} properties`, [
     { name: "contents", label: isText ? "Text" : "Comment", value: a.contents },
     { name: "author", label: "Author", value: a.author },
-    ...(a.xf ? [] : [{ name: "color", label: isText ? "Text colour" : "Colour", type: "color" as const, value: hexOfRgb(a.color.length >= 3 ? a.color : [0.85, 0.1, 0.1]) }]),
+    ...(a.xf && !isText ? [] : [{ name: "color", label: isText ? "Text colour" : "Colour", type: "color" as const, value: hexOfRgb(a.color.length >= 3 ? a.color : [0.85, 0.1, 0.1]) }]),
     ...(hasLine ? [{ name: "width", label: "Line width (pt)", type: "number" as const, value: "" , placeholder: "unchanged" }] : []),
     ...(isText ? [{ name: "fontSize", label: "Text size (pt)", type: "number" as const, value: "", placeholder: "unchanged" }] : []),
     { name: "opacity", label: "Opacity (%)", type: "number", value: "", placeholder: "unchanged" },
@@ -1873,9 +1894,11 @@ pagesEl.addEventListener("contextmenu", async (e) => {
     if (annot.tool !== "hand") useTool("hand");
     annot.selectAnnot(a);
     const items: MenuItem[] = [];
+    const isImg = !!a.xf && a.type !== "FreeText";
     if (a.xf) items.push(...imageMenu((by) => annot.rotateSelectedStamp(by), () => annot.sizeSelectedStamp(), []), { sep: true });
     if (a.type === "FreeText") items.push({ label: "Add leader…", run: () => startEng("leader") });
-    if (!a.xf) items.push({ swatches: SWATCHES.map(([c, t]) => ({ color: c, title: t, run: () => void patchAnnot(a, { color: rgbOf(c) }, `Colour set to ${t.toLowerCase()}`) })) });
+    if (!isImg) items.push({ swatches: SWATCHES.map(([c, t]) => ({ color: c, title: t, run: () => void patchAnnot(a, { color: rgbOf(c) }, `Colour set to ${t.toLowerCase()}`) })) });
+    if (a.label) items.push({ label: a.label.meas ? "Measurement text (size, precision)…" : "Label text size…", run: () => void measureProperties(a) });
     items.push(
       { label: a.type === "FreeText" ? "Edit text…" : "Edit comment…", run: () => void annot.editSelected() },
       { label: a.type === "FreeText" ? "Style (colour, fill, size, arrow)…" : "Properties…", run: () => void annotProperties(a) },
@@ -1883,7 +1906,7 @@ pagesEl.addEventListener("contextmenu", async (e) => {
       { sep: true },
       { label: "Delete", keys: "Del", danger: true, run: () => void annot.deleteSelected() },
     );
-    return showMenu(x, y, items, a.xf ? (a.contents?.startsWith("Signed") ? "Signature" : "Image") : a.type === "FreeText" ? "Text box" : "Markup");
+    return showMenu(x, y, items, isImg ? (a.contents?.startsWith("Signed") ? "Signature" : "Image") : a.type === "FreeText" ? "Text box" : a.label?.meas ? "Measurement" : "Markup");
   }
   annot.selectAnnot(null);
   showMenu(x, y, [
@@ -1974,13 +1997,25 @@ async function findAndRedact() {
     const pages = parseRanges(r.pages, t.info.pageCount);
     const o = r.kind === "text" ? { text: r.q } : r.kind === "regex" ? { regex: r.q } : { pattern: r.kind as "email" };
     if (("text" in o && !o.text) || ("regex" in o && !o.regex)) return status("Type something to find");
-    const n = await engine.markRedactions(t.info.id, { ...o, pages, caseSensitive: r.case === "yes" });
+    const { count: n, textless } = await engine.markRedactions(t.info.id, { ...o, pages, caseSensitive: r.case === "yes" });
     t.dirty = true;
     for (const p of pages) refreshPage(p);
     renderTabs();
     annot.refreshComments();
     updateRedactButton();
-    status(n ? `Marked ${n} match${n === 1 ? "" : "es"} for redaction. Review them in Comments, then click "Apply".` : "No matches");
+    if (n) return status(`Marked ${n} match${n === 1 ? "" : "es"} for redaction. Review them in Comments, then click "Apply".`);
+    status("No matches");
+    // Drawings often draw their lettering as lines (CAD SHX fonts), which can't be searched until it is recognized.
+    const why = textless.length ? `${textless.length === pages.length ? "This document has" : `${textless.length} of the searched pages have`} no searchable text.` : "Some lettering on drawings is drawn as lines (CAD fonts) and can't be searched as text.";
+    if (await confirmDialog(`No matches found. ${why} Recognize the text (OCR) on ${pages.length === 1 ? "this page" : `these ${pages.length} pages`} and search again?`, "Recognize and search")) {
+      await recognizeText(pages);
+      if (active !== t) return;
+      const again = await engine.markRedactions(t.info.id, { ...o, pages, caseSensitive: r.case === "yes" });
+      for (const p of pages) refreshPage(p);
+      annot.refreshComments();
+      updateRedactButton();
+      status(again.count ? `Marked ${again.count} match${again.count === 1 ? "" : "es"} for redaction. Review them in Comments, then click "Apply".` : "Still no matches after recognizing the text.");
+    }
   } catch (e) {
     status((e as Error).message);
   }
@@ -2265,7 +2300,7 @@ const commands: Command[] = [
   { id: "tool-edit", title: "Edit tool: change page text and images", keys: "E", run: () => useTool("edit") },
   { id: "insertImage", title: "Insert image…", run: () => (annot.setTool("edit"), editUI.insertImage()) },
   { id: "replaceImage", title: "Replace selected image…", run: () => editUI.replaceSelectedImage() },
-  { id: "saveImage", title: "Save selected image as PNG…", run: () => editUI.saveSelectedImage() },
+  { id: "saveImage", title: "Extract image: save a picture, or any area of the page, as PNG…", run: () => editUI.extractImageFlow() },
   { id: "textStyle", title: "Font, size and colour for new text…", run: () => editUI.setTextStyle() },
   { id: "createPdf", title: "Create PDF from files (images, Word, Excel, PowerPoint, HTML, text)…", keys: "Ctrl+N", run: () => createPdf() },
   { id: "newBlank", title: "New blank PDF…", keys: "Ctrl+Shift+N", run: () => newBlank() },

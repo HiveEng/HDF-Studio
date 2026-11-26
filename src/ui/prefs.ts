@@ -9,6 +9,8 @@ export interface ToolPrefs {
   fill?: string;
   /** Callouts: arrow head style. */
   arrow?: string;
+  /** Measurements: decimal places, or for feet and inches the fraction (0–4); unset = the unit's usual. */
+  precision?: number;
 }
 
 export const TOOL_GROUPS: [ToolGroup, string][] = [

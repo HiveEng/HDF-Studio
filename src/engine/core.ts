@@ -539,8 +539,8 @@ export class Engine {
 
   // ---------- Redaction & security ----------
 
-  markRedactions(id: number, o: redact.FindRedactOptions): number {
-    return this.op(id, "Mark for redaction", () => redact.markMatches(this.pdf(id), o));
+  markRedactions(id: number, o: redact.FindRedactOptions): { count: number; textless: number[] } {
+    return this.op(id, "Mark for redaction", () => redact.findAndMark(this.pdf(id), o));
   }
 
   redactionCount(id: number): number {
@@ -922,12 +922,26 @@ export class Engine {
     this.op(id, "Move image", () => edit.transformImage(this.pdf(id), pageIndex, index, to));
   }
 
+  transformTextBox(id: number, pageIndex: number, key: number, to: Xf): void {
+    this.op(id, "Move text box", () => annots.transformTextBox(this.pdf(id), pageIndex, key, to));
+  }
+
   transformImageStamp(id: number, pageIndex: number, key: number, to: Xf): void {
     this.op(id, "Move image", () => annots.transformImageStamp(this.pdf(id), pageIndex, key, to));
   }
 
   moveImage(id: number, pageIndex: number, index: number, to: number[], replacement?: Uint8Array): void {
     this.op(id, replacement ? "Replace image" : "Move image", () => edit.moveImage(this.pdf(id), pageIndex, index, to, replacement));
+  }
+
+  /** A part of a page (display space) as a PNG, with markup, at `dpi`. */
+  renderArea(id: number, pageIndex: number, rect: number[], dpi = 300): Uint8Array {
+    const page = this.get(id).loadPage(pageIndex);
+    try {
+      return imageexport.renderArea(page, rect, dpi);
+    } finally {
+      page.destroy();
+    }
   }
 
   extractImage(id: number, pageIndex: number, index: number): Uint8Array {

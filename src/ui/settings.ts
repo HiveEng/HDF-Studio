@@ -1,7 +1,7 @@
 // Settings window: who you are (for comments and stamps), units and dates, and the default
 // colour / line width / opacity / text size for each markup tool. Kept on this computer.
 import { getPrefs, savePrefs, setToolOverride, TOOL_GROUPS, type Prefs, type ToolGroup } from "./prefs";
-import { UNITS, type Unit } from "../engine/measure";
+import { UNITS, PRECISIONS, type Unit } from "../engine/measure";
 
 export interface SettingsDeps {
   theme: { dark(): boolean; set(dark: boolean): void };
@@ -49,6 +49,7 @@ export async function openSettings(d: SettingsDeps) {
     el("h3", { textContent: "Drawings and dates" }),
     el("div", { className: "set-grid" },
       field("Measurement units", select("units", UNITS, p.units), "Used when you set a scale"),
+      field("Measurement precision", select("precision", [["auto", "Usual for the unit"], ...PRECISIONS], p.tools.measure.precision === undefined ? "auto" : String(p.tools.measure.precision)), "Decimal places, or the fraction for feet and inches. Right-click a measurement to change just that one."),
       field("Date format", select("dateFormat", [["iso", "2026-11-25"], ["us", "11/25/2026"], ["long", "November 25, 2026"]], p.dateFormat), "Used on stamps"),
     ),
     el("h3", { textContent: "App" }),
@@ -126,12 +127,15 @@ export async function openSettings(d: SettingsDeps) {
     for (const [g] of TOOL_GROUPS as [ToolGroup, string][]) {
       const old = p.tools[g];
       next.tools[g] = {
+        ...old,
         color: v(`${g}.color`) || old.color,
         width: clamp(parseFloat(v(`${g}.width`)), 0.25, 12, old.width),
         opacity: clamp(parseFloat(v(`${g}.opacity`)), 10, 100, old.opacity * 100) / 100,
         fontSize: clamp(parseFloat(v(`${g}.fontSize`)), 6, 48, old.fontSize),
       };
     }
+    const prec = v("precision");
+    next.tools.measure = { ...next.tools.measure, precision: prec === "auto" ? undefined : +prec };
     savePrefs(next);
     localStorage.setItem("hdfstudio.ocrLangs", v("ocr"));
     localStorage.setItem("hdfstudio.print", JSON.stringify({ ...print, fit: v("printFit"), dpi: v("printDpi") }));

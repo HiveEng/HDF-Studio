@@ -17,6 +17,7 @@ export interface AnnotateDeps {
     selectText(id: number, page: number, a: Pt, b: Pt, mode?: "chars" | "words" | "lines"): Promise<{ quads: number[][]; text: string }>;
     addAnnotation(id: number, page: number, spec: AnnotSpec, author: string): Promise<number>;
     transformImageStamp(id: number, page: number, key: number, to: Xf): Promise<void>;
+    transformTextBox(id: number, page: number, key: number, to: Xf): Promise<void>;
     updateAnnotation(id: number, page: number, key: number, patch: AnnotPatch): Promise<void>;
     deleteAnnotation(id: number, page: number, key: number): Promise<void>;
     annotationAt(id: number, page: number, p: Pt): Promise<AnnotInfo | null>;
@@ -145,7 +146,7 @@ export function setupAnnotate(d: AnnotateDeps) {
     d.commentsEl.querySelectorAll(".comment.active").forEach((n) => n.classList.remove("active"));
     if (!a) return;
     const el = d.pagesEl.children[a.page] as HTMLElement | undefined;
-    if (el && a.xf) drawHandles(overlay(el, a.page), a.xf, ppxOf(el, a.page), "sel");
+    if (el && a.xf) drawHandles(overlay(el, a.page), a.xf, ppxOf(el, a.page), "sel", a.type === "FreeText");
     else if (el && a.type === "FreeText" && a.box) drawTextHandles(overlay(el, a.page), a.box, a.callout?.[0], ppxOf(el, a.page));
     else if (el) {
       const [x0, y0, x1, y1] = a.rect;
@@ -195,16 +196,17 @@ export function setupAnnotate(d: AnnotateDeps) {
     if (tool === "hand") {
       // Handles of a selected signature or picture: move, resize, rotate.
       if (selected?.xf && selected.page === hit.index) {
-        const g = grabAt(selected.xf, p, ppxOf(hit.el, hit.index));
+        const isText = selected.type === "FreeText";
+        const g = grabAt(selected.xf, p, ppxOf(hit.el, hit.index), isText);
         if (g !== null) {
           e.preventDefault();
           hit.el.setPointerCapture(e.pointerId);
-          xdrag = { el: hit.el, index: hit.index, a: selected, x: beginDrag(selected.xf, g, p) };
+          xdrag = { el: hit.el, index: hit.index, a: selected, x: beginDrag(selected.xf, g, p, isText) };
           return;
         }
       }
       // Handles of a selected text box or callout: move the box, drag the arrow tip, resize.
-      if (selected?.type === "FreeText" && selected.box && selected.page === hit.index) {
+      if (selected?.type === "FreeText" && selected.callout && selected.box && selected.page === hit.index) {
         const g = grabText(selected.box, selected.callout?.[0], p, ppxOf(hit.el, hit.index));
         if (g) {
           e.preventDefault();
@@ -215,7 +217,7 @@ export function setupAnnotate(d: AnnotateDeps) {
       }
       const a = await d.engine.annotationAt(doc.info.id, hit.index, p);
       selectAnnot(a);
-      if (a?.type === "FreeText" && a.box) {
+      if (a?.type === "FreeText" && a.callout && a.box) {
         const g = grabText(a.box, a.callout?.[0], p, ppxOf(hit.el, hit.index)) ?? "move";
         e.preventDefault();
         hit.el.setPointerCapture(e.pointerId);
@@ -226,8 +228,11 @@ export function setupAnnotate(d: AnnotateDeps) {
       if (a?.xf) {
         e.preventDefault();
         hit.el.setPointerCapture(e.pointerId);
-        xdrag = { el: hit.el, index: hit.index, a, x: beginDrag(a.xf, "move", p) };
-        d.status("Drag to move, drag a corner to resize (Shift: free), drag the round knob to rotate. Right-click for more.");
+        const isText = a.type === "FreeText";
+        xdrag = { el: hit.el, index: hit.index, a, x: beginDrag(a.xf, "move", p, isText) };
+        d.status(isText
+          ? "Drag to move. Drag a corner or side grip to resize (the text re-wraps), the round knob to turn it (Shift: 15° steps). Double-click to edit the text, right-click for style."
+          : "Drag to move, drag a corner to resize (Shift: free), drag the round knob to rotate. Right-click for more.");
         return;
       }
       if (!a) {
@@ -258,12 +263,12 @@ export function setupAnnotate(d: AnnotateDeps) {
     }
     if (xdrag) {
       const t = updateDrag(xdrag.x, pointIn(xdrag.el, xdrag.index, e), e.shiftKey);
-      drawHandles(overlay(xdrag.el, xdrag.index), t, ppxOf(xdrag.el, xdrag.index), "sel");
+      drawHandles(overlay(xdrag.el, xdrag.index), t, ppxOf(xdrag.el, xdrag.index), "sel", xdrag.a.type === "FreeText");
       return;
     }
     if (tool === "hand" && selected?.xf) {
       const hit = pageOf(e);
-      if (hit && hit.index === selected.page) hit.el.style.cursor = cursorFor(grabAt(selected.xf, pointIn(hit.el, hit.index, e), ppxOf(hit.el, hit.index)), selected.xf);
+      if (hit && hit.index === selected.page) hit.el.style.cursor = cursorFor(grabAt(selected.xf, pointIn(hit.el, hit.index, e), ppxOf(hit.el, hit.index), selected.type === "FreeText"), selected.xf);
     }
     if (!drag) return;
     if (drag.scroll) {
@@ -365,9 +370,10 @@ export function setupAnnotate(d: AnnotateDeps) {
   async function transformStamp(a: AnnotInfo, t: Xf, label: string) {
     const doc = d.doc();
     if (!doc) return;
-    await d.engine.transformImageStamp(doc.info.id, a.page, a.key, t);
+    if (a.type === "FreeText") await d.engine.transformTextBox(doc.info.id, a.page, a.key, t);
+    else await d.engine.transformImageStamp(doc.info.id, a.page, a.key, t);
     d.refreshPage(a.page);
-    d.changed(`${label} ${a.contents?.startsWith("Signed") ? "signature" : "image"}`);
+    d.changed(`${label} ${a.type === "FreeText" ? "text box" : a.contents?.startsWith("Signed") ? "signature" : "image"}`);
     const again = (await d.engine.allAnnotations(doc.info.id)).find((x) => x.key === a.key);
     selectAnnot(again ?? null);
   }

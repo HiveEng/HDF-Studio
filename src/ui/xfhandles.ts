@@ -1,6 +1,6 @@
 // On-page move / resize / rotate handles for images and signatures. Drawn in the page's SVG
 // overlay (page points); the caller decides what a finished drag does.
-import { type Xf, type XfHit, type Pt2, corners, rotateHandle, hitXf, dragXf, norm } from "../engine/xform";
+import { type Xf, type XfHit, type Pt2, corners, edgeMids, rotateHandle, hitXf, dragXf, norm } from "../engine/xform";
 
 const SVGNS = "http://www.w3.org/2000/svg";
 const svgEl = (tag: string, attrs: Record<string, string | number>, cls = "") => {
@@ -14,7 +14,7 @@ const svgEl = (tag: string, attrs: Record<string, string | number>, cls = "") =>
 export const ptPerPx = (pageEl: HTMLElement, pageWidthPt: number) => pageWidthPt / pageEl.getBoundingClientRect().width;
 
 /** Draw the handles; returns the group so callers can remove it. */
-export function drawHandles(svg: SVGSVGElement, t: Xf, ppx: number, cls = "xf-handles"): SVGGElement {
+export function drawHandles(svg: SVGSVGElement, t: Xf, ppx: number, cls = "xf-handles", edges = false): SVGGElement {
   svg.querySelectorAll(`.${cls}`).forEach((n) => n.remove());
   const g = svgEl("g", {}, `${cls} xfh`) as SVGGElement;
   const cs = corners(t);
@@ -24,6 +24,7 @@ export function drawHandles(svg: SVGSVGElement, t: Xf, ppx: number, cls = "xf-ha
   const rh = rotateHandle(t, 18 * ppx);
   g.append(svgEl("line", { x1: top[0], y1: top[1], x2: rh[0], y2: rh[1], ...stroke }));
   g.append(svgEl("circle", { cx: rh[0], cy: rh[1], r: 5 * ppx, fill: "#fff", stroke: "#05C7F2", "stroke-width": 1.5 * ppx }));
+  if (edges) for (const p of edgeMids(t)) g.append(svgEl("rect", { x: p[0] - 3.5 * ppx, y: p[1] - 3.5 * ppx, width: 7 * ppx, height: 7 * ppx, fill: "#05C7F2", stroke: "#fff", "stroke-width": 1 * ppx }));
   for (const p of cs) g.append(svgEl("rect", { x: p[0] - 4 * ppx, y: p[1] - 4 * ppx, width: 8 * ppx, height: 8 * ppx, fill: "#fff", stroke: "#05C7F2", "stroke-width": 1.5 * ppx }));
   const label = svgEl("text", { x: rh[0] + 9 * ppx, y: rh[1] + 4 * ppx, "font-size": 11 * ppx, fill: "#0D0D0D", "font-family": "system-ui, sans-serif", "paint-order": "stroke", stroke: "#fff", "stroke-width": 3 * ppx }, "xf-angle");
   label.textContent = t.angle ? `${Math.round(norm(t.angle))}°` : "";
@@ -33,21 +34,23 @@ export function drawHandles(svg: SVGSVGElement, t: Xf, ppx: number, cls = "xf-ha
 }
 
 /** What a press grabs, using screen-sized tolerances. */
-export const grabAt = (t: Xf, p: Pt2, ppx: number): XfHit | null => hitXf(t, p, 7 * ppx);
+export const grabAt = (t: Xf, p: Pt2, ppx: number, edges = false): XfHit | null => hitXf(t, p, 7 * ppx, edges);
 
 export const cursorFor = (g: XfHit | null, t: Xf): string => {
   if (g === null) return "";
   if (g === "move") return "move";
   if (g === "rotate") return "grab";
-  // Corner cursors follow the rotation.
-  const a = (norm(t.angle) + (g === 0 || g === 2 ? 45 : 135)) % 180;
+  // Corner and side cursors follow the rotation.
+  const a = (norm(t.angle) + (g === 0 || g === 2 ? 45 : g === 1 || g === 3 ? 135 : g === 4 || g === 6 ? 90 : 0)) % 180;
   return a < 22.5 || a >= 157.5 ? "ew-resize" : a < 67.5 ? "nwse-resize" : a < 112.5 ? "ns-resize" : "nesw-resize";
 };
 
-export interface XfDrag { t0: Xf; grab: XfHit; from: Pt2; t: Xf }
-export const beginDrag = (t0: Xf, grab: XfHit, from: Pt2): XfDrag => ({ t0, grab, from, t: t0 });
+/** `freeResize`: corners resize freely (text boxes) instead of keeping the aspect ratio; Shift still snaps rotation. */
+export interface XfDrag { t0: Xf; grab: XfHit; from: Pt2; t: Xf; freeResize?: boolean }
+export const beginDrag = (t0: Xf, grab: XfHit, from: Pt2, freeResize = false): XfDrag => ({ t0, grab, from, t: t0, freeResize });
 export function updateDrag(d: XfDrag, to: Pt2, shift: boolean): Xf {
-  d.t = dragXf(d.t0, d.grab, d.from, to, shift);
+  const free = d.freeResize && d.grab !== "rotate" ? !shift : shift;
+  d.t = dragXf(d.t0, d.grab, d.from, to, free);
   return d.t;
 }
 export const changed = (a: Xf, b: Xf) => Math.abs(a.cx - b.cx) > 0.5 || Math.abs(a.cy - b.cy) > 0.5 || Math.abs(a.w - b.w) > 0.5 || Math.abs(a.h - b.h) > 0.5 || Math.abs(a.angle - b.angle) > 0.05;
