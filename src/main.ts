@@ -1754,12 +1754,12 @@ async function textBoxProperties(a: AnnotInfo) {
 /** Text size and precision of a measurement's label (this one, and optionally every new one). */
 async function measureProperties(a: AnnotInfo) {
   if (!a.label) return;
-  const { precisionOptions } = await import("./engine/measure");
+  const { precisionOptions, usualPrecision } = await import("./engine/measure");
   const { setToolDefaults } = await import("./ui/prefs");
   const m = a.label.meas;
   const r = await ask(m ? "Measurement text" : "Label text", [
     { name: "size", label: "Text size (pt)", type: "number", value: String(Math.round(a.label.size * 10) / 10) },
-    ...(m ? [{ name: "prec", label: m.unit === "ft-in" ? "Round to" : "Decimal places", type: "select" as const, value: m.prec === undefined ? "auto" : String(m.prec), options: [["auto", m.unit === "ft-in" ? 'Usual (1/16")' : "Usual for the unit"], ...precisionOptions(m.unit)] as [string, string][] }] : []),
+    ...(m ? [{ name: "prec", label: m.unit === "ft-in" ? "Round to" : "Decimal places", type: "select" as const, value: m.prec === undefined ? "auto" : String(m.prec), options: [["auto", usualPrecision(m.unit)], ...precisionOptions(m.unit)] as [string, string][] }] : []),
     { name: "keep", label: "Use for", type: "select", value: "this", options: [["this", "This one only"], ["default", "This one and every new measurement"]] },
   ], "Apply");
   if (!r) return;

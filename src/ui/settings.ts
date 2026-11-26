@@ -1,7 +1,7 @@
 // Settings window: who you are (for comments and stamps), units and dates, and the default
 // colour / line width / opacity / text size for each markup tool. Kept on this computer.
 import { getPrefs, savePrefs, setToolOverride, TOOL_GROUPS, type Prefs, type ToolGroup } from "./prefs";
-import { UNITS, PRECISIONS, type Unit } from "../engine/measure";
+import { UNITS, precisionOptions, usualPrecision, type Unit } from "../engine/measure";
 
 export interface SettingsDeps {
   theme: { dark(): boolean; set(dark: boolean): void };
@@ -39,6 +39,16 @@ export async function openSettings(d: SettingsDeps) {
   };
   const text = (name: string, value: string, placeholder = "") => el("input", { name, value, placeholder });
 
+  // Precision choices follow the chosen units (decimals for metric and decimal feet, fractions for feet and inches).
+  const precSel = select("precision", [], "");
+  const fillPrec = (unit: string, value: string) => {
+    precSel.replaceChildren(...[["auto", usualPrecision(unit)], ...precisionOptions(unit)].map(([v, t]) => new Option(t, v, false, v === value)));
+  };
+  fillPrec(p.units, p.tools.measure.precision === undefined ? "auto" : String(p.tools.measure.precision));
+
+  const unitSel = select("units", UNITS, p.units) as HTMLSelectElement;
+  unitSel.onchange = () => fillPrec(unitSel.value, (precSel as HTMLSelectElement).value);
+
   // ----- General -----
   const general = el("section", { className: "set-sec" },
     el("h3", { textContent: "You" }),
@@ -48,8 +58,8 @@ export async function openSettings(d: SettingsDeps) {
     ),
     el("h3", { textContent: "Drawings and dates" }),
     el("div", { className: "set-grid" },
-      field("Measurement units", select("units", UNITS, p.units), "Used when you set a scale"),
-      field("Measurement precision", select("precision", [["auto", "Usual for the unit"], ...PRECISIONS], p.tools.measure.precision === undefined ? "auto" : String(p.tools.measure.precision)), "Decimal places, or the fraction for feet and inches. Right-click a measurement to change just that one."),
+      field("Measurement units", unitSel, "Used when you set a scale"),
+      field("Measurement precision", precSel, "Follows the units above. Right-click a measurement to change just that one."),
       field("Date format", select("dateFormat", [["iso", "2026-11-25"], ["us", "11/25/2026"], ["long", "November 25, 2026"]], p.dateFormat), "Used on stamps"),
     ),
     el("h3", { textContent: "App" }),

@@ -99,10 +99,14 @@ const toUnit = (inches: number, unit: Unit) => (unit === "ft-in" ? inches / 12 :
  * Precision: 0–4. Decimal units show that many decimal places; feet-and-inches rounds to
  * 1", 1/2", 1/4", 1/8" or 1/16". Left out, each unit uses its usual precision.
  */
-export const PRECISIONS: [string, string][] = [["0", "0  (feet-inches: 1\")"], ["1", "0.0  (1/2\")"], ["2", "0.00  (1/4\")"], ["3", "0.000  (1/8\")"], ["4", "0.0000  (1/16\")"]];
 /** Precision choices worded for one unit. */
-export const precisionOptions = (unit: string): [string, string][] =>
-  unit === "ft-in" ? [["0", 'Nearest 1"'], ["1", '1/2"'], ["2", '1/4"'], ["3", '1/8"'], ["4", '1/16"']] : [["0", "0"], ["1", "0.0"], ["2", "0.00"], ["3", "0.000"], ["4", "0.0000"]];
+export const precisionOptions = (unit: string): [string, string][] => {
+  if (unit === "ft-in") return [["0", 'Nearest 1"'], ["1", 'Nearest 1/2"'], ["2", 'Nearest 1/4"'], ["3", 'Nearest 1/8"'], ["4", 'Nearest 1/16"']];
+  const u = unit === "in" ? "in" : unit;
+  return [0, 1, 2, 3, 4].map((d) => [String(d), `${(0).toFixed(d)} ${u}`]);
+};
+/** What "usual" precision means for a unit, for the first choice in the list. */
+export const usualPrecision = (unit: string) => (unit === "ft-in" ? 'Usual (nearest 1/16")' : `Usual (${(0).toFixed(unit === "mm" ? 0 : unit === "cm" || unit === "in" ? 1 : 2)} ${unit})`);
 
 /** Format a real length given in inches. */
 export function formatLength(inches: number, unit: Unit, prec?: number): string {
