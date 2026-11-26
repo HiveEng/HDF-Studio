@@ -488,8 +488,11 @@ export function setupEngineering(d: EngDeps) {
     const t = tool();
     if (t === "leader") {
       const lp = pointIn(hit.el, hit.index, e);
+      const placingTip = !leaderOf && !pts.length;
+      // Only a press that sets the arrow tip can be dragged to the tail (no second leader from the release).
+      downAt = null;
       await leaderClick(hit.el, hit.index, lp);
-      downAt = !leaderOf && pts.length ? lp : null;
+      downAt = placingTip && !leaderOf && pts.length ? lp : null;
       return;
     }
     if (pageEl && hit.el !== pageEl) reset();

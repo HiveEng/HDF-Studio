@@ -273,7 +273,7 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 .page svg.ov rect.preview, .page svg.ov ellipse.preview, .page svg.ov line.preview, .page svg.ov polyline.preview { vector-effect: non-scaling-stroke; }
 .page svg.ov rect.preview[fill="none"] { fill: none; }
 .page svg.ov .sel { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
-#viewer[data-tool="hand"] .page { cursor: grab; }
+#viewer[data-tool="hand"] .page { cursor: default; }
 #viewer.panning .page { cursor: grabbing; }
 #viewer[data-tool="select"] .page, #viewer[data-tool="highlight"] .page, #viewer[data-tool="underline"] .page, #viewer[data-tool="strike"] .page { cursor: text; }
 #viewer[data-tool="note"] .page, #viewer[data-tool="text"] .page, #viewer[data-tool="rect"] .page, #viewer[data-tool="ellipse"] .page, #viewer[data-tool="arrow"] .page, #viewer[data-tool="ink"] .page, #viewer[data-tool="sign"] .page, #viewer[data-tool="redact"] .page { cursor: crosshair; }

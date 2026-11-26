@@ -20,6 +20,8 @@ export interface AnnotateDeps {
     transformTextBox(id: number, page: number, key: number, to: Xf): Promise<void>;
     updateAnnotation(id: number, page: number, key: number, patch: AnnotPatch): Promise<void>;
     deleteAnnotation(id: number, page: number, key: number): Promise<void>;
+    deleteAnnotations(id: number, page: number, keys: number[]): Promise<number>;
+    updateAnnotations(id: number, page: number, keys: number[], patch: AnnotPatch): Promise<void>;
     annotationAt(id: number, page: number, p: Pt): Promise<AnnotInfo | null>;
     allAnnotations(id: number): Promise<AnnotInfo[]>;
     exportXfdf(id: number, name: string): Promise<string>;
@@ -140,7 +142,10 @@ export function setupAnnotate(d: AnnotateDeps) {
     selectAnnot(null);
   }
 
+  /** Several markups selected together (window selection, Shift+click). */
+  let multi: AnnotInfo[] = [];
   function selectAnnot(a: AnnotInfo | null) {
+    multi = [];
     selected = a;
     clearOverlays("sel");
     d.commentsEl.querySelectorAll(".comment.active").forEach((n) => n.classList.remove("active"));
@@ -187,7 +192,81 @@ export function setupAnnotate(d: AnnotateDeps) {
   const ppxOf = (el: HTMLElement, index: number) => ptPerPx(el, d.doc()!.info.pageSizes[index][0]);
   let drag: null | { el: HTMLElement; index: number; start: Pt; last: Pt; points: Pt[]; busy: boolean; pending: boolean; scroll?: [number, number, number, number] } = null;
 
+  // ----- several markups at once: window / crossing selection, Shift or Ctrl+click -----
+  let wdrag: null | { el: HTMLElement; index: number; start: Pt; last: Pt } = null;
+  let spaceDown = false;
+  document.addEventListener("keydown", (e) => { if (e.code === "Space" && !(e.target as HTMLElement).closest?.("input, textarea, select, [contenteditable]")) spaceDown = true; });
+  document.addEventListener("keyup", (e) => { if (e.code === "Space") spaceDown = false; });
+  function showMulti() {
+    clearOverlays("sel");
+    for (const a of multi) {
+      const el = d.pagesEl.children[a.page] as HTMLElement | undefined;
+      if (!el) continue;
+      const [x0, y0, x1, y1] = a.rect;
+      overlay(el, a.page).append(svgEl("rect", { x: x0 - 2, y: y0 - 2, width: x1 - x0 + 4, height: y1 - y0 + 4 }, "sel"));
+    }
+  }
+  function setMulti(list: AnnotInfo[]) {
+    const seen = new Set<number>();
+    multi = list.filter((a) => !seen.has(a.key) && (seen.add(a.key), true));
+    if (multi.length === 1) {
+      const one = multi[0];
+      multi = [];
+      return selectAnnot(one);
+    }
+    selected = null;
+    showMulti();
+    if (multi.length) d.status(`${multi.length} markups selected. Delete removes them; right-click to change them all. Shift+click adds or removes one.`);
+  }
+  async function markupsOn(page: number) {
+    const doc = d.doc()!;
+    return (await d.engine.allAnnotations(doc.info.id)).filter((a) => a.page === page && !a.hidden && a.type !== "Popup" && a.type !== "Link" && a.type !== "Widget" && a.inReplyTo === undefined);
+  }
+  async function deleteMulti() {
+    const doc = d.doc();
+    if (!doc || !multi.length) return false;
+    const byPage = new Map<number, number[]>();
+    for (const a of multi) byPage.set(a.page, [...(byPage.get(a.page) ?? []), a.key]);
+    let n = 0;
+    for (const [page, keys] of byPage) {
+      n += await d.engine.deleteAnnotations(doc.info.id, page, keys);
+      d.refreshPage(page);
+    }
+    const redact = multi.some((a) => a.type === "Redact");
+    multi = [];
+    clearOverlays("sel");
+    d.changed(`Deleted ${n} markups`);
+    refreshComments();
+    if (redact) onRedactionsChanged();
+    return true;
+  }
+  async function patchMulti(patch: AnnotPatch, label: string) {
+    const doc = d.doc();
+    if (!doc || !multi.length) return;
+    const pages = [...new Set(multi.map((a) => a.page))];
+    for (const page of pages) {
+      await d.engine.updateAnnotations(doc.info.id, page, multi.filter((a) => a.page === page).map((a) => a.key), patch);
+      d.refreshPage(page);
+    }
+    d.changed(label);
+    refreshComments();
+    const all = await d.engine.allAnnotations(doc.info.id);
+    multi = multi.map((a) => all.find((x) => x.key === a.key) ?? a);
+    showMulti();
+  }
+  /** Every markup on the page, for Ctrl+A with the Hand tool. */
+  async function selectAllOnPage(page: number) {
+    setMulti(await markupsOn(page));
+  }
+
   d.pagesEl.addEventListener("pointerdown", async (e) => {
+    // Middle button, or Space held, pans with the Hand tool.
+    if (tool === "hand" && (e.button === 1 || (e.button === 0 && spaceDown))) {
+      e.preventDefault();
+      drag = { el: d.pagesEl, index: 0, start: [0, 0], last: [0, 0], points: [], busy: false, pending: false, scroll: [e.clientX, e.clientY, d.viewer.scrollLeft, d.viewer.scrollTop] };
+      d.viewer.classList.add("panning");
+      return;
+    }
     if (e.button !== 0 || tool === "edit" || tool === "link" || isEngTool(tool)) return; // the Edit tool has its own handlers
     const hit = pageOf(e);
     const doc = d.doc();
@@ -216,6 +295,13 @@ export function setupAnnotate(d: AnnotateDeps) {
         }
       }
       const a = await d.engine.annotationAt(doc.info.id, hit.index, p);
+      // Shift or Ctrl+click adds a markup to (or takes it out of) the selection.
+      if (a && (e.shiftKey || e.ctrlKey)) {
+        const cur = multi.length ? multi : selected ? [selected] : [];
+        setMulti(cur.some((x) => x.key === a.key) ? cur.filter((x) => x.key !== a.key) : [...cur, a]);
+        return;
+      }
+      if (multi.length) (multi = [], clearOverlays("sel"));
       selectAnnot(a);
       if (a?.type === "FreeText" && a.callout && a.box) {
         const g = grabText(a.box, a.callout?.[0], p, ppxOf(hit.el, hit.index)) ?? "move";
@@ -236,8 +322,10 @@ export function setupAnnotate(d: AnnotateDeps) {
         return;
       }
       if (!a) {
-        drag = { el: hit.el, index: hit.index, start: p, last: p, points: [], busy: false, pending: false, scroll: [e.clientX, e.clientY, d.viewer.scrollLeft, d.viewer.scrollTop] };
-        d.viewer.classList.add("panning");
+        // Drag on empty space: left to right selects markups fully inside the window, right to left anything it crosses.
+        e.preventDefault();
+        hit.el.setPointerCapture(e.pointerId);
+        wdrag = { el: hit.el, index: hit.index, start: p, last: p };
       }
       return;
     }
@@ -247,6 +335,16 @@ export function setupAnnotate(d: AnnotateDeps) {
   });
 
   d.pagesEl.addEventListener("pointermove", (e) => {
+    if (wdrag) {
+      wdrag.last = pointIn(wdrag.el, wdrag.index, e);
+      const [a, b] = [wdrag.start, wdrag.last];
+      const svg = overlay(wdrag.el, wdrag.index);
+      svg.querySelectorAll(".window").forEach((n) => n.remove());
+      const crossing = b[0] < a[0];
+      const ppx = ppxOf(wdrag.el, wdrag.index);
+      svg.append(svgEl("rect", { x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), width: Math.abs(a[0] - b[0]), height: Math.abs(a[1] - b[1]), fill: crossing ? "rgba(26, 160, 60, .12)" : "rgba(5, 120, 242, .12)", stroke: crossing ? "#1aa03c" : "#0578f2", "stroke-width": 1.2 * ppx, ...(crossing ? { "stroke-dasharray": `${5 * ppx} ${3 * ppx}` } : {}) }, "window"));
+      return;
+    }
     if (tdrag) {
       const r = dragText(tdrag.g, tdrag.a.box!, tdrag.a.callout?.[0], tdrag.from, pointIn(tdrag.el, tdrag.index, e));
       tdrag.box = r.box;
@@ -325,7 +423,28 @@ export function setupAnnotate(d: AnnotateDeps) {
     }
   }
 
-  d.pagesEl.addEventListener("pointerup", async () => {
+  d.pagesEl.addEventListener("pointerup", async (e) => {
+    const wd = wdrag;
+    wdrag = null;
+    if (wd) {
+      overlay(wd.el, wd.index).querySelectorAll(".window").forEach((n) => n.remove());
+      const [a, b] = [wd.start, wd.last];
+      const ppx = ppxOf(wd.el, wd.index);
+      if (Math.abs(a[0] - b[0]) < 4 * ppx && Math.abs(a[1] - b[1]) < 4 * ppx) {
+        if (!e.shiftKey && !e.ctrlKey) setMulti([]), selectAnnot(null);
+        return;
+      }
+      const w = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])];
+      const crossing = b[0] < a[0];
+      const hits = (await markupsOn(wd.index)).filter((m) => {
+        const [x0, y0, x1, y1] = m.rect;
+        return crossing ? x0 <= w[2] && x1 >= w[0] && y0 <= w[3] && y1 >= w[1] : x0 >= w[0] && x1 <= w[2] && y0 >= w[1] && y1 <= w[3];
+      });
+      const keep = e.shiftKey || e.ctrlKey ? (multi.length ? multi : selected ? [selected] : []) : [];
+      setMulti([...keep, ...hits]);
+      if (!hits.length && !keep.length) d.status(crossing ? "Nothing crossed. Drag right to left to pick anything the box touches." : "Nothing fully inside. Drag left to right to pick markups inside the box, right to left for anything it touches.");
+      return;
+    }
     const td = tdrag;
     tdrag = null;
     if (td) {
@@ -486,13 +605,24 @@ export function setupAnnotate(d: AnnotateDeps) {
 
   document.addEventListener("keydown", async (e) => {
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
-    if ((e.key === "Delete" || e.key === "Backspace") && selected && !(e.target as HTMLElement).closest("#side-thumbs")) {
+    if ((e.key === "Delete" || e.key === "Backspace") && multi.length && !(e.target as HTMLElement).closest("#side-thumbs")) {
+      e.preventDefault();
+      await deleteMulti();
+    } else if (e.key === "a" && (e.ctrlKey || e.metaKey) && tool === "hand" && d.doc() && !(e.target as HTMLElement).closest("#side-thumbs")) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      // The page in the middle of the view.
+      const mid = d.viewer.getBoundingClientRect().top + d.viewer.clientHeight / 2;
+      const els = [...d.pagesEl.children] as HTMLElement[];
+      const i = Math.max(0, els.findIndex((el) => el.getBoundingClientRect().bottom >= mid));
+      await selectAllOnPage(Number(els[i]?.dataset.page ?? 0));
+    } else if ((e.key === "Delete" || e.key === "Backspace") && selected && !(e.target as HTMLElement).closest("#side-thumbs")) {
       e.preventDefault();
       await deleteSelected();
     } else if (e.key === "Enter" && selected) {
       e.preventDefault();
       await editSelected();
-    } else if (e.key === "Escape") setTool("hand");
+    } else if (e.key === "Escape") (multi.length && setMulti([])), setTool("hand");
   });
 
   // ----- Comments panel -----
@@ -685,5 +815,5 @@ export function setupAnnotate(d: AnnotateDeps) {
     }
   }
 
-  return { onRedactions: (f: () => void) => (onRedactionsChanged = f), setTool, refreshComments, mergeReviews, get tool() { return tool; }, get selected() { return selected; }, rotateSelectedStamp, sizeSelectedStamp, refreshSelection: () => selectAnnot(selected), get color() { return color; }, setColor: (c: RGB | null) => (color = c), selectAnnot, deleteSelected, editSelected };
+  return { onRedactions: (f: () => void) => (onRedactionsChanged = f), setTool, refreshComments, mergeReviews, get tool() { return tool; }, get selected() { return selected; }, rotateSelectedStamp, sizeSelectedStamp, refreshSelection: () => selectAnnot(selected), get color() { return color; }, setColor: (c: RGB | null) => (color = c), selectAnnot, deleteSelected, editSelected, get multi() { return multi; }, setMulti, deleteMulti, patchMulti };
 }

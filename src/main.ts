@@ -1759,6 +1759,28 @@ async function textBoxProperties(a: AnnotInfo) {
   }
   if (r.keep !== "this") status(r.keep === "chest" ? "Style saved to the tool chest and used for new ones." : `New ${isCallout ? "callouts" : "text boxes"} will use this style.`);
 }
+/** Change line width, opacity, text size and precision on every selected markup at once. */
+async function multiStyle() {
+  const list = annot.multi;
+  if (!list.length) return;
+  const hasMeas = list.some((m) => m.label?.meas);
+  const r = await ask(`Style for ${list.length} markups`, [
+    { name: "color", label: "Colour (leave as is to keep each one's)", type: "select", value: "", options: [["", "Keep"], ...SWATCHES.map(([c, t]) => [c, t] as [string, string])] },
+    { name: "width", label: "Line width (pt)", type: "number", value: "", placeholder: "unchanged" },
+    { name: "opacity", label: "Opacity (%)", type: "number", value: "", placeholder: "unchanged" },
+    { name: "size", label: "Text size (pt): text boxes, callouts and measurement labels", type: "number", value: "", placeholder: "unchanged" },
+    ...(hasMeas ? [{ name: "prec", label: "Measurement precision", type: "select" as const, value: "keep", options: [["keep", "Keep"], ["auto", "Usual for the unit"], ["0", "0 decimals / nearest 1\""], ["1", "0.0 / 1/2\""], ["2", "0.00 / 1/4\""], ["3", "0.000 / 1/8\""], ["4", "0.0000 / 1/16\""]] as [string, string][] }] : []),
+  ], "Apply to all");
+  if (!r) return;
+  const patch: Parameters<typeof engine.updateAnnotation>[3] = {};
+  if (r.color) patch.color = rgbOf(r.color);
+  if (r.width !== "" && +r.width >= 0) patch.width = +r.width;
+  if (r.opacity !== "" && +r.opacity > 0) patch.opacity = +r.opacity / 100;
+  if (r.size !== "" && +r.size > 0) (patch.fontSize = +r.size), (patch.labelSize = +r.size);
+  if (hasMeas && r.prec && r.prec !== "keep") patch.precision = r.prec === "auto" ? null : +r.prec;
+  if (!Object.keys(patch).length) return;
+  await annot.patchMulti(patch, `Restyled ${list.length} markups`);
+}
 /** Text size and precision of a measurement's label (this one, and optionally every new one). */
 async function measureProperties(a: AnnotInfo) {
   if (!a.label) return;
@@ -1829,6 +1851,16 @@ pagesEl.addEventListener("contextmenu", async (e) => {
     ]), "Image");
   }
   const a = await engine.annotationAt(active.info.id, page, p);
+  // Several markups selected: one menu for all of them.
+  if (annot.multi.length > 1 && (!a || annot.multi.some((m) => m.key === a.key))) {
+    const n = annot.multi.length;
+    return showMenu(x, y, [
+      { swatches: SWATCHES.map(([c, t]) => ({ color: c, title: t, run: () => void annot.patchMulti({ color: rgbOf(c) }, `Colour set to ${t.toLowerCase()} on ${n} markups`) })) },
+      { label: `Style for all ${n}…`, run: () => void multiStyle() },
+      { sep: true },
+      { label: `Delete ${n} markups`, keys: "Del", danger: true, run: () => void annot.deleteMulti() },
+    ], `${n} markups`);
+  }
   if (a) {
     if (annot.tool !== "hand") useTool("hand");
     annot.selectAnnot(a);

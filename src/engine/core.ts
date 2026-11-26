@@ -471,6 +471,31 @@ export class Engine {
     });
   }
 
+  /** Delete several markups on a page as one undo step (ones already gone with their group are skipped). */
+  deleteAnnotations(id: number, pageIndex: number, keys: number[]): number {
+    return this.op(id, `Delete ${keys.length} markups`, () => {
+      let n = 0;
+      for (const k of keys) {
+        try {
+          annots.deleteAnnotation(this.pdf(id), pageIndex, k);
+          n++;
+        } catch { /* deleted with its parent */ }
+      }
+      return n;
+    });
+  }
+
+  /** Apply one change to several markups on a page as one undo step. */
+  updateAnnotations(id: number, pageIndex: number, keys: number[], patch: annots.AnnotPatch): void {
+    return this.op(id, `Edit ${keys.length} markups`, () => {
+      for (const k of keys) {
+        try {
+          annots.updateAnnotation(this.pdf(id), pageIndex, k, patch);
+        } catch { /* gone */ }
+      }
+    });
+  }
+
   annotationAt(id: number, pageIndex: number, p: Pt): AnnotInfo | null {
     return annots.annotationAt(this.pdf(id), pageIndex, p);
   }
