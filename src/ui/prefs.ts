@@ -9,6 +9,8 @@ export interface ToolPrefs {
   fill?: string;
   /** Callouts: arrow head style. */
   arrow?: string;
+  /** Text boxes and callouts: 0 left, 1 centre, 2 right. */
+  align?: number;
   /** Measurements: decimal places, or for feet and inches the fraction (0–4); unset = the unit's usual. */
   precision?: number;
 }

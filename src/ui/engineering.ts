@@ -17,7 +17,7 @@ export type EngTool = (typeof ENG_TOOLS)[number];
 export const isEngTool = (t: string): t is EngTool => (ENG_TOOLS as readonly string[]).includes(t);
 
 const TOOL_INFO: Record<EngTool, { label: string; group: ToolGroup; how: string }> = {
-  leader: { label: "Leader", group: "callout", how: "Click a text box or callout, then click each point it should point to (several clicks make a multileader)." },
+  leader: { label: "Leader", group: "callout", how: "Click the arrow tip, then where the leader starts. Or click a text box or callout first, then each point it should point to (a multileader)." },
   cloud: { label: "Revision cloud", group: "cloud", how: "Click each corner around the change; double-click, right-click or Enter to finish. Or drag for a quick box." },
   cloudpoly: { label: "Revision cloud (shape)", group: "cloud", how: "Click each corner; double-click, right-click or Enter to finish." },
   callout: { label: "Callout", group: "callout", how: "Click the point the arrow should touch, then click where the text goes, and type." },
@@ -210,8 +210,12 @@ export function setupEngineering(d: EngDeps) {
     if (!all.length) return;
     if (t === "leader") {
       if (leaderOf && hover) {
-        const s0 = leaderStart(leaderOf.rect, hover);
+        const s0 = leaderStart(leaderOf.box ?? leaderOf.rect, hover);
         svg.append(el("line", { x1: s0[0], y1: s0[1], x2: hover[0], y2: hover[1], ...stroke, "stroke-dasharray": "4 3" }));
+      } else if (pts.length && hover) {
+        // Free leader: arrow tip placed, tail follows the cursor.
+        svg.append(el("line", { x1: hover[0], y1: hover[1], x2: pts[0][0], y2: pts[0][1], ...stroke, "stroke-dasharray": "4 3" }));
+        svg.append(el("circle", { cx: pts[0][0], cy: pts[0][1], r: 3 * ptPerPx, fill: c }));
       }
       return;
     }
@@ -315,7 +319,7 @@ export function setupEngineering(d: EngDeps) {
           }
           const m = measureBox(text, fs);
           box = calloutBoxAt(target, at, m.w, m.h);
-          await commit({ type: "Callout", target, rect: box, contents: text, fontSize: fs, color, fill: fill ? hexToRgb(fill) : null, width: pr.width, arrow: pr.arrow }, "Added callout");
+          await commit({ type: "Callout", target, rect: box, contents: text, fontSize: fs, color, fill: fill ? hexToRgb(fill) : null, width: pr.width, arrow: pr.arrow, align: pr.align }, "Added callout");
           break;
         }
         case "dimension":
@@ -482,7 +486,12 @@ export function setupEngineering(d: EngDeps) {
     e.preventDefault();
     e.stopPropagation();
     const t = tool();
-    if (t === "leader") return void (await leaderClick(hit.el, hit.index, pointIn(hit.el, hit.index, e)));
+    if (t === "leader") {
+      const lp = pointIn(hit.el, hit.index, e);
+      await leaderClick(hit.el, hit.index, lp);
+      downAt = !leaderOf && pts.length ? lp : null;
+      return;
+    }
     if (pageEl && hit.el !== pageEl) reset();
     if (!pageEl) {
       pageEl = hit.el;
@@ -528,6 +537,12 @@ export function setupEngineering(d: EngDeps) {
     e.stopPropagation();
     const t = tool();
     const ppx = d.doc()!.info.pageSizes[pageIndex][0] / pageEl.getBoundingClientRect().width;
+    // A drag from the arrow tip sets a free leader's tail in one motion.
+    if (t === "leader" && !leaderOf && pts.length === 1 && hover && dist(downAt, hover) > 6 * ppx) {
+      const tail = hover;
+      downAt = null;
+      return void leaderClick(pageEl, pageIndex, tail);
+    }
     // A drag on the first point of a revision cloud makes a quick box-shaped cloud.
     if (t === "cloud" && pts.length === 1 && hover && Math.abs(hover[0] - downAt[0]) > 6 * ppx && Math.abs(hover[1] - downAt[1]) > 6 * ppx) {
       const [a, b] = [pts[0], hover];
@@ -592,13 +607,28 @@ export function setupEngineering(d: EngDeps) {
 
   async function leaderClick(el: HTMLElement, index: number, p: Pt) {
     const doc = d.doc()!;
+    // Free leader: the first click set the arrow tip; this click sets the tail.
+    if (!leaderOf && pts.length && pageIndex === index) {
+      const tip = pts[0];
+      if (dist(tip, p) < 4) return;
+      const pr = prefsFor("leader");
+      await commit({ type: "Line", a: p, b: tip, arrow: true, color: colorFor("leader"), width: pr.width }, "Added leader");
+      reset();
+      return d.status("Leader added. Click the next arrow tip, or Esc when done.");
+    }
     if (!leaderOf || leaderOf.page !== index) {
       const a = await d.engine.annotationAt(doc.info.id, index, p);
-      if (a?.type !== "FreeText") return d.status("Click a text box or callout first, then the points its leaders should point to.");
+      if (a?.type !== "FreeText") {
+        // Not on a text box: start a free leader at this arrow tip.
+        pts = [p];
+        pageEl = el;
+        pageIndex = index;
+        return d.status("Arrow tip set. Now click (or drag to) where the leader starts.");
+      }
       leaderOf = a;
       pageEl = el;
       pageIndex = index;
-      return d.status("Now click each point to add a leader. Esc or Enter when done.");
+      return d.status("Leaders will start from this box. Click each point they should point to. Esc or Enter when done.");
     }
     await d.engine.addLeader(doc.info.id, index, leaderOf.key, p, author());
     d.refreshPage(index);

@@ -109,3 +109,28 @@ test("an area of a page saves as a PNG at 300 dpi", () => {
   assert.equal(img.getWidth(), 500);
   assert.equal(img.getHeight(), 250);
 });
+
+test("a leader added to a callout on a CAD sheet starts at the callout's box", async () => {
+  const { addLeader } = await import("../src/engine/annotations");
+  const doc = page([100, 200, 712, 992], 90);
+  const key = addAnnotation(doc, 0, { type: "Callout", target: [100, 100], rect: [400, 300, 500, 330], contents: "yuppers", fontSize: 12, color: [1, 0, 0] }, "S");
+  const lk = addLeader(doc, 0, key, [300, 500], "S");
+  const ln = doc.loadPage(0).getAnnotations().find((a) => a.getObject().asIndirect() === lk)!;
+  const [a] = ln.getLine();
+  assert.ok(close(a, [400, 315], 2), `leader starts at the box edge facing the tip, got ${a}`);
+});
+
+test("text alignment on text boxes and callouts", () => {
+  const doc = page([0, 0, 612, 792], 0);
+  const k = addAnnotation(doc, 0, { type: "FreeText", rect: [100, 100, 300, 130], contents: "Centred", align: 1 }, "S");
+  assert.equal(listAnnotations(doc, 0)[0].align, 1);
+  updateAnnotation(doc, 0, k, { align: 2 });
+  assert.equal(listAnnotations(doc, 0)[0].align, 2);
+});
+
+test("imperial fractions in labels are stacked", async () => {
+  const { labelRuns } = await import("../src/engine/annotations");
+  const r = labelRuns(`9'-7 15/16"`, 10);
+  assert.deepEqual(r.map((x) => (x.kind === "t" ? x.s : `${x.n}|${x.d}`)), ["9'-7", "15|16", '"']);
+  assert.deepEqual(labelRuns("12.35 m", 10).map((x) => x.kind), ["t"]);
+});

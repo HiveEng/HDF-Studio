@@ -1722,6 +1722,7 @@ async function textBoxProperties(a: AnnotInfo) {
     { name: "fontSize", label: "Text size (pt)", type: "number", value: String(a.fontSize ?? 12) },
     { name: "fill", label: "Fill", type: "select", value: fillChoice, options: [["none", "None (see-through)"], ["#ffffff", "White"], ["#ffff99", "Light yellow"], ["custom", "Custom colour (below)"]] },
     { name: "fillColor", label: "Custom fill colour", type: "color", value: fillChoice === "custom" ? fillHex : "#e8f7fd" },
+    { name: "align", label: "Text alignment", type: "select", value: String(a.align ?? 0), options: [["0", "Left"], ["1", "Centre"], ["2", "Right"]] },
     { name: "width", label: "Border width (pt, 0 for none)", type: "number", value: String(a.borderWidth ?? 1) },
     ...(isCallout ? [{ name: "arrow", label: "Arrow head", type: "select" as const, value: a.arrow ?? "OpenArrow", options: [["OpenArrow", "Open arrow"], ["ClosedArrow", "Filled arrow"], ["Circle", "Dot"], ["Square", "Square"], ["Slash", "Slash"], ["None", "None"]] as [string, string][] }] : []),
     { name: "keep", label: "Use this style", type: "select", value: "this", options: [["this", "For this one only"], ["default", `For this one and every new ${isCallout ? "callout" : "text box"}`], ["chest", "For this one, and save it to the tool chest"]] },
@@ -1733,17 +1734,19 @@ async function textBoxProperties(a: AnnotInfo) {
     fill: fill ? rgbOf(fill) : null,
   };
   if (r.contents !== a.contents) patch.contents = r.contents;
+  patch.align = +r.align;
   if (+r.fontSize > 0) patch.fontSize = +r.fontSize;
   if (r.width !== "" && +r.width >= 0) patch.width = +r.width;
   if (isCallout && r.arrow && r.arrow !== a.arrow) patch.arrow = r.arrow;
   // Bigger text needs a bigger box.
-  if (a.box && (patch.fontSize || patch.contents)) {
+  if (a.box && ((patch.fontSize && patch.fontSize !== a.fontSize) || patch.contents !== undefined)) {
     const { measureBox } = await import("./ui/textbox");
     const m = measureBox(patch.contents ?? a.contents, patch.fontSize ?? a.fontSize ?? 12);
-    patch.box = [a.box[0], a.box[1], a.box[0] + m.w, a.box[1] + m.h];
+    // Grow to fit, but never narrow a box the user widened (alignment needs the room).
+    patch.box = [a.box[0], a.box[1], a.box[0] + Math.max(m.w, a.box[2] - a.box[0]), a.box[1] + Math.max(m.h, a.box[3] - a.box[1])];
   }
   await patchAnnot(a, patch, isCallout ? "Updated callout" : "Updated text box");
-  const style = { color: r.color, fontSize: +r.fontSize > 0 ? +r.fontSize : undefined, width: patch.width, fill: fill ?? "none", arrow: isCallout ? r.arrow : undefined };
+  const style = { color: r.color, fontSize: +r.fontSize > 0 ? +r.fontSize : undefined, width: patch.width, fill: fill ?? "none", arrow: isCallout ? r.arrow : undefined, align: +r.align };
   if (r.keep === "default" || r.keep === "chest") {
     const { setToolDefaults } = await import("./ui/prefs");
     setToolDefaults(isCallout ? "callout" : "text", Object.fromEntries(Object.entries(style).filter(([, v]) => v !== undefined)));

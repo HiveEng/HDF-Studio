@@ -17,6 +17,8 @@ export interface Preset {
   /** Text boxes and callouts: fill colour or "none"; callouts: arrow head. */
   fill?: string;
   arrow?: string;
+  /** Text boxes and callouts: 0 left, 1 centre, 2 right. */
+  align?: number;
   /** For stamps. */
   stamp?: { title: string; color: string };
 }
@@ -87,6 +89,7 @@ export function setupChest(d: ChestDeps) {
     if (p.fontSize) o.fontSize = p.fontSize;
     if (p.fill) o.fill = p.fill;
     if (p.arrow) o.arrow = p.arrow;
+    if (p.align !== undefined) o.align = p.align;
     d.clearRibbonColor();
     d.start(p.tool, p.stamp);
     // start() may reset the override (a plain tool pick does); set it after.

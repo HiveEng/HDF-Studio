@@ -12,11 +12,11 @@ export type RGB = [number, number, number];
 export type AnnotSpec =
   | { type: "Highlight" | "Underline" | "StrikeOut" | "Squiggly"; quads: number[][]; color?: RGB; contents?: string }
   | { type: "Text"; at: Pt; contents: string; color?: RGB; icon?: string }
-  | { type: "FreeText"; rect: number[]; contents: string; fontSize?: number; color?: RGB; fill?: RGB | null; width?: number }
+  | { type: "FreeText"; rect: number[]; contents: string; fontSize?: number; color?: RGB; fill?: RGB | null; width?: number; align?: number }
   | { type: "Square" | "Circle"; rect: number[]; color?: RGB; fill?: RGB | null; width?: number; contents?: string; cloud?: boolean; opacity?: number; label?: Label }
   | { type: "Line"; a: Pt; b: Pt; arrow?: boolean; color?: RGB; width?: number; contents?: string; dimension?: boolean; caption?: string; captionSize?: number; measure?: MeasureSpec; meas?: Meas }
   | { type: "Polygon" | "PolyLine"; vertices: Pt[]; color?: RGB; fill?: RGB | null; width?: number; contents?: string; cloud?: boolean; opacity?: number; label?: Label; intent?: string; measure?: MeasureSpec; meas?: Meas }
-  | { type: "Callout"; target: Pt; knee?: Pt; rect: number[]; contents: string; fontSize?: number; color?: RGB; fill?: RGB | null; width?: number; arrow?: string }
+  | { type: "Callout"; target: Pt; knee?: Pt; rect: number[]; contents: string; fontSize?: number; color?: RGB; fill?: RGB | null; width?: number; arrow?: string; align?: number }
   | { type: "ReviewStamp"; rect: number[]; title: string; name: string; date: string; company?: string; color?: RGB }
   | { type: "Ink"; strokes: Pt[][]; color?: RGB; width?: number; contents?: string }
   | { type: "Stamp"; rect: number[]; label: string; color?: RGB }
@@ -61,6 +61,8 @@ export interface AnnotInfo {
   fill?: number[] | null;
   borderWidth?: number;
   arrow?: string;
+  /** Text boxes and callouts: 0 left, 1 centre, 2 right. */
+  align?: number;
   /** Measurements, dimensions and counts: the label's text size, and the measured value if it can be re-formatted. */
   label?: { size: number; meas?: Meas };
   /** Plain text boxes: rotated by this many degrees (clockwise, as seen). */
@@ -148,6 +150,7 @@ export function addAnnotation(doc: mupdf.PDFDocument, pageIndex: number, spec: A
         a.setDefaultAppearance("Helv", spec.fontSize ?? 12, color ?? [0, 0, 0]);
         if (spec.fill) a.setColor(spec.fill);
         if (spec.width !== undefined) a.setBorderWidth(spec.width);
+        if (spec.align) a.setQuadding(spec.align);
         break;
       case "Callout": {
         a.setRect(spec.rect as mupdf.Rect);
@@ -155,6 +158,7 @@ export function addAnnotation(doc: mupdf.PDFDocument, pageIndex: number, spec: A
         setCallout(doc, page, a, calloutGeometry(spec.rect, spec.target, spec.knee));
         a.setCalloutStyle((spec.arrow ?? "OpenArrow") as mupdf.PDFAnnotationLineEndingStyle);
         a.setIntent("FreeTextCallout");
+        if (spec.align) a.setQuadding(spec.align);
         a.setBorderWidth(spec.width ?? 1);
         // Border and leader colour of a FreeText come from its default appearance; /C is the box fill (white by default, so text stays readable).
         a.setColor(spec.fill === null ? [] : spec.fill ?? [1, 1, 1]);
@@ -285,6 +289,24 @@ function measureObj(doc: mupdf.PDFDocument, m: MeasureSpec) {
   return md;
 }
 
+const FRAC = 0.6;
+type LabelRun = { kind: "t"; s: string; w: number } | { kind: "f"; n: string; d: string; w: number };
+/** Split a label into plain text and stacked fractions ("12'-6 1/2\"" → "12'-6", ½ stacked, "\""). */
+export function labelRuns(text: string, size: number): LabelRun[] {
+  const out: LabelRun[] = [];
+  let last = 0;
+  for (const m of text.matchAll(/(\d+)\/(\d+)/g)) {
+    const before = text.slice(last, m.index).replace(/ $/, "");
+    if (before) out.push({ kind: "t", s: before, w: helvWidth(before, size) });
+    const fs = size * FRAC;
+    out.push({ kind: "f", n: m[1], d: m[2], w: Math.max(helvWidth(m[1], fs), helvWidth(m[2], fs)) + size * 0.16 });
+    last = m.index! + m[0].length;
+  }
+  const rest = text.slice(last);
+  if (rest) out.push({ kind: "t", s: rest, w: helvWidth(rest, size) });
+  return out;
+}
+
 /** PDF string bytes for WinAnsi text (°, ², fractions survive; anything else becomes "?"). */
 function pdfText(s: string) {
   const map: Record<string, number> = { "—": 0x97, "–": 0x96, "’": 0x92, "“": 0x93, "”": 0x94, "•": 0x95, "·": 0xb7 };
@@ -381,7 +403,8 @@ function decorate(doc: mupdf.PDFDocument, page: mupdf.PDFPage, a: mupdf.PDFAnnot
   const text = str(label, 0);
   const size = num(label, 3);
   const px = num(label, 1), py = num(label, 2); // display space (as the page is seen)
-  const tw = helvWidth(text, size);
+  const runs = labelRuns(text, size);
+  const tw = runs.reduce((w, r) => w + r.w, 0);
   const m = ap.get("Matrix");
   const M = m.isArray() ? [0, 1, 2, 3, 4, 5].map((i) => m.get(i).asNumber()) : [1, 0, 0, 1, 0, 0];
   const inv = mupdf.Matrix.invert(M as mupdf.Matrix);
@@ -393,7 +416,6 @@ function decorate(doc: mupdf.PDFDocument, page: mupdf.PDFPage, a: mupdf.PDFAnnot
   // Text is centred on the label point, on a white backing so it stays readable over linework.
   const c0 = fx(px - tw / 2 - 2, py - size * 0.85), c1 = fx(px + tw / 2 + 2, py + size * 0.55);
   const lx0 = Math.min(c0[0], c1[0]), ly0 = Math.min(c0[1], c1[1]), lx1 = Math.max(c0[0], c1[0]), ly1 = Math.max(c0[1], c1[1]);
-  const [tx, ty] = fx(px - tw / 2, py + size * 0.3);
   // Text runs along the page as displayed (after /Rotate), so labels read upright on rotated sheets.
   const o0 = fx(0, 0), ox = fx(1, 0), oy = fx(0, -1);
   const unit = (q: Pt): Pt => {
@@ -404,7 +426,26 @@ function decorate(doc: mupdf.PDFDocument, page: mupdf.PDFPage, a: mupdf.PDFAnnot
   const ex = unit(ox), ey = unit(oy);
   const dirTm = `${ex[0].toFixed(4)} ${ex[1].toFixed(4)} ${ey[0].toFixed(4)} ${ey[1].toFixed(4)}`;
   const bg = label.length < 8 || num(label, 7) !== 0;
-  const add = `\nq /HdfOpaque gs ${bg ? `1 1 1 rg ${lx0.toFixed(2)} ${ly0.toFixed(2)} ${(lx1 - lx0).toFixed(2)} ${(ly1 - ly0).toFixed(2)} re f ` : ""}${rgb(label, 4)} rg BT /HdfL ${size} Tf ${dirTm} ${tx.toFixed(2)} ${ty.toFixed(2)} Tm ${pdfText(text)} Tj ET Q\n`;
+  // Fractions (1/2", 15/16") are stacked: small numerator over a bar over the denominator, as on CAD drawings.
+  const by = py + size * 0.3;
+  const put = (x: number, y: number, fs: number, t: string) => {
+    const [qx, qy] = fx(x, y);
+    return `BT /HdfL ${fs.toFixed(2)} Tf ${dirTm} ${qx.toFixed(2)} ${qy.toFixed(2)} Tm ${pdfText(t)} Tj ET `;
+  };
+  let draw = "";
+  let x = px - tw / 2;
+  for (const r of runs) {
+    if (r.kind === "t") draw += put(x, by, size, r.s);
+    else {
+      const fs = size * FRAC;
+      draw += put(x + (r.w - helvWidth(r.n, fs)) / 2, by - size * 0.5, fs, r.n);
+      draw += put(x + (r.w - helvWidth(r.d, fs)) / 2, by + size * 0.07, fs, r.d);
+      const b0 = fx(x + size * 0.04, by - size * 0.42), b1 = fx(x + r.w - size * 0.04, by - size * 0.42);
+      draw += `${(size * 0.06).toFixed(2)} w ${b0[0].toFixed(2)} ${b0[1].toFixed(2)} m ${b1[0].toFixed(2)} ${b1[1].toFixed(2)} l S `;
+    }
+    x += r.w;
+  }
+  const add = `\nq /HdfOpaque gs ${bg ? `1 1 1 rg ${lx0.toFixed(2)} ${ly0.toFixed(2)} ${(lx1 - lx0).toFixed(2)} ${(ly1 - ly0).toFixed(2)} re f ` : ""}${rgb(label, 4)} rg ${rgb(label, 4)} RG ${draw}Q\n`;
   const old = ap.readStream().asUint8Array();
   const next = new Uint8Array(old.length + add.length);
   next.set(old, 0);
@@ -620,7 +661,7 @@ function textBoxInfo(page: mupdf.PDFPage, a: mupdf.PDFAnnotation): Partial<Annot
   } catch { /* none */ }
   // Plain text boxes get the same move / resize / turn handles as pictures.
   const xf = callout ? undefined : turned ?? xfFromRect(box);
-  return { box, callout, fontSize, textColor, fill: c.length >= 3 ? Array.from(c) : null, borderWidth: a.hasBorder() ? a.getBorderWidth() : undefined, arrow, xf, angle: xf?.angle };
+  return { box, callout, fontSize, textColor, fill: c.length >= 3 ? Array.from(c) : null, borderWidth: a.hasBorder() ? a.getBorderWidth() : undefined, arrow, xf, angle: xf?.angle, align: a.getQuadding?.() ?? 0 };
 }
 
 function findAnnot(page: mupdf.PDFPage, key: number) {
@@ -640,6 +681,8 @@ export interface AnnotPatch {
   /** Measurements and dimensions: label text size, and decimal places / fraction (0–4, null = the unit's usual). */
   labelSize?: number;
   precision?: number | null;
+  /** Text boxes and callouts: 0 left, 1 centre, 2 right. */
+  align?: number;
 }
 
 export function updateAnnotation(doc: mupdf.PDFDocument, pageIndex: number, key: number, patch: AnnotPatch) {
@@ -657,6 +700,7 @@ export function updateAnnotation(doc: mupdf.PDFDocument, pageIndex: number, key:
       a.setDefaultAppearance(da.font || "Helv", patch.fontSize ?? da.size ?? 12, (patch.color ?? da.color ?? [0, 0, 0]) as RGB);
     }
     if (patch.color && !isText) a.setColor(patch.color);
+    if (isText && patch.align !== undefined) a.setQuadding(Math.max(0, Math.min(2, Math.round(patch.align))));
     if (isText && patch.fill !== undefined) a.setColor(patch.fill === null ? [] : patch.fill);
     if (isText && (patch.box || patch.target || patch.arrow)) {
       const info = textBoxInfo(page, a);
@@ -887,7 +931,8 @@ export function addLeader(doc: mupdf.PDFDocument, pageIndex: number, parentKey: 
   try {
     const parent = findAnnot(page, parentKey);
     if (parent.getType() !== "FreeText") throw new Error("Leaders can only be added to text boxes and callouts");
-    const box = textBoxOf(parent);
+    // The box as seen (display space); a callout's /Rect also covers its own leader, and /RD is in page space.
+    const box = textBoxInfo(page, parent).box ?? textBoxOf(parent);
     let color: RGB = [0, 0, 0];
     try {
       const da = parent.getDefaultAppearance();

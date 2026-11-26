@@ -362,7 +362,7 @@ export function setupAnnotate(d: AnnotateDeps) {
     const text = await typeOnPage(el, { x: a.box[0], y: a.box[1], w: a.box[2] - a.box[0] }, ppxOf(el, a.page), { size, color: hex(a.textColor) ?? "#000", fill: hex(a.fill), initial: a.contents });
     if (text === null || text === a.contents) return void selectAnnot(a), true;
     const m = measureBox(text, size);
-    const box = [a.box[0], a.box[1], a.box[0] + m.w, a.box[1] + m.h];
+    const box = [a.box[0], a.box[1], a.box[0] + Math.max(m.w, a.box[2] - a.box[0]), a.box[1] + Math.max(m.h, a.box[3] - a.box[1])];
     await patchSelected(a, { contents: text, box }, "Edited text");
     return true;
   }
@@ -456,7 +456,7 @@ export function setupAnnotate(d: AnnotateDeps) {
         if (text) {
           const m = measureBox(text, size, small ? 240 : Math.max(60, rect[2] - rect[0]));
           const box = small ? [a[0], a[1], a[0] + m.w, a[1] + m.h] : [rect[0], rect[1], rect[2], Math.max(rect[3], rect[1] + m.h)];
-          await commit(cur.index, { type: "FreeText", rect: box, contents: text, fontSize: size, fill: fill ? hexToRgb(fill) : null, width: tp.width }, "Added text box");
+          await commit(cur.index, { type: "FreeText", rect: box, contents: text, fontSize: size, fill: fill ? hexToRgb(fill) : null, width: tp.width, align: tp.align }, "Added text box");
         }
         break;
       }
