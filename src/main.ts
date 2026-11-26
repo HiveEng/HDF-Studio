@@ -2412,7 +2412,7 @@ void signIn.start();
 
 // ---------- Icons for the static chrome ----------
 const STATIC_ICONS: Record<string, I.IconNode> = {
-  search: I.Search, up: I.ChevronUp, down: I.ChevronDown, command: I.Command,
+  search: I.Search, up: I.ChevronUp, down: I.ChevronDown, command: I.LayoutGrid,
   pages: I.LayoutGrid, outline: I.ListTree, results: I.ScanSearch, comments: I.MessagesSquare, attach: I.Paperclip, layers: I.Layers2, chest: I.Toolbox,
   rotl: I.RotateCcw, rotr: I.RotateCw, blank: I.FilePlus2, insert: I.FileInput, extract: I.FileOutput, trash: I.Trash2,
   left: I.ChevronLeft, right: I.ChevronRight, zoomin: I.ZoomIn, zoomout: I.ZoomOut, fitw: I.MoveHorizontal, fitp: I.Maximize,
