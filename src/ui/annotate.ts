@@ -1,6 +1,7 @@
 // Comment & markup tools: text selection, highlight/underline/strikeout, notes, text boxes,
 // shapes, arrows and freehand ink, plus the Comments panel.
-import type { AnnotInfo, AnnotSpec, Pt, RGB } from "../engine/annotations";
+import type { AnnotInfo, AnnotSpec, AnnotPatch, Pt, RGB } from "../engine/annotations";
+import { drawTextHandles, grabText, dragText, typeOnPage, measureBox, type TextGrab } from "./textbox";
 import type { DocInfo } from "../engine/core";
 import { ask } from "./dialog";
 import { getPrefs, hexToRgb } from "./prefs";
@@ -16,7 +17,7 @@ export interface AnnotateDeps {
     selectText(id: number, page: number, a: Pt, b: Pt, mode?: "chars" | "words" | "lines"): Promise<{ quads: number[][]; text: string }>;
     addAnnotation(id: number, page: number, spec: AnnotSpec, author: string): Promise<number>;
     transformImageStamp(id: number, page: number, key: number, to: Xf): Promise<void>;
-    updateAnnotation(id: number, page: number, key: number, patch: { contents?: string; color?: RGB }): Promise<void>;
+    updateAnnotation(id: number, page: number, key: number, patch: AnnotPatch): Promise<void>;
     deleteAnnotation(id: number, page: number, key: number): Promise<void>;
     annotationAt(id: number, page: number, p: Pt): Promise<AnnotInfo | null>;
     allAnnotations(id: number): Promise<AnnotInfo[]>;
@@ -145,6 +146,7 @@ export function setupAnnotate(d: AnnotateDeps) {
     if (!a) return;
     const el = d.pagesEl.children[a.page] as HTMLElement | undefined;
     if (el && a.xf) drawHandles(overlay(el, a.page), a.xf, ppxOf(el, a.page), "sel");
+    else if (el && a.type === "FreeText" && a.box) drawTextHandles(overlay(el, a.page), a.box, a.callout?.[0], ppxOf(el, a.page));
     else if (el) {
       const [x0, y0, x1, y1] = a.rect;
       overlay(el, a.page).append(svgEl("rect", { x: x0 - 2, y: y0 - 2, width: x1 - x0 + 4, height: y1 - y0 + 4 }, "sel"));
@@ -155,6 +157,7 @@ export function setupAnnotate(d: AnnotateDeps) {
   async function editSelected() {
     const doc = d.doc();
     if (!doc || !selected) return;
+    if (selected.type === "FreeText" && selected.box && (await editTextInPlace(selected))) return;
     const r = await ask(`Edit ${selected.type === "Text" ? "note" : "comment"}`, [{ name: "c", label: "Comment", value: selected.contents }], "Save");
     if (!r) return;
     await d.engine.updateAnnotation(doc.info.id, selected.page, selected.key, { contents: r.c });
@@ -178,6 +181,8 @@ export function setupAnnotate(d: AnnotateDeps) {
 
   // ----- pointer interaction -----
   let xdrag: null | { el: HTMLElement; index: number; a: AnnotInfo; x: XfDrag } = null;
+  /** Dragging a text box / callout: its box, its arrow tip, or its corner. */
+  let tdrag: null | { el: HTMLElement; index: number; a: AnnotInfo; g: TextGrab; from: Pt; box: number[]; tip?: Pt } = null;
   const ppxOf = (el: HTMLElement, index: number) => ptPerPx(el, d.doc()!.info.pageSizes[index][0]);
   let drag: null | { el: HTMLElement; index: number; start: Pt; last: Pt; points: Pt[]; busy: boolean; pending: boolean; scroll?: [number, number, number, number] } = null;
 
@@ -198,8 +203,26 @@ export function setupAnnotate(d: AnnotateDeps) {
           return;
         }
       }
+      // Handles of a selected text box or callout: move the box, drag the arrow tip, resize.
+      if (selected?.type === "FreeText" && selected.box && selected.page === hit.index) {
+        const g = grabText(selected.box, selected.callout?.[0], p, ppxOf(hit.el, hit.index));
+        if (g) {
+          e.preventDefault();
+          hit.el.setPointerCapture(e.pointerId);
+          tdrag = { el: hit.el, index: hit.index, a: selected, g, from: p, box: selected.box, tip: selected.callout?.[0] };
+          return;
+        }
+      }
       const a = await d.engine.annotationAt(doc.info.id, hit.index, p);
       selectAnnot(a);
+      if (a?.type === "FreeText" && a.box) {
+        const g = grabText(a.box, a.callout?.[0], p, ppxOf(hit.el, hit.index)) ?? "move";
+        e.preventDefault();
+        hit.el.setPointerCapture(e.pointerId);
+        tdrag = { el: hit.el, index: hit.index, a, g, from: p, box: a.box, tip: a.callout?.[0] };
+        d.status(a.callout ? "Drag the box to move it, the round knob to move the arrow tip, the corner to resize. Double-click to edit the text, right-click for style." : "Drag to move, drag the corner to resize. Double-click to edit the text, right-click for style.");
+        return;
+      }
       if (a?.xf) {
         e.preventDefault();
         hit.el.setPointerCapture(e.pointerId);
@@ -219,6 +242,20 @@ export function setupAnnotate(d: AnnotateDeps) {
   });
 
   d.pagesEl.addEventListener("pointermove", (e) => {
+    if (tdrag) {
+      const r = dragText(tdrag.g, tdrag.a.box!, tdrag.a.callout?.[0], tdrag.from, pointIn(tdrag.el, tdrag.index, e));
+      tdrag.box = r.box;
+      tdrag.tip = r.tip;
+      const svg = overlay(tdrag.el, tdrag.index);
+      drawTextHandles(svg, r.box, r.tip, ppxOf(tdrag.el, tdrag.index));
+      if (r.tip) {
+        // Show where the leader will go.
+        const [bx0, by0, bx1, by1] = r.box;
+        const end: Pt = r.tip[0] < bx0 ? [bx0, (by0 + by1) / 2] : r.tip[0] > bx1 ? [bx1, (by0 + by1) / 2] : [(bx0 + bx1) / 2, r.tip[1] < by0 ? by0 : by1];
+        svg.querySelector(".sel")?.append(svgEl("line", { x1: r.tip[0], y1: r.tip[1], x2: end[0], y2: end[1], stroke: "#05C7F2", "stroke-width": 1.5 * ppxOf(tdrag.el, tdrag.index), "stroke-dasharray": "3 3" }));
+      }
+      return;
+    }
     if (xdrag) {
       const t = updateDrag(xdrag.x, pointIn(xdrag.el, xdrag.index, e), e.shiftKey);
       drawHandles(overlay(xdrag.el, xdrag.index), t, ppxOf(xdrag.el, xdrag.index), "sel");
@@ -284,6 +321,14 @@ export function setupAnnotate(d: AnnotateDeps) {
   }
 
   d.pagesEl.addEventListener("pointerup", async () => {
+    const td = tdrag;
+    tdrag = null;
+    if (td) {
+      const moved = td.box.some((v, i) => Math.abs(v - td.a.box![i]) > 0.5) || (td.tip && td.a.callout && Math.hypot(td.tip[0] - td.a.callout[0][0], td.tip[1] - td.a.callout[0][1]) > 0.5);
+      if (!moved) return selectAnnot(td.a);
+      await patchSelected(td.a, { box: td.box, ...(td.tip && td.g === "tip" ? { target: td.tip } : {}) }, td.g === "tip" ? "Moved arrow" : td.g === "resize" ? "Resized text box" : "Moved text box");
+      return;
+    }
     const xd = xdrag;
     xdrag = null;
     if (!xd) return;
@@ -291,6 +336,31 @@ export function setupAnnotate(d: AnnotateDeps) {
     const label = xd.x.grab === "move" ? "Moved" : xd.x.grab === "rotate" ? "Rotated" : "Resized";
     await transformStamp(xd.a, xd.x.t, label);
   });
+
+  async function patchSelected(a: AnnotInfo, patch: AnnotPatch, label: string) {
+    const doc = d.doc();
+    if (!doc) return;
+    await d.engine.updateAnnotation(doc.info.id, a.page, a.key, patch);
+    d.refreshPage(a.page);
+    d.changed(label);
+    refreshComments();
+    const again = (await d.engine.allAnnotations(doc.info.id)).find((x) => x.key === a.key);
+    selectAnnot(again ?? null);
+  }
+  /** Edit a text box's words right on the page; the box grows or shrinks to fit. */
+  async function editTextInPlace(a: AnnotInfo) {
+    const el = d.pagesEl.children[a.page] as HTMLElement | undefined;
+    if (!el || !a.box) return false;
+    const size = a.fontSize ?? 12;
+    const hex = (c?: number[] | null) => (c && c.length >= 3 ? "#" + c.slice(0, 3).map((v) => Math.round(v * 255).toString(16).padStart(2, "0")).join("") : null);
+    clearOverlays("sel");
+    const text = await typeOnPage(el, { x: a.box[0], y: a.box[1], w: a.box[2] - a.box[0] }, ppxOf(el, a.page), { size, color: hex(a.textColor) ?? "#000", fill: hex(a.fill), initial: a.contents });
+    if (text === null || text === a.contents) return void selectAnnot(a), true;
+    const m = measureBox(text, size);
+    const box = [a.box[0], a.box[1], a.box[0] + m.w, a.box[1] + m.h];
+    await patchSelected(a, { contents: text, box }, "Edited text");
+    return true;
+  }
 
   async function transformStamp(a: AnnotInfo, t: Xf, label: string) {
     const doc = d.doc();
@@ -369,10 +439,18 @@ export function setupAnnotate(d: AnnotateDeps) {
         if (cur.points.length > 1) await commit(cur.index, { type: "Ink", strokes: [cur.points] }, "Added ink");
         break;
       case "text": {
-        const r = await ask("Add a text box", [{ name: "c", label: "Text" }], "Add");
-        if (r?.c) {
-          const box = small ? [a[0], a[1], a[0] + Math.max(120, r.c.length * 7), a[1] + 24] : rect;
-          await commit(cur.index, { type: "FreeText", rect: box, contents: r.c }, "Added text box");
+        // Type right where you clicked (or inside the box you dragged).
+        const tp = getPrefs().tools.text;
+        const size = tp.fontSize;
+        const fill = tp.fill && tp.fill !== "none" ? tp.fill : null;
+        const colour: RGB = color ?? hexToRgb(tp.color);
+        const hexc = "#" + colour.map((v: number) => Math.round(v * 255).toString(16).padStart(2, "0")).join("");
+        d.status("Type the text. Ctrl+Enter or click elsewhere to finish, Esc to cancel.");
+        const text = await typeOnPage(cur.el, { x: a[0], y: a[1], w: small ? 160 : rect[2] - rect[0] }, ppxOf(cur.el, cur.index), { size, color: hexc, fill });
+        if (text) {
+          const m = measureBox(text, size, small ? 240 : Math.max(60, rect[2] - rect[0]));
+          const box = small ? [a[0], a[1], a[0] + m.w, a[1] + m.h] : [rect[0], rect[1], rect[2], Math.max(rect[3], rect[1] + m.h)];
+          await commit(cur.index, { type: "FreeText", rect: box, contents: text, fontSize: size, fill: fill ? hexToRgb(fill) : null, width: tp.width }, "Added text box");
         }
         break;
       }

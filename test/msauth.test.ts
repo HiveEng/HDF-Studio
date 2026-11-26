@@ -90,7 +90,7 @@ test("Microsoft sign-in: cancelled and mismatched answers", async () => {
 test("Microsoft sign-in: staff-only check (tenant, offline, revoked)", async () => {
   const TENANT = "2cc319ea-c91f-4964-92a2-807a20ffe7b6";
   const store = memStore();
-  let mode: "ok" | "offline" | "revoked" | "other-tenant" = "ok";
+  let mode: "ok" | "offline" | "revoked" | "other-tenant" | "busy" | "mfa" = "ok";
   let opened = "";
   const auth = new MsAuth({ tenant: TENANT, clientId: "cid", domains: [] }, {
     listen: async () => 1,
@@ -101,6 +101,8 @@ test("Microsoft sign-in: staff-only check (tenant, offline, revoked)", async () 
     openUrl: async (u) => void (opened = u),
     postForm: async () => {
       if (mode === "offline") throw new Error("Could not reach Microsoft sign-in");
+      if (mode === "busy") return JSON.stringify({ error: "temporarily_unavailable", error_description: "AADSTS90033: service busy" });
+      if (mode === "mfa") return JSON.stringify({ error: "interaction_required", error_description: "AADSTS50076: MFA needed" });
       if (mode === "revoked") return JSON.stringify({ error: "invalid_grant", error_description: "AADSTS50057: account disabled" });
       return JSON.stringify({ id_token: jwt({ name: "Pat", email: "pat@hiveeng.ca", tid: mode === "other-tenant" ? "00000000-0000-0000-0000-000000000000" : TENANT, exp: Date.now() / 1000 + 3600 }), refresh_token: "r" });
     },
@@ -120,6 +122,12 @@ test("Microsoft sign-in: staff-only check (tenant, offline, revoked)", async () 
   const off = await auth.check();
   assert.equal(off.status, "offline");
   assert.ok(off.checked! > Date.now() - 60_000);
+  // A busy service or a fresh MFA prompt doesn't throw staff out: they stay signed in on this computer.
+  mode = "busy";
+  assert.equal((await auth.check()).status, "offline");
+  mode = "mfa";
+  assert.equal((await auth.check()).status, "offline");
+  assert.equal(auth.currentUser()?.email, "pat@hiveeng.ca");
   mode = "revoked";
   assert.equal((await auth.check()).status, "signin");
   assert.equal(auth.currentUser(), null);

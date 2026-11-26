@@ -2,6 +2,8 @@
 // lines, review stamps, and calibrated length / area / perimeter / angle / count on drawings.
 import { SnapIndex, type SnapHit, type SnapKind } from "../engine/snapindex";
 import type { AnnotSpec, AnnotInfo, Pt, RGB } from "../engine/annotations";
+import { calloutGeometry } from "../engine/callout";
+import { measureBox, typeOnPage, calloutBoxAt } from "./textbox";
 import type { DocInfo } from "../engine/core";
 import {
   type Scale, type Unit, UNITS, PRESET_SCALES, scaleFromRatio, scaleFromCalibration, parseLength, lengthText, areaText,
@@ -18,7 +20,7 @@ const TOOL_INFO: Record<EngTool, { label: string; group: ToolGroup; how: string 
   leader: { label: "Leader", group: "callout", how: "Click a text box or callout, then click each point it should point to (several clicks make a multileader)." },
   cloud: { label: "Revision cloud", group: "cloud", how: "Drag a box around the change." },
   cloudpoly: { label: "Revision cloud (shape)", group: "cloud", how: "Click each corner; double-click or Enter to finish." },
-  callout: { label: "Callout", group: "callout", how: "Press on the item, drag to where the text should go, then type." },
+  callout: { label: "Callout", group: "callout", how: "Click the point the arrow should touch, then click where the text goes, and type." },
   polyline: { label: "Polyline", group: "lines", how: "Click each point; double-click or Enter to finish." },
   polygon: { label: "Polygon", group: "lines", how: "Click each corner; double-click or Enter to finish." },
   dimension: { label: "Dimension", group: "dimension", how: "Click (or drag) from one end to the other. Hold Shift for straight lines." },
@@ -165,6 +167,13 @@ export function setupEngineering(d: EngDeps) {
     return n;
   };
   const clearPreview = () => d.pagesEl.querySelectorAll(".eng-preview").forEach((n) => n.remove());
+  /** Like el(), but survives clearPreview (used while typing a callout). */
+  const el2 = (tag: string, attrs: Record<string, string | number>) => {
+    const n = document.createElementNS(SVGNS, tag);
+    n.classList.add("eng-callout");
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, String(v));
+    return n;
+  };
   const reset = () => {
     pts = [];
     leaderOf = null;
@@ -278,14 +287,40 @@ export function setupEngineering(d: EngDeps) {
         case "callout": {
           if (p.length < 2 || dist(p[0], p[p.length - 1]) < 6) break;
           const [target, at] = [p[0], p[p.length - 1]];
-          const r = await ask("Callout text", [{ name: "c", label: "Text", placeholder: "e.g. Verify weld size with fabricator" }], "Add");
-          if (!r?.c) break;
+          const el = d.pagesEl.children[page] as HTMLElement | undefined;
+          if (!el) break;
           const fs = pr.fontSize;
-          const lines = r.c.split(/\n/);
-          const w = Math.min(320, Math.max(60, Math.max(...lines.map((l) => l.length)) * fs * 0.55 + 10));
-          const h = Math.max(1, Math.ceil((r.c.length * fs * 0.55) / (w - 10))) * fs * 1.25 + 8;
-          const left = at[0] < target[0] ? at[0] - w : at[0];
-          await commit({ type: "Callout", target, rect: [left, at[1] - h / 2, left + w, at[1] + h / 2], contents: r.c, fontSize: fs, color }, "Added callout");
+          const fill = pr.fill && pr.fill !== "none" ? pr.fill : null;
+          const ppx = d.doc()!.info.pageSizes[page][0] / el.getBoundingClientRect().width;
+          const svg = svgOf(el, page);
+          // Type in place: the box sits beside the second click, with the leader drawn live to it.
+          const first = measureBox(" ", fs);
+          let box = calloutBoxAt(target, at, Math.max(first.w, 120), first.h);
+          const lead = () => {
+            svg.querySelectorAll(".eng-callout").forEach((n) => n.remove());
+            const [tip, knee, end] = calloutGeometry(box, target);
+            const line = el2("polyline", { points: [tip, knee, end].map((q) => q.join(",")).join(" "), stroke: hexOf(color), "stroke-width": Math.max(1, pr.width), fill: "none", "vector-effect": "non-scaling-stroke" });
+            svg.append(line);
+          };
+          lead();
+          d.status("Type the callout text. Ctrl+Enter or click elsewhere to finish, Esc to cancel.");
+          const text = await typeOnPage(el, { x: box[0], y: box[1], w: box[2] - box[0] }, ppx, {
+            size: fs, color: hexOf(color), fill,
+            onResize: (w, h) => {
+              box = calloutBoxAt(target, at, w, h);
+              const ta = el.querySelector<HTMLElement>(".page-typing");
+              if (ta) (ta.style.left = `${box[0] / ppx}px`), (ta.style.top = `${box[1] / ppx}px`);
+              lead();
+            },
+          });
+          svg.querySelectorAll(".eng-callout").forEach((n) => n.remove());
+          if (!text) {
+            d.status("Callout cancelled.");
+            break;
+          }
+          const m = measureBox(text, fs);
+          box = calloutBoxAt(target, at, m.w, m.h);
+          await commit({ type: "Callout", target, rect: box, contents: text, fontSize: fs, color, fill: fill ? hexToRgb(fill) : null, width: pr.width, arrow: pr.arrow }, "Added callout");
           break;
         }
         case "dimension":

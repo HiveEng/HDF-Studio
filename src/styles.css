@@ -564,3 +564,4 @@ body.designing .page .field { display: none; }
 }
 .rgroup.icons .rb:not(.big) > span { display: none; }
 .rgroup.icons .rb:not(.big) { padding: 3px 6px; }
+.page-typing { position: absolute; z-index: 6; box-sizing: border-box; min-height: 1.6em; padding: 2px 3px; border: 1.5px dashed; border-radius: 2px; resize: none; overflow: hidden; outline: none; line-height: 1.17; box-shadow: 0 2px 10px rgba(0,0,0,.18); white-space: pre-wrap; }

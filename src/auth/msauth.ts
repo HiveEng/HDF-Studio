@@ -136,7 +136,13 @@ export class MsAuth {
     try {
       const n = this.accept(text, s.refreshToken);
       return { status: "ok", user: { name: n.name, email: n.email }, checked: n.checked };
-    } catch {
+    } catch (e) {
+      // Only a definite "no" ends the session: account disabled or deleted, password reset, sign-in revoked,
+      // or an account from another organization. Anything else (Microsoft busy, a policy asking for MFA again,
+      // an odd answer) keeps the saved sign-in, so staff sign in once per computer, not every launch.
+      const code = (e as { code?: string }).code ?? "";
+      const definite = code === "invalid_grant" || code === "unauthorized_client" || code === "invalid_client" || /work account|Sign in with your/.test(String((e as Error).message));
+      if (!definite) return { status: "offline", user: { name: s.name, email: s.email }, checked: s.checked ?? 0 };
       this.signOut();
       return { status: "signin" };
     }

@@ -1775,7 +1775,53 @@ async function patchAnnot(a: AnnotInfo, patch: Parameters<typeof engine.updateAn
   const again = (await engine.allAnnotations(active.info.id)).find((x) => x.key === a.key);
   annot.selectAnnot(again ?? null);
 }
+/** Text box and callout style: words, colours, fill, size, border, arrow; optionally kept for new ones. */
+async function textBoxProperties(a: AnnotInfo) {
+  const isCallout = !!a.callout;
+  const fillHex = a.fill && a.fill.length >= 3 ? hexOfRgb(a.fill) : "none";
+  const fillChoice = fillHex === "none" ? "none" : fillHex === "#ffffff" ? "#ffffff" : fillHex === "#ffff99" ? "#ffff99" : "custom";
+  const r = await ask(isCallout ? "Callout style" : "Text box style", [
+    { name: "contents", label: "Text", value: a.contents },
+    { name: "color", label: isCallout ? "Text, border and leader colour" : "Text and border colour", type: "color", value: hexOfRgb(a.textColor && a.textColor.length >= 3 ? a.textColor : [0, 0, 0]) },
+    { name: "fontSize", label: "Text size (pt)", type: "number", value: String(a.fontSize ?? 12) },
+    { name: "fill", label: "Fill", type: "select", value: fillChoice, options: [["none", "None (see-through)"], ["#ffffff", "White"], ["#ffff99", "Light yellow"], ["custom", "Custom colour (below)"]] },
+    { name: "fillColor", label: "Custom fill colour", type: "color", value: fillChoice === "custom" ? fillHex : "#e8f7fd" },
+    { name: "width", label: "Border width (pt, 0 for none)", type: "number", value: String(a.borderWidth ?? 1) },
+    ...(isCallout ? [{ name: "arrow", label: "Arrow head", type: "select" as const, value: a.arrow ?? "OpenArrow", options: [["OpenArrow", "Open arrow"], ["ClosedArrow", "Filled arrow"], ["Circle", "Dot"], ["Square", "Square"], ["Slash", "Slash"], ["None", "None"]] as [string, string][] }] : []),
+    { name: "keep", label: "Use this style", type: "select", value: "this", options: [["this", "For this one only"], ["default", `For this one and every new ${isCallout ? "callout" : "text box"}`], ["chest", "For this one, and save it to the tool chest"]] },
+  ], "Apply");
+  if (!r) return;
+  const fill = r.fill === "none" ? null : r.fill === "custom" ? r.fillColor : r.fill;
+  const patch: Parameters<typeof engine.updateAnnotation>[3] = {
+    color: rgbOf(r.color),
+    fill: fill ? rgbOf(fill) : null,
+  };
+  if (r.contents !== a.contents) patch.contents = r.contents;
+  if (+r.fontSize > 0) patch.fontSize = +r.fontSize;
+  if (r.width !== "" && +r.width >= 0) patch.width = +r.width;
+  if (isCallout && r.arrow && r.arrow !== a.arrow) patch.arrow = r.arrow;
+  // Bigger text needs a bigger box.
+  if (a.box && (patch.fontSize || patch.contents)) {
+    const { measureBox } = await import("./ui/textbox");
+    const m = measureBox(patch.contents ?? a.contents, patch.fontSize ?? a.fontSize ?? 12);
+    patch.box = [a.box[0], a.box[1], a.box[0] + m.w, a.box[1] + m.h];
+  }
+  await patchAnnot(a, patch, isCallout ? "Updated callout" : "Updated text box");
+  const style = { color: r.color, fontSize: +r.fontSize > 0 ? +r.fontSize : undefined, width: patch.width, fill: fill ?? "none", arrow: isCallout ? r.arrow : undefined };
+  if (r.keep === "default" || r.keep === "chest") {
+    const { setToolDefaults } = await import("./ui/prefs");
+    setToolDefaults(isCallout ? "callout" : "text", Object.fromEntries(Object.entries(style).filter(([, v]) => v !== undefined)));
+  }
+  if (r.keep === "chest") {
+    const { addToChest } = await import("./ui/chest");
+    const name = await ask("Save to the tool chest", [{ name: "n", label: "Name", value: `${isCallout ? "Callout" : "Text box"} ${r.fontSize}pt` }], "Save");
+    if (name) addToChest({ name: name.n || (isCallout ? "Callout" : "Text box"), tool: isCallout ? "callout" : "text", ...style });
+    chestUI?.render();
+  }
+  if (r.keep !== "this") status(r.keep === "chest" ? "Style saved to the tool chest and used for new ones." : `New ${isCallout ? "callouts" : "text boxes"} will use this style.`);
+}
 async function annotProperties(a: AnnotInfo) {
+  if (a.type === "FreeText" && a.box) return textBoxProperties(a);
   const isText = a.type === "FreeText";
   const hasLine = ["Square", "Circle", "Line", "Ink", "Polygon", "PolyLine"].includes(a.type);
   const r = await ask(`${a.type === "FreeText" ? "Text box" : a.type === "Stamp" ? "Stamp" : "Markup"} properties`, [
@@ -1832,7 +1878,7 @@ pagesEl.addEventListener("contextmenu", async (e) => {
     if (!a.xf) items.push({ swatches: SWATCHES.map(([c, t]) => ({ color: c, title: t, run: () => void patchAnnot(a, { color: rgbOf(c) }, `Colour set to ${t.toLowerCase()}`) })) });
     items.push(
       { label: a.type === "FreeText" ? "Edit text…" : "Edit comment…", run: () => void annot.editSelected() },
-      { label: "Properties…", run: () => void annotProperties(a) },
+      { label: a.type === "FreeText" ? "Style (colour, fill, size, arrow)…" : "Properties…", run: () => void annotProperties(a) },
       { label: "Show in comments", run: () => (showSidePanel("comments"), annot.selectAnnot(a)) },
       { sep: true },
       { label: "Delete", keys: "Del", danger: true, run: () => void annot.deleteSelected() },

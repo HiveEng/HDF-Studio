@@ -3,7 +3,13 @@ import type { RGB } from "../engine/annotations";
 import type { Unit } from "../engine/measure";
 
 export type ToolGroup = "shapes" | "ink" | "text" | "cloud" | "callout" | "lines" | "dimension" | "measure" | "count";
-export interface ToolPrefs { color: string; width: number; opacity: number; fontSize: number }
+export interface ToolPrefs {
+  color: string; width: number; opacity: number; fontSize: number;
+  /** Text boxes and callouts: background ("none" = see-through). */
+  fill?: string;
+  /** Callouts: arrow head style. */
+  arrow?: string;
+}
 
 export const TOOL_GROUPS: [ToolGroup, string][] = [
   ["shapes", "Rectangles, ellipses and arrows"],
@@ -20,9 +26,9 @@ export const TOOL_GROUPS: [ToolGroup, string][] = [
 const TOOL_DEFAULTS: Record<ToolGroup, ToolPrefs> = {
   shapes: { color: "#d91a1a", width: 2, opacity: 1, fontSize: 12 },
   ink: { color: "#1a4de6", width: 2, opacity: 1, fontSize: 12 },
-  text: { color: "#000000", width: 1, opacity: 1, fontSize: 12 },
+  text: { color: "#000000", width: 1, opacity: 1, fontSize: 12, fill: "none" },
   cloud: { color: "#d91a1a", width: 1.5, opacity: 1, fontSize: 12 },
-  callout: { color: "#d91a1a", width: 1, opacity: 1, fontSize: 12 },
+  callout: { color: "#d91a1a", width: 1, opacity: 1, fontSize: 12, fill: "#ffffff", arrow: "OpenArrow" },
   lines: { color: "#d91a1a", width: 2, opacity: 1, fontSize: 12 },
   dimension: { color: "#d91a1a", width: 1, opacity: 1, fontSize: 10 },
   measure: { color: "#0b6fd6", width: 1.5, opacity: 1, fontSize: 10 },
@@ -98,3 +104,10 @@ export const REVIEW_STAMPS: { title: string; color: string }[] = [
   { title: "RECEIVED", color: "#0b5cad" },
   { title: "VOID", color: "#c41e1e" },
 ];
+
+/** Save one tool group's style as the default for new markups of that kind. */
+export function setToolDefaults(g: ToolGroup, p: Partial<ToolPrefs>) {
+  const all = getPrefs();
+  all.tools[g] = { ...all.tools[g], ...p };
+  savePrefs(all);
+}

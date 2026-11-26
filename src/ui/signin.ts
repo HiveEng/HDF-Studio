@@ -8,7 +8,7 @@ import { oauthListen, oauthWait, httpPostForm, openExternal, isTauri } from "../
 /** Hive Engineering's app registration (these identify the app; they are not secrets). */
 export const HIVE_AUTH = { tenant: "2cc319ea-c91f-4964-92a2-807a20ffe7b6", clientId: "8b0d9e7f-df7a-44e9-b939-4961db6bf450", domains: [] as string[] };
 /** How long the app keeps working without reaching Microsoft. */
-const OFFLINE_DAYS = 14;
+const OFFLINE_DAYS = 30;
 const RECHECK_MS = 6 * 60 * 60 * 1000;
 
 export function setupSignIn(o: { logoHtml: string; onUser(u: MsUser): void; status(msg: string): void }) {

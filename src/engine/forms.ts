@@ -1,5 +1,6 @@
 // Form filling (AcroForm) and signature images.
 import * as mupdf from "mupdf";
+import { uprightImageStamp } from "./annotations";
 import { readLogic, normalize, setDisplayed, recalculate, display, type FieldLogic } from "./formcalc";
 
 export interface FieldInfo {
@@ -164,6 +165,7 @@ export function placeImage(doc: mupdf.PDFDocument, pageIndex: number, rect: numb
     a.setContents(label);
     a.setModificationDate(new Date());
     a.update();
+    uprightImageStamp(doc, page, a, rect);
     return a.getObject().asIndirect();
   } finally {
     page.destroy();

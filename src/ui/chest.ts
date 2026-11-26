@@ -14,6 +14,9 @@ export interface Preset {
   width?: number;
   opacity?: number;
   fontSize?: number;
+  /** Text boxes and callouts: fill colour or "none"; callouts: arrow head. */
+  fill?: string;
+  arrow?: string;
   /** For stamps. */
   stamp?: { title: string; color: string };
 }
@@ -51,6 +54,10 @@ export function getChest(): Preset[] {
   return STARTER.map((p) => ({ ...p }));
 }
 const saveChest = (list: Preset[]) => localStorage.setItem(KEY, JSON.stringify(list));
+/** Add a tool to the chest (from a markup's style). */
+export function addToChest(p: Omit<Preset, "id">) {
+  saveChest([...getChest(), { ...p, id: uid() }]);
+}
 
 export function validPreset(x: unknown): x is Preset {
   const p = x as Preset;
@@ -78,6 +85,8 @@ export function setupChest(d: ChestDeps) {
     if (p.width) o.width = p.width;
     if (p.opacity) o.opacity = p.opacity;
     if (p.fontSize) o.fontSize = p.fontSize;
+    if (p.fill) o.fill = p.fill;
+    if (p.arrow) o.arrow = p.arrow;
     d.clearRibbonColor();
     d.start(p.tool, p.stamp);
     // start() may reset the override (a plain tool pick does); set it after.
@@ -105,6 +114,7 @@ export function setupChest(d: ChestDeps) {
       { name: "width", label: "Line width (pt)", type: "number", value: String(p?.width ?? base.width) },
       { name: "opacity", label: "Opacity (%)", type: "number", value: String(Math.round((p?.opacity ?? base.opacity) * 100)) },
       { name: "fontSize", label: "Text size (pt)", type: "number", value: String(p?.fontSize ?? base.fontSize) },
+      { name: "fill", label: "Fill (text boxes and callouts)", type: "select", value: p?.fill ?? base.fill ?? "none", options: [["none", "None"], ["#ffffff", "White"], ["#ffff99", "Light yellow"], ["#e8f7fd", "Light blue"]] },
       { name: "stamp", label: "Stamp (for the Stamp tool)", type: "select", value: p?.stamp?.title ?? "APPROVED AS NOTED", options: REVIEW_STAMPS.map((s) => [s.title, s.title]) },
     ], p ? "Save" : "Add to chest");
     if (!r) return;
@@ -112,7 +122,7 @@ export function setupChest(d: ChestDeps) {
     const next: Preset = {
       id: p?.id ?? uid(), name: r.name.trim() || TOOL_NAMES[r.tool], tool: r.tool, color: r.color,
       width: +r.width > 0 ? +r.width : undefined, opacity: +r.opacity > 0 ? Math.min(1, +r.opacity / 100) : undefined,
-      fontSize: +r.fontSize > 0 ? +r.fontSize : undefined, stamp: r.tool === "stamp" && st ? { ...st } : undefined,
+      fontSize: +r.fontSize > 0 ? +r.fontSize : undefined, fill: r.tool === "text" || r.tool === "callout" ? r.fill : undefined, arrow: p?.arrow, stamp: r.tool === "stamp" && st ? { ...st } : undefined,
     };
     const list = getChest();
     const i = list.findIndex((x) => x.id === next.id);
