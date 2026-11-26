@@ -26,7 +26,8 @@ test("graph: places, paging through folders, and download", async () => {
   });
   const g = new Graph(f, async () => "TOKEN");
   const places = await g.places();
-  assert.deepEqual(places.map((p) => p.name), ["OneDrive", "Recent", "Shared with me", "Projects"]);
+  assert.deepEqual(places.map((p) => p.name), ["OneDrive", "Recent", "Shared with me"]);
+  assert.ok(!calls.some((c) => c.url.includes("/sites") || c.url.includes("followedSites")), "no SharePoint site browsing");
   const items = await g.children("D1");
   assert.deepEqual(items.map((i) => [i.name, i.folder]), [["Drawings", true], ["S-201.pdf", false]]);
   assert.equal(items[1].eTag, "e1");

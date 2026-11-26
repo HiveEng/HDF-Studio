@@ -3,7 +3,7 @@
 
 export const GRAPH = "https://graph.microsoft.com/v1.0";
 /** Delegated permissions: the user's own files and every SharePoint library they can reach. */
-export const GRAPH_SCOPES = "https://graph.microsoft.com/Files.ReadWrite.All https://graph.microsoft.com/Sites.Read.All";
+export const GRAPH_SCOPES = "https://graph.microsoft.com/Files.ReadWrite.All";
 
 export type Fetcher = (method: string, url: string, o?: { token?: string; contentType?: string; extra?: [string, string]; body?: Uint8Array }) => Promise<Uint8Array>;
 
@@ -106,35 +106,17 @@ export class Graph {
     return out;
   }
 
-  /** OneDrive, followed SharePoint sites and the shortcuts. */
+  /** OneDrive and the shortcuts (SharePoint sites aren't browsed: files there show up under Recent and Shared with me). */
   async places(): Promise<CloudPlace[]> {
     const out: CloudPlace[] = [];
     try {
       const d = await this.json("GET", "/me/drive?$select=id,name");
       out.push({ kind: "drive", name: "OneDrive", driveId: d.id, hint: "My files" });
     } catch {
-      /* no OneDrive licence: SharePoint still works */
+      /* no OneDrive licence: Recent and Shared still work */
     }
     out.push({ kind: "recent", name: "Recent", hint: "Files you used lately" }, { kind: "shared", name: "Shared with me" });
-    try {
-      const s = await this.json("GET", "/me/followedSites?$select=id,displayName,webUrl");
-      for (const v of s.value ?? []) out.push({ kind: "site", name: v.displayName, siteId: v.id, hint: v.webUrl });
-    } catch {
-      /* following needs Sites.Read.All */
-    }
     return out;
-  }
-
-  /** Search SharePoint sites by name. */
-  async searchSites(q: string): Promise<CloudPlace[]> {
-    const j = await this.json("GET", `/sites?search=${encodeURIComponent(q || "*")}&$select=id,displayName,webUrl&$top=50`);
-    return (j.value ?? []).map((v: any) => ({ kind: "site", name: v.displayName, siteId: v.id, hint: v.webUrl }));
-  }
-
-  /** Document libraries of a site. */
-  async siteLibraries(siteId: string): Promise<CloudPlace[]> {
-    const j = await this.json("GET", `/sites/${siteId}/drives?$select=id,name,webUrl`);
-    return (j.value ?? []).map((v: any) => ({ kind: "drive", name: v.name, driveId: v.id, siteId, hint: v.webUrl }));
   }
 
   children(driveId: string, folderId = "root"): Promise<CloudItem[]> {

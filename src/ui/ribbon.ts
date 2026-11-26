@@ -8,7 +8,7 @@ import {
   ImagePlus, Replace, ImageDown, Stamp, FileInput, FilePlus2, Copy, Trash2, RotateCcw, RotateCw, ArrowUpDown,
   LayoutGrid, Merge, FileOutput, Scissors, Signature, PenLine, BadgeCheck, FileKey, ShieldCheck, Sheet,
   FileSpreadsheet, Eraser, SquareDashed, ScanSearch, Shredder, Lock, LockOpen, File, FileDown, Workflow, ListChecks,
-  MoveHorizontal, Maximize, PanelLeft, Search, ScanText, ScanLine, GitCompare, FolderSync, ClipboardCheck, Archive, Languages, Users, Printer, FormInput, WandSparkles, Sparkles, CloudDownload, CloudUpload, Accessibility, Images,
+  MoveHorizontal, Maximize, PanelLeft, Search, ScanText, GitCompare, FolderSync, ClipboardCheck, Archive, Languages, Users, Printer, FormInput, WandSparkles, Sparkles, CloudDownload, CloudUpload, Accessibility, Images,
   Cloud, MessageSquareQuote, Spline, Pentagon, Ruler, RulerDimensionLine, DraftingCompass, Hash, Scaling, Crosshair, Waypoints, LandPlot, Settings, Split, Link, BookmarkPlus, Paperclip, Layers2,
   Toolbox, SpellCheck, Magnet,
 } from "lucide";
@@ -32,11 +32,11 @@ export const TASKS: Task[] = [
         { cmd: "print", label: "Print", icon: Printer, big: true },
         { cmd: "saveAs", label: "Save as", icon: SavePen },
         { cmd: "createPdf", label: "Create PDF", icon: FilePlus, hint: "From Word, Excel, images, HTML and more" },
-        { cmd: "scan", label: "Scan", icon: ScanLine, hint: "Scan from your scanner into a searchable PDF" },
+        { cmd: "ocr", label: "OCR / Recognize text", icon: ScanText, hint: "Make scanned pages searchable and copyable (Ctrl+Shift+O)" },
       ] },
       { label: "Microsoft 365", items: [
-        { cmd: "openCloud", label: "Open from 365", icon: CloudDownload, hint: "Open from OneDrive or SharePoint (Ctrl+Alt+O)" },
-        { cmd: "saveCloud", label: "Save to 365", icon: CloudUpload, hint: "Save to OneDrive or SharePoint (Ctrl+Alt+S). Files opened from there save back with Ctrl+S." },
+        { cmd: "openCloud", label: "Open from 365", icon: CloudDownload, hint: "Open from OneDrive, Recent or Shared with me (Ctrl+Alt+O)" },
+        { cmd: "saveCloud", label: "Save to 365", icon: CloudUpload, hint: "Save to OneDrive (Ctrl+Alt+S). Files opened from there save back with Ctrl+S." },
       ] },
       { label: "Tools", items: [
         { cmd: "tool-hand", tool: "hand", label: "Hand", icon: Hand, big: true },
@@ -153,7 +153,6 @@ export const TASKS: Task[] = [
         { cmd: "insertFile", label: "From file", icon: FileInput, big: true, hint: "Insert all or some pages from another file at the start, the end, or before or after a page" },
         { cmd: "insertBlank", label: "Blank page", icon: FilePlus2 },
         { cmd: "duplicateSelected", label: "Duplicate", icon: Copy },
-        { cmd: "scan", label: "From scanner", icon: ScanLine, hint: "Scan pages into this document" },
       ] },
       { label: "Pages", items: [
         { cmd: "deleteSelected", label: "Delete", icon: Trash2, big: true },
@@ -229,7 +228,6 @@ export const TASKS: Task[] = [
         { cmd: "mergeFiles", label: "Combine files", icon: Merge, big: true },
       ] },
       { label: "Scans", items: [
-        { cmd: "scan", label: "Scan", icon: ScanLine, big: true, hint: "Scan from your scanner into a searchable PDF" },
         { cmd: "ocr", label: "Recognize text", icon: ScanText, big: true, hint: "OCR: make scanned pages searchable and copyable" },
         { cmd: "cleanScans", label: "Clean up", icon: Sparkles, hint: "Straighten, remove specks, delete blank pages" },
       ] },
@@ -257,7 +255,7 @@ export const TASKS: Task[] = [
 ];
 
 /** Commands that work without an open document. */
-export const NO_DOC = new Set(["open", "openCloud", "createPdf", "scan", "mergeFiles", "newBlank", "batch", "watchFolders", "compare", "settings", "showChest", "toggleSnap"]);
+export const NO_DOC = new Set(["open", "openCloud", "createPdf", "mergeFiles", "newBlank", "batch", "watchFolders", "compare", "settings", "showChest", "toggleSnap"]);
 
 /** The ribbon task a command lives on (Home only if nowhere else), for labels in the palette. */
 export function taskOf(cmd: string) {

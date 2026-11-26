@@ -131,65 +131,6 @@ async fn tsa_request(url: String, body: Vec<u8>) -> Result<Vec<u8>, String> {
     .map_err(|e| e.to_string())?
 }
 
-/// Scan pages with Windows Image Acquisition. Returns the saved image paths, in order.
-#[tauri::command]
-async fn scan_pages(dpi: u32, mode: u32, feeder: bool, dialog: bool) -> Result<Vec<String>, String> {
-    #[cfg(not(windows))]
-    {
-        let _ = (dpi, mode, feeder, dialog);
-        Err("Scanning works in the Windows app.".into())
-    }
-    #[cfg(windows)]
-    {
-        tauri::async_runtime::spawn_blocking(move || {
-            use std::os::windows::process::CommandExt;
-            let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-            let dir = std::env::temp_dir().join(format!("hdfstudio-scan-{}-{stamp}", std::process::id()));
-            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-            let script = dir.join("scan.ps1");
-            let dpi_s = dpi.clamp(75, 1200).to_string();
-            let mode_s = (if [1, 2, 4].contains(&mode) { mode } else { 1 }).to_string();
-            std::fs::write(&script, include_str!("../scripts/scan.ps1")).map_err(|e| e.to_string())?;
-            let out = std::process::Command::new("powershell.exe")
-                .args(["-NoProfile", "-NonInteractive", "-STA", "-ExecutionPolicy", "Bypass", "-File"])
-                .arg(&script)
-                .arg("-Out").arg(&dir)
-                .args(["-Dpi", dpi_s.as_str(), "-Mode", mode_s.as_str()])
-                .args(["-Feeder", if feeder { "1" } else { "0" }, "-Dialog", if dialog { "1" } else { "0" }])
-                .creation_flags(0x0800_0000) // no console window
-                .output()
-                .map_err(|e| format!("Could not start Windows scanning: {e}"))?;
-            let paths: Vec<String> = String::from_utf8_lossy(&out.stdout)
-                .lines()
-                .map(|l| l.trim().to_string())
-                .filter(|l| !l.is_empty() && std::path::Path::new(l).is_file())
-                .collect();
-            if out.status.success() {
-                return Ok(paths);
-            }
-            let err = String::from_utf8_lossy(&out.stderr).to_string();
-            let msg = if err.contains("0x80210015") {
-                "No scanner found. Check that it is on, connected and shows in Windows Settings › Printers & scanners.".to_string()
-            } else if err.contains("0x80210064") {
-                return Ok(paths); // cancelled
-            } else if err.contains("0x80210003") {
-                "The document feeder is empty. Load the pages and try again, or scan from the glass.".to_string()
-            } else if err.contains("0x80210006") || err.contains("0x8021000A") {
-                "The scanner is busy or offline. Wait a moment and try again.".to_string()
-            } else if err.contains("0x80210002") {
-                "The scanner has a paper jam.".to_string()
-            } else if err.contains("0x80210001") || err.contains("0x80210005") {
-                "The scanner reported a problem. Check it is on and the lid is closed.".to_string()
-            } else {
-                format!("Scanning failed: {}", err.trim())
-            };
-            if paths.is_empty() { Err(msg) } else { Ok(paths) }
-        })
-        .await
-        .map_err(|e| e.to_string())?
-    }
-}
-
 /// A one-shot web server on 127.0.0.1 that receives the Microsoft sign-in redirect.
 /// The system browser does the sign-in (so passwords, MFA and passkeys never touch the app).
 static OAUTH_LISTENER: std::sync::Mutex<Option<std::net::TcpListener>> = std::sync::Mutex::new(None);
@@ -338,7 +279,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![startup_files, office_available, office_to_pdf, ghostscript_available, pdfa_convert, tsa_request, scan_pages, oauth_listen, oauth_wait, http_post_form, graph_fetch])
+        .invoke_handler(tauri::generate_handler![startup_files, office_available, office_to_pdf, ghostscript_available, pdfa_convert, tsa_request, oauth_listen, oauth_wait, http_post_form, graph_fetch])
         .run(tauri::generate_context!())
         .expect("error while running HDF Studio");
 }

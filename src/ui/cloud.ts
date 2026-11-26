@@ -1,5 +1,5 @@
 // OneDrive / SharePoint file browser: one window for Open and Save. Left: places (OneDrive, Recent,
-// Shared with me, followed SharePoint sites, site search). Right: the folder, with a breadcrumb.
+// Shared with me). Right: the folder, with a breadcrumb.
 import type { Graph, CloudItem, CloudPlace } from "../cloud/graph";
 
 export type CloudPick =
@@ -27,7 +27,7 @@ export function browseCloud(g: Graph, o: { mode: "open" | "save"; name?: string 
     box.className = "modal cloud";
     box.setAttribute("role", "dialog");
     box.innerHTML = `
-      <header><h2>${o.mode === "open" ? "Open from OneDrive or SharePoint" : "Save to OneDrive or SharePoint"}</h2></header>
+      <header><h2>${o.mode === "open" ? "Open from OneDrive" : "Save to OneDrive"}</h2></header>
       <div class="cloud-body">
         <nav class="cloud-places" aria-label="Places"><div class="cloud-msg">Connecting to Microsoft 365…</div></nav>
         <section class="cloud-main">
@@ -87,7 +87,7 @@ export function browseCloud(g: Graph, o: { mode: "open" | "save"; name?: string 
       }
       const shown = items.filter((i) => i.folder || o.mode === "save" || OPENABLE.test(i.name));
       shown.sort((a, b) => +b.folder - +a.folder || a.name.localeCompare(b.name, undefined, { numeric: true }));
-      listEl.innerHTML = shown.length ? "" : `<div class="cloud-msg">${place?.kind === "site" ? "Choose a document library." : "Nothing here."}</div>`;
+      listEl.innerHTML = shown.length ? "" : `<div class="cloud-msg">Nothing here.</div>`;
       for (const it of shown) {
         const row = document.createElement("div");
         row.className = "cloud-row" + (it.folder ? " folder" : "") + (o.mode === "save" && !it.folder && !/\.pdf$/i.test(it.name) ? " dim" : "");
@@ -124,9 +124,6 @@ export function browseCloud(g: Graph, o: { mode: "open" | "save"; name?: string 
     }
 
     function enter(folder: CloudItem): Promise<void> | void {
-      // A document library listed inside a site.
-      const lib = (folder as CloudItem & { lib?: CloudPlace }).lib;
-      if (lib) return choosePlace({ ...lib, name: `${place?.name ?? ""} › ${lib.name}`.replace(/^ › /, "") });
       if (place?.kind !== "drive") {
         // From Recent / Shared: jump into that item's drive.
         place = { kind: "drive", name: folder.name, driveId: folder.driveId };
@@ -154,9 +151,7 @@ export function browseCloud(g: Graph, o: { mode: "open" | "save"; name?: string 
         return load(() => g.children(p.driveId!, "root"));
       }
       if (p.kind === "recent") return load(() => g.recent());
-      if (p.kind === "shared") return load(() => g.sharedWithMe());
-      // A site: list its document libraries as folders.
-      return load(async () => (await g.siteLibraries(p.siteId!)).map((l) => ({ id: "root", driveId: l.driveId!, name: l.name, folder: true, size: 0, modified: "", lib: l }) as CloudItem));
+      return load(() => g.sharedWithMe());
     }
     function placeButton(p: CloudPlace) {
       const b = document.createElement("button");
@@ -191,35 +186,15 @@ export function browseCloud(g: Graph, o: { mode: "open" | "save"; name?: string 
       const head = (t: string) => placesEl.append(Object.assign(document.createElement("h3"), { textContent: t }));
       head("Microsoft 365");
       const buttons = new Map<CloudPlace, HTMLElement>();
-      for (const p of places.filter((p) => p.kind !== "site")) {
+      for (const p of places) {
         const b = placeButton(p);
         buttons.set(p, b);
         placesEl.append(b);
       }
-      head("SharePoint sites");
-      const sites = document.createElement("div");
-      for (const p of places.filter((p) => p.kind === "site")) sites.append(placeButton(p));
-      const search = Object.assign(document.createElement("input"), { type: "search", placeholder: "Find a site…", className: "cloud-search" });
-      let timer = 0;
-      search.oninput = () => {
-        clearTimeout(timer);
-        timer = window.setTimeout(async () => {
-          const q = search.value.trim();
-          sites.innerHTML = "";
-          try {
-            const found = q ? await g.searchSites(q) : places.filter((p) => p.kind === "site");
-            for (const p of found) sites.append(placeButton(p));
-            if (!found.length) sites.append(Object.assign(document.createElement("div"), { className: "cloud-msg", textContent: "No sites found." }));
-          } catch (e) {
-            sites.append(Object.assign(document.createElement("div"), { className: "cloud-msg error", textContent: String((e as Error).message) }));
-          }
-        }, 300);
-      };
-      placesEl.append(search, sites);
       // Start where the user was last time, else OneDrive.
       try {
         const last = JSON.parse(localStorage.getItem(LAST) ?? "null") as { place: CloudPlace; trail: typeof trail } | null;
-        if (last?.place?.driveId && last.trail?.length) {
+        if (last?.place?.driveId && !last.place.siteId && last.trail?.length) {
           place = last.place;
           return openFolder(last.trail);
         }
