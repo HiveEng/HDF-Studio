@@ -74,7 +74,12 @@ const outlineEl = $("#side-outline");
 const resultsEl = $("#side-results");
 const pageInput = $<HTMLInputElement>("#pageInput");
 const searchInput = $<HTMLInputElement>("#searchInput");
-const status = (msg: string) => ($("#statusText").textContent = msg);
+const status = (msg: string) => {
+  const el = $("#statusText");
+  el.textContent = msg;
+  el.title = msg; // full text on hover when it's cut short
+  return msg;
+};
 
 // ---------- Render queue (worker is serial; render what's visible first) ----------
 type Job = { el: HTMLElement; tab: Tab; page: number; scale: number };

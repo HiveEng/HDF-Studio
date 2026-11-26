@@ -180,15 +180,11 @@ main.no-sidebar #rail button.active::before { display: none; }
 .page .hl.active { background: var(--hit-active); }
 #viewer.dragover { outline: 3px dashed var(--hive-cyan); outline-offset: -10px; }
 
-#viewbar {
-  position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 6;
-  display: flex; align-items: center; gap: 2px; padding: 4px 6px; border-radius: 12px;
-  background: color-mix(in srgb, var(--panel) 92%, transparent); backdrop-filter: blur(10px);
-  border: 1px solid var(--border); box-shadow: var(--shadow-2); opacity: .9; transition: opacity .15s;
-}
-#viewbar:hover, #viewbar:focus-within { opacity: 1; }
-#viewbar .icon-btn { width: 28px; height: 28px; color: var(--muted); }
+/* Page and zoom controls, docked in the middle of the footer on every tab. */
+#viewbar { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 2px; font-size: 12px; color: var(--text); }
+#viewbar .icon-btn { width: 24px; height: 24px; color: var(--muted); }
 #viewbar .icon-btn:hover { color: var(--text); }
+#viewbar #pageInput { height: 22px; padding: 1px 4px; font-size: 12px; }
 #pageInput { width: 42px; text-align: center; padding: 3px 4px; font-variant-numeric: tabular-nums; }
 #pageCount { color: var(--muted); padding: 0 4px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 #zoomLabel { min-width: 46px; text-align: center; font-variant-numeric: tabular-nums; }
@@ -221,7 +217,9 @@ main.no-sidebar #rail button.active::before { display: none; }
 .recent li small { margin-left: auto; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 55%; direction: rtl; }
 .start > .hint { margin: 22px 0 0; font-size: 12px; }
 
-#status { display: flex; align-items: center; padding: 0 12px; font-size: 12px; color: var(--muted); background: var(--panel); border-top: 1px solid var(--border); height: 24px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#status { position: relative; display: flex; align-items: center; padding: 0 12px; font-size: 12px; color: var(--muted); background: var(--panel); border-top: 1px solid var(--border); height: 32px; white-space: nowrap; }
+#statusText { overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: calc(50% - 190px); }
+#status:has(#viewbar.hidden) #statusText { max-width: none; }
 
 /* ---------- Command palette & dialogs ---------- */
 #palette { position: fixed; top: 10%; left: 50%; transform: translateX(-50%); width: min(600px, 92vw); background: var(--panel); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-2), 0 24px 60px rgba(13,13,13,.25); overflow: hidden; z-index: 30; }

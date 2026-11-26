@@ -92,21 +92,24 @@
       </div>
       <div id="pages"></div>
     </section>
-    <div id="viewbar" class="hidden" role="toolbar" aria-label="Page and zoom">
-      <button data-cmd="prevPage" class="icon-btn" title="Previous page (PageUp)" data-icon="left"></button>
-      <input id="pageInput" type="text" inputmode="numeric" aria-label="Page number" /><span id="pageCount">/ 0</span>
-      <button data-cmd="nextPage" class="icon-btn" title="Next page (PageDown)" data-icon="right"></button>
-      <span class="vsep"></span>
-      <button data-cmd="zoomOut" class="icon-btn" title="Zoom out (Ctrl+-)" data-icon="zoomout"></button>
-      <span id="zoomLabel">100%</span>
-      <button data-cmd="zoomIn" class="icon-btn" title="Zoom in (Ctrl+=)" data-icon="zoomin"></button>
-      <span class="vsep"></span>
-      <button data-cmd="fitWidth" class="icon-btn" title="Fit width (Ctrl+2)" data-icon="fitw"></button>
-      <button data-cmd="fitPage" class="icon-btn" title="Fit page (Ctrl+0)" data-icon="fitp"></button>
-    </div>
     </div>
   </main>
-  <footer id="status"><span id="statusText"></span><button id="watchPill" class="hidden" data-cmd="watchFolders" title="Watch folders"></button></footer>
+  <footer id="status">
+    <span id="statusText"></span>
+  <div id="viewbar" class="hidden" role="toolbar" aria-label="Page and zoom">
+    <button data-cmd="prevPage" class="icon-btn" title="Previous page (PageUp)" data-icon="left"></button>
+    <input id="pageInput" type="text" inputmode="numeric" aria-label="Page number" /><span id="pageCount">/ 0</span>
+    <button data-cmd="nextPage" class="icon-btn" title="Next page (PageDown)" data-icon="right"></button>
+    <span class="vsep"></span>
+    <button data-cmd="zoomOut" class="icon-btn" title="Zoom out (Ctrl+-)" data-icon="zoomout"></button>
+    <span id="zoomLabel">100%</span>
+    <button data-cmd="zoomIn" class="icon-btn" title="Zoom in (Ctrl+=)" data-icon="zoomin"></button>
+    <span class="vsep"></span>
+    <button data-cmd="fitWidth" class="icon-btn" title="Fit width (Ctrl+2)" data-icon="fitw"></button>
+    <button data-cmd="fitPage" class="icon-btn" title="Fit page (Ctrl+0)" data-icon="fitp"></button>
+  </div>
+    <button id="watchPill" class="hidden" data-cmd="watchFolders" title="Watch folders"></button>
+  </footer>
   <div id="palette" class="hidden" role="dialog" aria-label="Command palette">
     <div class="palette-head"><span data-icon="search"></span><input id="paletteInput" placeholder="Search tools and commands…" /></div>
     <ul id="paletteList"></ul>
