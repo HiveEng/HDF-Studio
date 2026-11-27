@@ -33,6 +33,7 @@
       </div>
       <button id="redactApply" class="primary danger hidden" title="Permanently remove everything marked for redaction"></button>
       <button data-cmd="palette" class="cmd-pill" title="Search every tool and command (Ctrl+K)"><span data-icon="command"></span><span>Tools</span><kbd>Ctrl K</kbd></button>
+      <button data-cmd="helpMenu" class="icon-btn" id="helpBtn" title="Help and user guide (F1)" data-icon="help"></button>
       <button data-cmd="settings" class="icon-btn" id="settingsBtn" title="Settings" data-icon="settings"></button>
       <button data-cmd="toggleTheme" class="icon-btn" id="themeBtn" title="Switch light / dark theme"></button>
     </div>
@@ -88,7 +89,7 @@
             <button class="card" data-cmd="newBlank"><span data-icon="blankdoc"></span><b>Blank PDF</b><small>Ctrl+Shift+N</small></button>
           </div>
           <div id="recent" class="recent hidden"><h2>Recent</h2><ul id="recentList"></ul></div>
-          <p class="hint muted">Press <kbd>Ctrl</kbd> <kbd>K</kbd> to find any tool by name.</p>
+          <p class="hint muted">Press <kbd>Ctrl</kbd> <kbd>K</kbd> to find any tool by name, or <kbd>F1</kbd> for the user guide.</p>
         </div>
       </div>
       <div id="pages"></div>

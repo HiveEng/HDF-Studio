@@ -29,6 +29,8 @@ import { showCheckReport } from "./ui/check";
 import { showAltTextDialog } from "./ui/accessibility";
 import { printPages } from "./ui/print";
 import { checkForUpdates } from "./ui/update";
+import { setupHelp } from "./ui/help";
+import { ribbonTable, shortcutTable, genText } from "./ui/helpgen";
 import type { WatchFs } from "./automation/watch";
 
 const engine = createEngine();
@@ -2314,6 +2316,10 @@ const commands: Command[] = [
   { id: "fixProps", title: "Set title, language and tab order (accessibility)…", run: () => active && quickFixes(active) },
   { id: "watchFolders", title: "Watch folders: process PDFs dropped into a folder automatically…", run: () => openWatchPanel() },
   { id: "palette", title: "Show all commands", keys: "Ctrl+K", run: () => openPalette() },
+  { id: "help", title: "User guide: help for what you're doing", keys: "F1", run: () => openHelp() },
+  { id: "helpShortcuts", title: "Keyboard shortcuts", run: () => help.open("shortcuts") },
+  { id: "helpWhatsNew", title: "What's new in this version", run: () => help.open("whats-new") },
+  { id: "helpMenu", title: "Help menu", run: () => showHelpMenu() },
 ];
 // Remember what people use so the command palette lists it first.
 const USED_KEY = "hdfstudio.usedCommands";
@@ -2328,6 +2334,33 @@ for (const c of commands) {
     return run();
   };
 }
+// ---------- User guide (F1) ----------
+const help = setupHelp({
+  gen: (kind, arg) => (kind === "ribbon" && arg ? ribbonTable(arg, (id) => byId[id]) : kind === "shortcuts" ? shortcutTable(commands) : null),
+  genText: (kind, arg) => genText(kind, arg, (id) => commands.find((c) => c.id === id), commands),
+  run: (id) => byId[id]?.run(),
+});
+/** F1: the topic for the tool in use, else for the ribbon tab that's showing. */
+function openHelp() {
+  const ctx: string[] = [];
+  if (annot.tool !== "hand") ctx.push(`tool:${annot.tool}`);
+  ctx.push(`tab:${ribbon.current}`);
+  help.open(undefined, active ? ctx : ["start"]);
+}
+function showHelpMenu() {
+  const b = $("#helpBtn").getBoundingClientRect();
+  showMenu(b.right - 230, b.bottom + 4, [
+    { label: "User guide", keys: "F1", run: () => openHelp() },
+    { label: "Search the guide…", run: () => help.find("") },
+    { label: "Keyboard shortcuts", run: () => help.open("shortcuts") },
+    { label: "Getting started", run: () => help.open("welcome") },
+    { label: "What's new", run: () => help.open("whats-new") },
+    { sep: true },
+    { label: "Check for updates", run: () => checkForUpdates(status, true) },
+  ], `${help.appName} Help`);
+}
+// Guide topics are also found by name in Ctrl+K.
+for (const t of help.topics) commands.push({ id: `help:${t.id}`, title: `Help: ${t.title}`, run: () => help.open(t.id) });
 const byId = Object.fromEntries(commands.map((c) => [c.id, c]));
 const ribbon = setupRibbon($("#tasks"), $("#ribbon"), {
   run: (id) => byId[id]?.run(),
@@ -2479,7 +2512,7 @@ const STATIC_ICONS: Record<string, I.IconNode> = {
   rotl: I.RotateCcw, rotr: I.RotateCw, blank: I.FilePlus2, insert: I.FileInput, extract: I.FileOutput, trash: I.Trash2,
   left: I.ChevronLeft, right: I.ChevronRight, zoomin: I.ZoomIn, zoomout: I.ZoomOut, fitw: I.MoveHorizontal, fitp: I.Maximize,
   open: I.FolderOpen, create: I.FilePlus, merge: I.Merge, batch: I.Workflow, blankdoc: I.File, cert: I.FileKey, compare: I.GitCompare,
-  cloud: I.CloudDownload, settings: I.Settings,
+  cloud: I.CloudDownload, settings: I.Settings, help: I.CircleHelp,
 };
 document.querySelectorAll<HTMLElement>("[data-icon]").forEach((el) => {
   const node = STATIC_ICONS[el.dataset.icon!];

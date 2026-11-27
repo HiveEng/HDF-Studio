@@ -88,6 +88,35 @@ npm run hds -- pdfa ./to-archive -o ./archive      # PDF/A-2b (needs Ghostscript
 npm run hds -- recipes          # list built-in recipes and step types
 ```
 
+## User guide (F1)
+
+The searchable user guide opens with F1 (at the topic for the current tool or ribbon tab) or the
+**?** button in the app bar. It's bundled with the app, so it works offline.
+
+```
+src/help/topics/*.md         One Markdown file per topic (front matter: title, section, order,
+                             keywords, context = the tabs/tools F1 opens it for)
+src/help/markdown.ts         The guide's Markdown dialect ([[Ctrl+K]] keys, figures, call-outs,
+                             {{ribbon:home}} and {{shortcuts}} blocks built from the live app)
+src/help/search.ts           Section-level full-text search with synonyms and stemming
+src/ui/help.ts               The guide window
+public/help/                 Screenshots (*.png) and diagrams (d-*.svg)
+```
+
+Refresh the guide's pictures after interface changes:
+
+```sh
+npx tsx scripts/help/screenshots.ts          # recapture every screenshot from the running UI
+npx tsx scripts/help/screenshots.ts callout  # only shots whose name contains "callout"
+python3 scripts/help/shrink.py               # shrink new shots (256-colour PNG, about a third of the size)
+python3 scripts/help/diagrams.py             # redraw the diagrams
+```
+
+The screenshot tool opens a sample engineering sheet (`scripts/help/sample-drawing.ts`) in the
+browser preview and drives the real interface with Playwright. `npm test` checks that every guide
+link and picture exists, every ribbon tab has a topic, keys use Windows names, and search finds
+the right topic for common questions.
+
 ## Keyboard
 
 | Action | Keys |
