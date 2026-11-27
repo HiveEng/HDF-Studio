@@ -621,6 +621,36 @@ export class Engine {
     return design.suggestName(this.pdf(id), pageIndex, rect, type);
   }
 
+  /** Copy fields (duplicate, paste, grid of copies, other pages) as one undo step. */
+  cloneFields(id: number, jobs: { src: design.FieldRef; targets: { page: number; rect: number[] }[] }[]): design.FieldRef[] {
+    const n = jobs.reduce((s, j) => s + j.targets.length, 0);
+    return this.op(id, `Copy ${n} field${n === 1 ? "" : "s"}`, () => jobs.flatMap((j) => design.cloneField(this.pdf(id), j.src, j.targets)));
+  }
+
+  setFieldRects(id: number, items: (design.FieldRef & { rect: number[] })[]): void {
+    this.op(id, `Arrange ${items.length} field${items.length === 1 ? "" : "s"}`, () => design.setFieldRects(this.pdf(id), items));
+  }
+
+  updateFields(id: number, items: design.FieldRef[], patch: design.FieldPatch): void {
+    this.op(id, `Edit ${items.length} field${items.length === 1 ? "" : "s"}`, () => design.updateFields(this.pdf(id), items, patch));
+  }
+
+  deleteFields(id: number, items: design.FieldRef[]): void {
+    this.op(id, `Delete ${items.length} field${items.length === 1 ? "" : "s"}`, () => design.deleteFields(this.pdf(id), items));
+  }
+
+  tabOrder(id: number, pageIndex: number) {
+    return design.tabOrder(this.pdf(id), pageIndex);
+  }
+
+  setTabOrder(id: number, pageIndex: number, keys: number[]): void {
+    this.op(id, "Set tab order", () => design.setTabOrder(this.pdf(id), pageIndex, keys));
+  }
+
+  autoTabOrder(id: number, pages: number[], by: "rows" | "columns"): void {
+    this.op(id, `Order tabs by ${by}`, () => pages.forEach((p) => design.autoTabOrder(this.pdf(id), p, by)));
+  }
+
   fieldNames(id: number): string[] {
     return [...design.fieldNames(this.pdf(id))];
   }

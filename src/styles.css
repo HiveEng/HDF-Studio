@@ -384,7 +384,14 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 .issue button { flex: none; border-color: var(--border-strong); font-size: 12px; padding: 3px 9px; }
 
 /* ---------- Form designer ---------- */
-#designbar { position: sticky; top: 0; z-index: 6; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 10px; background: var(--panel); border-bottom: 1px solid var(--border); box-shadow: var(--shadow-1); }
+#designbar { position: sticky; top: 0; z-index: 6; display: flex; flex-direction: column; gap: 4px; padding: 6px 10px; background: var(--panel); border-bottom: 1px solid var(--border); box-shadow: var(--shadow-1); }
+#designbar .db-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+#designbar .db-arrange { gap: 10px; }
+#designbar .db-group { display: flex; align-items: center; gap: 1px; padding: 1px 4px 1px 6px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; }
+#designbar .db-glabel { font-size: 11px; color: var(--muted); margin-right: 4px; }
+#designbar .db-group button { border: 0; background: transparent; padding: 3px 5px; border-radius: 4px; display: grid; place-items: center; }
+#designbar .db-group button:hover:not(:disabled) { background: var(--hover); }
+#designbar .db-group button:disabled { opacity: .35; cursor: default; }
 #designbar .db-title { font-weight: 600; margin-right: 4px; }
 #designbar .db-types { display: flex; gap: 2px; padding: 2px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; }
 #designbar .db-types button { border: 0; background: transparent; padding: 3px 9px; font-size: 12.5px; border-radius: 4px; }
@@ -411,6 +418,44 @@ body.designing .page .field { display: none; }
 .fd-suggest.off { border-color: var(--border-strong); background: rgba(128, 128, 128, .06); }
 .fd-suggest.off .fd-name { background: #8a8c8e; text-decoration: line-through; }
 .fd-ghost { border-style: dashed; pointer-events: none; }
+.fd-marquee { position: absolute; border: 1px dashed var(--hive-ink); background: rgba(197, 217, 50, .12); pointer-events: none; }
+.fd-box.anchor { box-shadow: 0 0 0 2px var(--hive-lime), 0 0 0 4px var(--hive-ink); }
+.fd-button { border-radius: 4px; background: rgba(120, 120, 130, .14); }
+.fd-tab { position: absolute; right: -8px; top: -8px; min-width: 16px; height: 16px; padding: 0 3px; box-sizing: border-box; border-radius: 8px; background: #0389a8; color: #fff; font: 700 10px/16px system-ui, sans-serif; text-align: center; z-index: 2; pointer-events: none; }
+.fd-tab.done { background: var(--hive-ink); box-shadow: 0 0 0 2px var(--hive-lime); }
+.fd-tabbing .fd-box { cursor: pointer; }
+.fd-tabbing .fd-handle { display: none !important; }
+.fd-list { position: fixed; right: 18px; top: 220px; bottom: 60px; width: 260px; z-index: 7; overflow: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-2); padding: 6px; font-size: 12.5px; }
+.fd-list-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px 6px; }
+.fd-list-head button { border: 0; background: transparent; font-size: 16px; line-height: 1; padding: 2px 6px; }
+.fd-list-page { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; padding: 6px 4px 2px; }
+.fd-list-row { display: grid; grid-template-columns: 22px 1fr auto; gap: 6px; align-items: center; width: 100%; text-align: left; border: 0; background: transparent; padding: 3px 4px; border-radius: 5px; }
+.fd-list-row:hover { background: var(--hover); }
+.fd-list-row.selected { background: var(--accent-soft); }
+.fd-list-row .n { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+.fd-list-row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fd-list-row .t { color: var(--muted); font-size: 11px; }
+.modal.fprops { width: min(520px, 94vw); }
+.fp-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.fp-tabs button { border: 0; border-bottom: 2px solid transparent; background: transparent; padding: 5px 10px; border-radius: 0; font-size: 12.5px; }
+.fp-tabs button.active { border-bottom-color: var(--hive-lime); font-weight: 600; }
+.fp-panes { min-height: 230px; max-height: 60vh; overflow: auto; }
+.fp-pane { display: flex; flex-direction: column; gap: 9px; padding-top: 6px; }
+.fp-row.fp-check { flex-direction: row; align-items: center; gap: 8px; }
+.fp-row.fp-check small { margin-left: 4px; }
+.modal label.fp-row.fp-color { flex-direction: row; align-items: center; justify-content: flex-start; gap: 12px; text-align: left; }
+.fp-row.fp-color > span:first-child { min-width: 110px; }
+.fp-swatch { display: flex; align-items: center; gap: 10px; }
+.fp-swatch input[type=color] { width: 46px; height: 26px; padding: 0; border: 1px solid var(--border-strong); border-radius: 5px; background: none; }
+.fp-swatch input[type=color]:disabled { opacity: .35; }
+.fp-none { display: flex !important; flex-direction: row !important; align-items: center; gap: 4px; font-size: 12.5px; }
+.fp-error { color: #c62828; font-size: 12.5px; min-height: 1em; }
+.page button.field-button { background: transparent; border: 0; cursor: pointer; }
+.page button.field-button:hover { background: rgba(5, 145, 177, .10); }
+.page input.field-datepick { padding: 0; border: 0; cursor: pointer; color: transparent; background: center / 70% no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230389a8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='18' rx='2'/%3E%3Cpath d='M16 2v4M8 2v4M3 10h18'/%3E%3C/svg%3E"); }
+.page input.field-datepick:hover { background-color: rgba(5, 145, 177, .12); }
+.page input.field-datepick::-webkit-datetime-edit { display: none; }
+.page input.field-datepick::-webkit-calendar-picker-indicator { margin: 0; padding: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 
 /* ---------- Alt text dialog ---------- */
 .modal.alt-dialog { width: min(640px, 94vw); max-height: 86vh; }

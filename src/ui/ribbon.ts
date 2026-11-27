@@ -10,7 +10,7 @@ import {
   FileSpreadsheet, Eraser, SquareDashed, ScanSearch, Shredder, Lock, LockOpen, File, FileDown, Workflow, ListChecks,
   MoveHorizontal, Maximize, PanelLeft, Search, ScanText, GitCompare, FolderSync, ClipboardCheck, Archive, Languages, Users, Printer, FormInput, WandSparkles, Sparkles, CloudDownload, CloudUpload, Accessibility, Images,
   Cloud, MessageSquareQuote, Spline, Pentagon, Ruler, RulerDimensionLine, DraftingCompass, Hash, Scaling, Crosshair, Waypoints, LandPlot, Settings, Split, Link, BookmarkPlus, Paperclip, Layers2,
-  Toolbox, SpellCheck, Magnet,
+  Toolbox, SpellCheck, Magnet, ListOrdered, CalendarDays,
 } from "lucide";
 
 export function icon(node: IconNode, size = 18): SVGElement {
@@ -186,6 +186,9 @@ export const TASKS: Task[] = [
       { label: "Prepare", items: [
         { cmd: "prepareForm", label: "Prepare form", icon: FormInput, big: true, hint: "Add, move and edit form fields" },
         { cmd: "detectFields", label: "Detect fields", icon: WandSparkles, big: true, hint: "Make a flat form fillable automatically" },
+        { cmd: "formTabOrder", label: "Tab order", icon: ListOrdered, hint: "Set the order the Tab key moves through fields" },
+        { cmd: "formFieldList", label: "Field list", icon: ListChecks, hint: "Every field in the document: click one to select it" },
+        { cmd: "addDateField", label: "Date field", icon: CalendarDays, hint: "A field that takes a date, with a calendar when filling in" },
       ] },
       { label: "Forms", items: [
         { cmd: "fillCsv", label: "Fill from CSV", icon: FileSpreadsheet, big: true },
