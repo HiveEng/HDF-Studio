@@ -458,7 +458,7 @@ function renderTabs() {
     };
     nav.append(el);
   }
-  document.title = active ? `${active.name} - HDF Studio` : "HDF Studio";
+  document.title = active ? `${active.name} - HDS` : "HDS";
 }
 async function saveBytesOf(t: Tab) {
   // Signed files must be saved incrementally, or the existing signatures would break.
@@ -476,7 +476,7 @@ async function graph() {
   return graphClient;
 }
 async function openFromCloud() {
-  if (!isTauri && !localStorage.getItem("hdfstudio.cloudTest")) return status("OneDrive and SharePoint work in the HDF Studio desktop app.");
+  if (!isTauri && !localStorage.getItem("hdfstudio.cloudTest")) return status("OneDrive and SharePoint work in the HDS desktop app.");
   const { browseCloud } = await import("./ui/cloud");
   const g = await graph();
   const pick = await browseCloud(g, { mode: "open" });
@@ -492,7 +492,7 @@ async function openCloudItem(ref: import("./cloud/graph").CloudRef) {
     const data = await g.download(it.driveId || ref.driveId, it.id);
     const { canOpen, needsOffice } = await import("./engine/convert");
     if (needsOffice(it.name)) return createPdf([{ name: it.name, path: null, data }]);
-    if (!canOpen(it.name)) return status(`${it.name}: HDF Studio can't open this kind of file`);
+    if (!canOpen(it.name)) return status(`${it.name}: HDS can't open this kind of file`);
     const before = tabs.length;
     await openFiles([{ name: it.name, path: null, data }]);
     const t = tabs[before];
@@ -530,7 +530,7 @@ async function saveToCloud(t: Tab, saveAs: boolean): Promise<boolean> {
       }
       t.cloud = { ...t.cloud, itemId: it.id, eTag: it.eTag, name: it.name, parentId: it.parentId ?? t.cloud.parentId };
     } else {
-      if (!isTauri && !localStorage.getItem("hdfstudio.cloudTest")) return (status("OneDrive and SharePoint work in the HDF Studio desktop app."), false);
+      if (!isTauri && !localStorage.getItem("hdfstudio.cloudTest")) return (status("OneDrive and SharePoint work in the HDS desktop app."), false);
       const { browseCloud } = await import("./ui/cloud");
       const pick = await browseCloud(g, { mode: "save", name: t.cloud?.name ?? (/\.pdf$/i.test(t.name) ? t.name : `${t.name}.pdf`) });
       if (!pick || pick.mode !== "save") return false;
@@ -2154,7 +2154,7 @@ async function quickFixes(t: Tab) {
 async function saveAsPdfa() {
   if (!active) return;
   const t = active;
-  if (!isTauri) return status("PDF/A conversion uses Ghostscript and runs in the desktop app or with: hdfstudio pdfa <file>");
+  if (!isTauri) return status("PDF/A conversion uses Ghostscript and runs in the desktop app or with: hds pdfa <file>");
   const { invoke } = await import("@tauri-apps/api/core");
   if (!(await invoke<boolean>("ghostscript_available"))) return status("PDF/A conversion needs Ghostscript. Install it from ghostscript.com (free), then try again.");
   const prog = showProgress("Converting to PDF/A");
@@ -2204,7 +2204,7 @@ const commands: Command[] = [
   { id: "find", title: "Find in document", keys: "Ctrl+F", run: () => (searchInput.focus(), searchInput.select()) },
   { id: "findReplace", title: "Find and replace text…", keys: "Ctrl+H", run: () => findReplace.open(searchInput.value || undefined) },
   { id: "account", title: "Account: who is signed in", run: () => status(signIn.user ? `Signed in as ${signIn.user.name} (${signIn.user.email})` : "Not signed in") },
-  { id: "signOut", title: "Sign out of HDF Studio", run: () => signIn.signOut() },
+  { id: "signOut", title: "Sign out of HDS", run: () => signIn.signOut() },
   { id: "spellCheck", title: "Check spelling (comments and page text)", keys: "F7", run: () => void spell.check() },
   { id: "nextHit", title: "Next match", keys: "F3", run: () => stepHit(1) },
   { id: "prevHit", title: "Previous match", keys: "Shift+F3", run: () => stepHit(-1) },
@@ -2467,7 +2467,7 @@ void signIn.start();
     if (!unsaved.length) return;
     e.preventDefault();
     const names = unsaved.slice(0, 3).map((t) => t.name).join(", ") + (unsaved.length > 3 ? ` and ${unsaved.length - 3} more` : "");
-    if (await confirmDialog(`Unsaved changes in ${names}. Close HDF Studio and lose them?`, "Close without saving")) await win.destroy();
+    if (await confirmDialog(`Unsaved changes in ${names}. Close HDS and lose them?`, "Close without saving")) await win.destroy();
   });
   await openPaths(await invoke<string[]>("startup_files"));
 })().catch((e) => status(String(e)));

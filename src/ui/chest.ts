@@ -149,7 +149,7 @@ export function setupChest(d: ChestDeps) {
     render();
   }
   async function exportChest() {
-    await d.saveText("HDF Studio tool chest.json", JSON.stringify({ app: "HDF Studio", kind: "tool-chest", version: 1, tools: getChest() }, null, 2));
+    await d.saveText("HDS tool chest.json", JSON.stringify({ app: "HDS", kind: "tool-chest", version: 1, tools: getChest() }, null, 2));
   }
   async function importChest() {
     const text = await d.pickText();

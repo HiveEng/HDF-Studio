@@ -8,7 +8,7 @@ export interface MicrosoftAuth {
   kind: "microsoft";
   /** Directory (tenant) ID of the organisation, from the Entra app registration. */
   tenant: string;
-  /** Application (client) ID of the HDF Studio app registration. */
+  /** Application (client) ID of the HDS app registration. */
   clientId: string;
   /** Allowed email domains, e.g. ["hiveng.ca"]. */
   domains: string[];

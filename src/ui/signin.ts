@@ -1,4 +1,4 @@
-// Staff-only access: HDF Studio asks for a Hive Engineering Microsoft 365 sign-in before it can be
+// Staff-only access: HDS asks for a Hive Engineering Microsoft 365 sign-in before it can be
 // used. The browser does the sign-in (MFA and Conditional Access apply); only accounts in Hive's
 // own Microsoft 365 organization are accepted. After that the app works offline for a while, and
 // a disabled or removed account is locked out the next time the app can reach Microsoft.
@@ -23,11 +23,12 @@ export function setupSignIn(o: { logoHtml: string; onUser(u: MsUser): void; stat
   gate.innerHTML = `
     <div class="signin-card">
       <div class="signin-logo">${o.logoHtml}</div>
-      <h1>HDF Studio</h1>
+      <h1>HDS</h1>
+      <p class="tagline">Hive Document Studio</p>
       <p class="signin-why">For Hive Engineering staff. Sign in with your work Microsoft 365 account to continue.</p>
       <button type="button" class="primary signin-btn">Sign in with Microsoft</button>
       <p class="signin-msg" aria-live="polite"></p>
-      <p class="signin-note">Your browser opens for the sign-in, so your password never passes through HDF Studio.</p>
+      <p class="signin-note">Your browser opens for the sign-in, so your password never passes through HDS.</p>
     </div>`;
   document.body.append(gate);
   const btn = gate.querySelector<HTMLButtonElement>(".signin-btn")!;
@@ -68,7 +69,7 @@ export function setupSignIn(o: { logoHtml: string; onUser(u: MsUser): void; stat
     if (r.status === "offline") {
       const days = (Date.now() - (r.checked ?? 0)) / 86_400_000;
       if (days <= OFFLINE_DAYS) return startup ? unlock(r.user!) : undefined;
-      return lock(`HDF Studio couldn't reach Microsoft to confirm your account for ${Math.floor(days)} days. Connect to the internet and sign in again.`);
+      return lock(`HDS couldn't reach Microsoft to confirm your account for ${Math.floor(days)} days. Connect to the internet and sign in again.`);
     }
     user = null;
     lock(startup ? "" : "Your sign-in has ended. Please sign in again.");

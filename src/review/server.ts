@@ -1,6 +1,6 @@
 // Shared review server: a small, dependency-free HTTP service that holds a PDF and its comments so
 // several people can comment on the same document at once. Self-hosted (run it on any machine the
-// reviewers can reach): `hdfstudio review-server --port 8787 --data ./reviews [--token secret]`.
+// reviewers can reach): `hds review-server --port 8787 --data ./reviews [--token secret]`.
 //
 // API (JSON unless noted; token via "Authorization: Bearer <token>" or ?token=):
 //   POST /api/reviews?name=<file name>       body: PDF bytes        -> { id, name, created }
@@ -151,7 +151,7 @@ export function startReviewServer(o: ReviewServerOptions): Promise<Server & { ur
         const r = reviews.get(parts[1]);
         if (!r) return send(res, 404, "Review not found", "text/plain");
         const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
-        return send(res, 200, `<!doctype html><meta charset="utf-8"><title>Review: ${esc(r.name)}</title><body style="font:15px system-ui;max-width:560px;margin:60px auto;line-height:1.5"><h2>Shared review: ${esc(r.name)}</h2><p>To comment, open <b>HDF Studio</b>, choose <b>Comment › Shared review › Join</b> and paste this page's address.</p><p>${reviewers(r).length} reviewer(s) so far: ${esc(reviewers(r).join(", ") || "none yet")}.</p></body>`, "text/html; charset=utf-8");
+        return send(res, 200, `<!doctype html><meta charset="utf-8"><title>Review: ${esc(r.name)}</title><body style="font:15px system-ui;max-width:560px;margin:60px auto;line-height:1.5"><h2>Shared review: ${esc(r.name)}</h2><p>To comment, open <b>HDS</b>, choose <b>Comment › Shared review › Join</b> and paste this page's address.</p><p>${reviewers(r).length} reviewer(s) so far: ${esc(reviewers(r).join(", ") || "none yet")}.</p></body>`, "text/html; charset=utf-8");
       }
       // How to sign in (public, so the app can set itself up from just the server address).
       if (parts[0] === "api" && parts[1] === "config" && req.method === "GET")

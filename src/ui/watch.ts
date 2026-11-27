@@ -1,5 +1,5 @@
 // Watch folders panel (desktop app): pick a folder and a recipe; every PDF that lands in the folder
-// is processed while HDF Studio is open. The `hdfstudio watch` command does the same without the app.
+// is processed while HDS is open. The `hds watch` command does the same without the app.
 import { FolderWatcher, OUT_DIR, DONE_DIR, type WatchFs, type WatchRule, type WatchEvent, type RunRecipe } from "../automation/watch";
 import { allRecipes } from "./batch";
 
@@ -80,7 +80,7 @@ function build() {
   r.innerHTML = `
   <div class="watch modal">
     <header><h2>Watch folders</h2><button class="close icon-btn" title="Close (Esc)">×</button></header>
-    <p class="muted">Every PDF dropped into a watched folder is run through a recipe while HDF Studio is open. Results go to <code>${OUT_DIR}</code> inside the folder and originals move to <code>${DONE_DIR}</code>. Scanners and shared drives work too.</p>
+    <p class="muted">Every PDF dropped into a watched folder is run through a recipe while HDS is open. Results go to <code>${OUT_DIR}</code> inside the folder and originals move to <code>${DONE_DIR}</code>. Scanners and shared drives work too.</p>
     <div id="watchRules"></div>
     <div class="row"><button id="watchAdd" class="primary">Add watch folder…</button></div>
     <h3>Activity</h3>
@@ -147,7 +147,7 @@ function render() {
           };
           return row;
         })
-      : [Object.assign(document.createElement("p"), { className: "muted", textContent: deps.fs ? "No folders yet." : "Watch folders need the desktop app. From a terminal: hdfstudio watch <folder> --recipe <name>." })]),
+      : [Object.assign(document.createElement("p"), { className: "muted", textContent: deps.fs ? "No folders yet." : "Watch folders need the desktop app. From a terminal: hds watch <folder> --recipe <name>." })]),
   );
   (root.querySelector("#watchAdd") as HTMLButtonElement).disabled = !deps.fs;
   root.querySelector("#watchLog")!.replaceChildren(

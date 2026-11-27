@@ -13,12 +13,12 @@ export async function checkForUpdates(status: (m: string) => void, manual = fals
     const { getVersion } = await import("@tauri-apps/api/app");
     const update = await check();
     if (!update) {
-      if (manual) status(`HDF Studio ${await getVersion()} is up to date`);
+      if (manual) status(`HDS ${await getVersion()} is up to date`);
       return;
     }
-    const ok = await confirmDialog(`HDF Studio ${update.version} is available (you have ${update.currentVersion}). Update now? Save your work first; the app restarts when the update is installed.`, "Update and restart");
+    const ok = await confirmDialog(`HDS ${update.version} is available (you have ${update.currentVersion}). Update now? Save your work first; the app restarts when the update is installed.`, "Update and restart");
     if (!ok) return status(`Update ${update.version} skipped. Use "Check for updates" in Ctrl+K when you're ready.`);
-    const prog = showProgress(`Downloading HDF Studio ${update.version}`);
+    const prog = showProgress(`Downloading HDS ${update.version}`);
     let total = 0, got = 0;
     await update.downloadAndInstall((e) => {
       if (e.event === "Started") total = e.data.contentLength ?? 0;

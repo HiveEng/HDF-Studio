@@ -1,5 +1,5 @@
 // Watch folders: every PDF that lands in a folder is run through a recipe automatically.
-// Shared by the desktop app (Tauri file system) and the `hdfstudio watch` command (Node).
+// Shared by the desktop app (Tauri file system) and the `hds watch` command (Node).
 import type { Recipe } from "../engine/recipes";
 
 export interface WatchFs {
