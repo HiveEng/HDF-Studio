@@ -1637,10 +1637,22 @@ const formsUI = setupForms({
   },
   signField: (f) => placeSignature(f.page, [0, 0], f.rect),
   status,
+  pressButton: async (f) => {
+    const a = f.action;
+    if (!a || a.kind === "none" || !active) return;
+    if (a.kind === "reset") {
+      await engine.clearForm(active.info.id);
+      active.dirty = true;
+      buildView();
+      status("Cleared the form. Ctrl+Z to undo.");
+    } else if (a.kind === "print") printDoc();
+    else if (a.kind === "url") void openExternal(a.url);
+  },
 });
 const designUI = setupFormDesign({
   engine,
   doc: () => active,
+  currentPage: () => active?.page ?? 0,
   pagesEl,
   viewer,
   pageEl,
@@ -2247,6 +2259,16 @@ const commands: Command[] = [
   { id: "altText", title: "Describe images (alt text) for screen readers…", run: () => describeImages() },
   { id: "prepareForm", title: "Prepare form: add, move and edit form fields", keys: "Ctrl+Shift+F", run: () => designUI.toggle() },
   { id: "detectFields", title: "Detect form fields: make a flat form fillable automatically", run: () => designUI.detect() },
+  { id: "formTabOrder", title: "Form tab order: set the order the Tab key moves through fields", run: () => designUI.tabOrder() },
+  { id: "formFieldList", title: "Form field list: every field in the document", run: () => designUI.fieldList() },
+  { id: "addTextField", title: "Add a text field to the form", run: () => designUI.draw("text") },
+  { id: "addDateField", title: "Add a date field to the form", run: () => designUI.draw("date") },
+  { id: "addCheckField", title: "Add a check box to the form", run: () => designUI.draw("checkbox") },
+  { id: "addRadioField", title: "Add radio buttons to the form", run: () => designUI.draw("radio") },
+  { id: "addDropdownField", title: "Add a dropdown list to the form", run: () => designUI.draw("combobox") },
+  { id: "addListField", title: "Add a list box to the form", run: () => designUI.draw("listbox") },
+  { id: "addSignatureField", title: "Add a signature field to the form", run: () => designUI.draw("signature") },
+  { id: "addButtonField", title: "Add a button (clear form, print, open link) to the form", run: () => designUI.draw("button") },
   { id: "showComments", title: "Show comments", run: () => (showSidePanel("comments"), annot.refreshComments()) },
   { id: "mergeReviews", title: "Merge reviewers' comments (from their PDF copies or XFDF files)…", run: () => (showSidePanel("comments"), annot.mergeReviews()) },
   { id: "tool-redact", title: "Redact tool (mark text or area)", keys: "D", run: () => useTool("redact") },

@@ -2,9 +2,31 @@
 // flat form (underscores, ☐ boxes, drawn lines and boxes). Rectangles are page display space
 // (points, origin top-left), like everything else in the UI.
 import * as mupdf from "mupdf";
-import { readLogic, writeLogic, recalculate, setDisplayed, type FieldLogic } from "./formcalc";
+import { readLogic, writeLogic, recalculate, setDisplayed, NO_LOGIC, type FieldLogic } from "./formcalc";
 
-export type NewFieldType = "text" | "checkbox" | "radio" | "combobox" | "listbox" | "signature";
+export type NewFieldType = "text" | "date" | "checkbox" | "radio" | "combobox" | "listbox" | "signature" | "button";
+
+/** Standard fonts every PDF reader has: Helvetica, Helvetica Bold, Times, Courier. */
+export type FontId = "Helv" | "HeBo" | "TiRo" | "Cour";
+const FONT_FILE: Record<FontId, string> = { Helv: "Helvetica", HeBo: "Helvetica-Bold", TiRo: "Times-Roman", Cour: "Courier" };
+export type CheckStyle = "check" | "cross" | "circle" | "square" | "diamond" | "star";
+/** The ZapfDingbats character each check style draws. */
+const CHECK_CHAR: Record<CheckStyle, string> = { check: "4", cross: "8", circle: "l", square: "n", diamond: "u", star: "H" };
+export type ButtonAction = { kind: "none" } | { kind: "reset" } | { kind: "print" } | { kind: "url"; url: string };
+
+/** How a field looks. Colors are RGB 0..1; null = none (transparent). */
+export interface FieldLook {
+  borderColor: number[] | null;
+  fillColor: number[] | null;
+  textColor: number[];
+  font: FontId;
+  /** 0 left, 1 centre, 2 right. */
+  align: 0 | 1 | 2;
+  borderWidth: number;
+  /** Check boxes and radio buttons. */
+  checkStyle: CheckStyle;
+}
+export const DEFAULT_LOOK: FieldLook = { borderColor: [0.35, 0.35, 0.36], fillColor: [1, 1, 1], textColor: [0, 0, 0], font: "Helv", align: 0, borderWidth: 1, checkStyle: "check" };
 
 export interface FieldSpec {
   type: NewFieldType;
@@ -24,6 +46,18 @@ export interface FieldSpec {
   tooltip?: string;
   /** Number/date format, calculation and validation (text fields). */
   logic?: FieldLogic;
+  /** Date fields: the date style (default mm/dd/yyyy). */
+  datePattern?: string;
+  look?: Partial<FieldLook>;
+  /** Buttons: the text on the button, and what clicking it does. */
+  caption?: string;
+  action?: ButtonAction;
+  /** Text: spread the characters evenly over Character limit boxes. */
+  comb?: boolean;
+  /** Dropdowns: allow typing a value that isn't in the list. */
+  editable?: boolean;
+  /** List boxes: allow picking more than one. */
+  multiSelect?: boolean;
 }
 
 export interface FieldProps {
@@ -41,11 +75,20 @@ export interface FieldProps {
   fontSize: number;
   tooltip: string;
   logic: FieldLogic;
+  look: FieldLook;
+  caption: string;
+  action: ButtonAction;
+  comb: boolean;
+  editable: boolean;
+  multiSelect: boolean;
+  /** Current value (the default for a new copy). */
+  value: string;
 }
 
-export type FieldPatch = Partial<Omit<FieldSpec, "type" | "value" | "exportValue">>;
+export type FieldPatch = Partial<Omit<FieldSpec, "type" | "datePattern">>;
 
-const FF_READONLY = 1, FF_REQUIRED = 2, FF_MULTILINE = 1 << 12, FF_RADIO = 1 << 15, FF_NOTOGGLEOFF = 1 << 14, FF_COMBO = 1 << 17;
+const FF_READONLY = 1, FF_REQUIRED = 2, FF_MULTILINE = 1 << 12, FF_RADIO = 1 << 15, FF_NOTOGGLEOFF = 1 << 14, FF_PUSHBUTTON = 1 << 16, FF_COMBO = 1 << 17, FF_EDIT = 1 << 18, FF_MULTISELECT = 1 << 21, FF_COMB = 1 << 24;
+const safeName = (s: string) => s.replace(/[\s/()<>[\]{}%#]/g, "_");
 
 // ---------- coordinates ----------
 function toUserRect(page: mupdf.PDFPage, r: number[]): number[] {
@@ -74,7 +117,7 @@ function acroForm(doc: mupdf.PDFDocument): mupdf.PDFObject {
     fonts = doc.newDictionary();
     dr.put("Font", fonts);
   }
-  if (fonts.get("Helv").isNull()) fonts.put("Helv", doc.addSimpleFont(new mupdf.Font("Helvetica")));
+  for (const [id, file] of Object.entries(FONT_FILE)) if (fonts.get(id).isNull()) fonts.put(id, doc.addSimpleFont(new mupdf.Font(file)));
   if (fonts.get("ZaDb").isNull()) fonts.put("ZaDb", doc.addSimpleFont(new mupdf.Font("ZapfDingbats")));
   if (af.get("DA").isNull()) af.put("DA", doc.newString("/Helv 0 Tf 0 g"));
   return af;
@@ -112,12 +155,83 @@ export function uniqueName(taken: Set<string>, base: string): string {
   for (let i = 2; ; i++) if (!taken.has(`${clean} ${i}`)) return `${clean} ${i}`;
 }
 
-// ---------- appearances for check boxes and radio buttons ----------
-function stream(doc: mupdf.PDFDocument, w: number, h: number, content: string, zadb = false): mupdf.PDFObject {
+// ---------- look: colors, font, alignment, border ----------
+const colorOf = (a: mupdf.PDFObject): number[] | null => {
+  if (!a.isArray() || a.length === 0) return null;
+  const v = Array.from({ length: a.length }, (_, i) => +a.get(i).asNumber().toFixed(3));
+  if (v.length === 1) return [v[0], v[0], v[0]];
+  if (v.length === 4) return [0, 1, 2].map((i) => +(1 - Math.min(1, v[i] + v[3])).toFixed(3));
+  return v.slice(0, 3);
+};
+const fx = (n: number) => +n.toFixed(3);
+const rg = (c: number[], stroke = false) => `${c.map(fx).join(" ")} ${stroke ? "RG" : "rg"}`;
+
+function daOf(o: mupdf.PDFObject): string {
+  const da = o.get("DA");
+  if (da.isString()) return da.asString();
+  const p = fieldDict(o).get("DA");
+  return p.isString() ? p.asString() : "";
+}
+function parseDA(da: string): { font: FontId; size: number; color: number[] } {
+  const tf = /\/(\S+)\s+([\d.]+)\s+Tf/.exec(da);
+  const font = (tf && tf[1] in FONT_FILE ? tf[1] : "Helv") as FontId;
+  let color = [0, 0, 0];
+  const c3 = /([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+rg/.exec(da), c1 = /([\d.]+)\s+g(?:\s|$)/.exec(da);
+  if (c3) color = [+(+c3[1]).toFixed(3), +(+c3[2]).toFixed(3), +(+c3[3]).toFixed(3)];
+  else if (c1) color = [+c1[1], +c1[1], +c1[1]];
+  return { font, size: tf ? +tf[2] : 0, color };
+}
+const makeDA = (font: FontId, size: number, color: number[]) => `/${font} ${fx(size)} Tf ${color.every((v) => v === color[0]) ? `${fx(color[0])} g` : rg(color)}`;
+
+function readLook(o: mupdf.PDFObject): FieldLook {
+  const mk = o.get("MK");
+  const da = parseDA(daOf(o));
+  const bs = o.get("BS");
+  const q = o.get("Q").isNumber() ? o.get("Q").asNumber() : fieldDict(o).get("Q").isNumber() ? fieldDict(o).get("Q").asNumber() : 0;
+  const ca = mk.isDictionary() && mk.get("CA").isString() ? mk.get("CA").asString() : "";
+  const style = (Object.keys(CHECK_CHAR) as CheckStyle[]).find((k) => CHECK_CHAR[k] === ca) ?? "check";
+  return {
+    borderColor: mk.isDictionary() ? colorOf(mk.get("BC")) : null,
+    fillColor: mk.isDictionary() ? colorOf(mk.get("BG")) : null,
+    textColor: da.color,
+    font: da.font,
+    align: (Math.max(0, Math.min(2, q)) as 0 | 1 | 2),
+    borderWidth: bs.isDictionary() && bs.get("W").isNumber() ? bs.get("W").asNumber() : 1,
+    checkStyle: style,
+  };
+}
+
+function writeLook(doc: mupdf.PDFDocument, o: mupdf.PDFObject, look: Partial<FieldLook>, kind: "text" | "toggle" | "button" | "sig") {
+  let mk = o.get("MK");
+  if (!mk.isDictionary()) {
+    mk = doc.newDictionary();
+    o.put("MK", mk);
+  }
+  if (look.borderColor !== undefined) look.borderColor ? mk.put("BC", look.borderColor.map(fx)) : mk.delete("BC");
+  if (look.fillColor !== undefined) look.fillColor ? mk.put("BG", look.fillColor.map(fx)) : mk.delete("BG");
+  if (look.borderWidth !== undefined) {
+    let bs = o.get("BS");
+    if (!bs.isDictionary()) {
+      bs = doc.newDictionary();
+      o.put("BS", bs);
+    }
+    bs.put("W", Math.max(0, Math.min(6, look.borderWidth)));
+    if (bs.get("S").isNull()) bs.put("S", doc.newName("S"));
+  }
+  if (look.align !== undefined && kind !== "toggle") o.put("Q", look.align);
+  if (look.checkStyle !== undefined && kind === "toggle") mk.put("CA", doc.newString(CHECK_CHAR[look.checkStyle]));
+  if ((look.font !== undefined || look.textColor !== undefined) && kind !== "sig") {
+    const cur = parseDA(daOf(o));
+    o.put("DA", doc.newString(makeDA(kind === "toggle" ? "ZaDb" as FontId : look.font ?? cur.font, cur.size, look.textColor ?? cur.color)));
+  }
+}
+
+// ---------- appearances for check boxes, radio buttons and push buttons ----------
+function stream(doc: mupdf.PDFDocument, w: number, h: number, content: string, font?: FontId | "ZaDb"): mupdf.PDFObject {
   const res = doc.newDictionary();
-  if (zadb) {
+  if (font) {
     const f = doc.newDictionary();
-    f.put("ZaDb", doc.getTrailer().get("Root").get("AcroForm").get("DR").get("Font").get("ZaDb"));
+    f.put(font, doc.getTrailer().get("Root").get("AcroForm").get("DR").get("Font").get(font));
     res.put("Font", f);
   }
   const dict = doc.newDictionary();
@@ -133,23 +247,51 @@ function circle(cx: number, cy: number, r: number) {
   return `${cx + r} ${cy} m ${cx + r} ${cy + k} ${cx + k} ${cy + r} ${cx} ${cy + r} c ${cx - k} ${cy + r} ${cx - r} ${cy + k} ${cx - r} ${cy} c ${cx - r} ${cy - k} ${cx - k} ${cy - r} ${cx} ${cy - r} c ${cx + k} ${cy - r} ${cx + r} ${cy - k} ${cx + r} ${cy} c`;
 }
 
-function setToggleAppearance(doc: mupdf.PDFDocument, o: mupdf.PDFObject, on: string, radio: boolean) {
+/** Width and height in the widget's own (unrotated) space. */
+function boxSize(o: mupdf.PDFObject): [number, number] {
   const r = o.get("Rect");
-  const w = Math.abs(r.get(2).asNumber() - r.get(0).asNumber()), h = Math.abs(r.get(3).asNumber() - r.get(1).asNumber());
+  let w = Math.abs(r.get(2).asNumber() - r.get(0).asNumber()), h = Math.abs(r.get(3).asNumber() - r.get(1).asNumber());
+  const rot = o.get("MK").isDictionary() && o.get("MK").get("R").isNumber() ? o.get("MK").get("R").asNumber() : 0;
+  if (rot % 180) [w, h] = [h, w];
+  return [w, h];
+}
+/** Appearance streams are drawn upright, then turned to match a rotated page. */
+function setMatrix(o: mupdf.PDFObject, ap: mupdf.PDFObject, w: number, h: number) {
+  const rot = o.get("MK").isDictionary() && o.get("MK").get("R").isNumber() ? ((o.get("MK").get("R").asNumber() % 360) + 360) % 360 : 0;
+  const m = rot === 90 ? [0, 1, -1, 0, h, 0] : rot === 180 ? [-1, 0, 0, -1, w, h] : rot === 270 ? [0, -1, 1, 0, 0, w] : null;
+  if (m) ap.put("Matrix", m);
+}
+
+function setToggleAppearance(doc: mupdf.PDFDocument, o: mupdf.PDFObject, on: string, radio: boolean) {
+  const [w, h] = boxSize(o);
+  const look = readLook(o);
   const f = (n: number) => +n.toFixed(2);
-  let off: string, onS: string;
+  const bw = look.borderWidth;
+  const bc = look.borderColor && bw > 0 ? look.borderColor : null;
+  let off: string;
   if (radio) {
     const rr = Math.min(w, h) / 2;
-    off = `1 g ${circle(f(w / 2), f(h / 2), f(rr - 0.5))} f 0 G 1 w ${circle(f(w / 2), f(h / 2), f(rr - 0.5))} S`;
-    onS = `${off} 0 g ${circle(f(w / 2), f(h / 2), f(rr * 0.45))} f`;
+    const path = circle(f(w / 2), f(h / 2), f(rr - bw / 2));
+    off = (look.fillColor ? `${rg(look.fillColor)} ${path} f ` : "") + (bc ? `${rg(bc, true)} ${fx(bw)} w ${path} S` : "");
   } else {
-    off = `1 g 0 0 ${f(w)} ${f(h)} re f 0 G 1 w 0.5 0.5 ${f(w - 1)} ${f(h - 1)} re S`;
-    const size = f(Math.min(w, h) * 0.8);
-    onS = `${off} 0 g BT /ZaDb ${size} Tf ${f((w - size * 0.78) / 2)} ${f((h - size * 0.7) / 2)} Td (4) Tj ET`;
+    off = (look.fillColor ? `${rg(look.fillColor)} 0 0 ${f(w)} ${f(h)} re f ` : "") + (bc ? `${rg(bc, true)} ${fx(bw)} w ${f(bw / 2)} ${f(bw / 2)} ${f(w - bw)} ${f(h - bw)} re S` : "");
+  }
+  let onS: string;
+  let zadb = false;
+  if (radio && look.checkStyle === "circle") onS = `${off} ${rg(look.textColor)} ${circle(f(w / 2), f(h / 2), f((Math.min(w, h) / 2) * 0.45))} f`;
+  else {
+    zadb = true;
+    const size = f(Math.min(w, h) * (radio ? 0.7 : 0.8));
+    // Glyph widths in ZapfDingbats (per 1000) for centring.
+    const gw = { check: 846, cross: 838, circle: 791, square: 761, diamond: 759, star: 816 }[look.checkStyle] / 1000;
+    onS = `${off} ${rg(look.textColor)} BT /ZaDb ${size} Tf ${f((w - size * gw) / 2)} ${f((h - size * 0.7) / 2)} Td (${CHECK_CHAR[look.checkStyle]}) Tj ET`;
   }
   const n = doc.newDictionary();
-  n.put(on, stream(doc, w, h, onS, !radio));
-  n.put("Off", stream(doc, w, h, off));
+  const onAp = stream(doc, w, h, onS, zadb ? "ZaDb" : undefined), offAp = stream(doc, w, h, off || " ");
+  setMatrix(o, onAp, w, h);
+  setMatrix(o, offAp, w, h);
+  n.put(on, onAp);
+  n.put("Off", offAp);
   const ap = doc.newDictionary();
   ap.put("N", n);
   o.put("AP", ap);
@@ -158,7 +300,71 @@ function setToggleAppearance(doc: mupdf.PDFDocument, o: mupdf.PDFObject, on: str
     mk = doc.newDictionary();
     o.put("MK", mk);
   }
-  mk.put("CA", doc.newString(radio ? "l" : "4"));
+  mk.put("CA", doc.newString(CHECK_CHAR[look.checkStyle]));
+}
+
+const fontCache = new Map<string, mupdf.Font>();
+function textWidth(font: FontId, size: number, s: string) {
+  let f = fontCache.get(font);
+  if (!f) fontCache.set(font, (f = new mupdf.Font(FONT_FILE[font])));
+  let w = 0;
+  for (const ch of s) w += f.advanceGlyph(f.encodeCharacter(ch.codePointAt(0)!), 0);
+  return w * size;
+}
+const pdfStr = (s: string) => `(${s.replace(/[\\()]/g, (c) => "\\" + c).replace(/[^\x20-\x7e]/g, "?")})`;
+
+/** A push button: filled, bordered, with its caption centred. */
+function setButtonAppearance(doc: mupdf.PDFDocument, o: mupdf.PDFObject) {
+  const [w, h] = boxSize(o);
+  const look = readLook(o);
+  const mk = o.get("MK");
+  const caption = mk.isDictionary() && mk.get("CA").isString() ? mk.get("CA").asString() : "";
+  const da = parseDA(daOf(o));
+  const bw = look.borderColor ? look.borderWidth : 0;
+  let size = da.size || Math.min(12, h * 0.6);
+  if (!da.size) while (size > 4 && textWidth(look.font, size, caption) > w - 2 * bw - 4) size -= 0.5;
+  const f = (n: number) => +n.toFixed(2);
+  const tw = textWidth(look.font, size, caption);
+  const x = look.align === 0 ? bw + 2 : look.align === 2 ? w - bw - 2 - tw : (w - tw) / 2;
+  let c = "";
+  if (look.fillColor) {
+    c += `${rg(look.fillColor)} 0 0 ${f(w)} ${f(h)} re f `;
+    // A light bevel so it reads as a button.
+    c += `1 1 1 rg ${f(bw)} ${f(bw)} m ${f(bw)} ${f(h - bw)} l ${f(w - bw)} ${f(h - bw)} l ${f(w - bw - 1.5)} ${f(h - bw - 1.5)} l ${f(bw + 1.5)} ${f(h - bw - 1.5)} l ${f(bw + 1.5)} ${f(bw + 1.5)} l f `;
+    c += `0.5 0.5 0.5 rg ${f(w - bw)} ${f(h - bw)} m ${f(w - bw)} ${f(bw)} l ${f(bw)} ${f(bw)} l ${f(bw + 1.5)} ${f(bw + 1.5)} l ${f(w - bw - 1.5)} ${f(bw + 1.5)} l ${f(w - bw - 1.5)} ${f(h - bw - 1.5)} l f `;
+  }
+  if (look.borderColor && bw > 0) c += `${rg(look.borderColor, true)} ${fx(bw)} w ${f(bw / 2)} ${f(bw / 2)} ${f(w - bw)} ${f(h - bw)} re S `;
+  if (caption) c += `BT ${rg(look.textColor)} /${look.font} ${f(size)} Tf ${f(x)} ${f((h - size * 0.7) / 2)} Td ${pdfStr(caption)} Tj ET`;
+  const ap = doc.newDictionary();
+  const s = stream(doc, w, h, c || " ", look.font);
+  setMatrix(o, s, w, h);
+  ap.put("N", s);
+  o.put("AP", ap);
+}
+
+function readAction(o: mupdf.PDFObject): ButtonAction {
+  const a = o.get("A");
+  if (!a.isDictionary()) return { kind: "none" };
+  const s = a.get("S").isName() ? a.get("S").asName() : "";
+  if (s === "ResetForm") return { kind: "reset" };
+  if (s === "Named" && a.get("N").isName() && a.get("N").asName() === "Print") return { kind: "print" };
+  if (s === "URI" && a.get("URI").isString()) return { kind: "url", url: a.get("URI").asString() };
+  if (s === "JavaScript" && /\bprint\s*\(/.test(a.get("JS").isString() ? a.get("JS").asString() : "")) return { kind: "print" };
+  return { kind: "none" };
+}
+function writeAction(doc: mupdf.PDFDocument, o: mupdf.PDFObject, act: ButtonAction) {
+  if (act.kind === "none") return o.delete("A");
+  const a = doc.newDictionary();
+  a.put("Type", doc.newName("Action"));
+  if (act.kind === "reset") a.put("S", doc.newName("ResetForm"));
+  else if (act.kind === "print") {
+    a.put("S", doc.newName("Named"));
+    a.put("N", doc.newName("Print"));
+  } else {
+    a.put("S", doc.newName("URI"));
+    a.put("URI", doc.newString(act.url));
+  }
+  o.put("A", a);
 }
 
 // ---------- create ----------
@@ -189,13 +395,18 @@ export function addField(doc: mupdf.PDFDocument, pageIndex: number, spec: FieldS
   const af = acroForm(doc);
   const fields = af.get("Fields");
   const page = doc.loadPage(pageIndex) as mupdf.PDFPage;
+  // A date field is a text field with a date format (and a calendar when filling in).
+  const type = spec.type === "date" ? "text" : spec.type;
+  const logic: FieldLogic | undefined = spec.type === "date" ? { ...(spec.logic ?? NO_LOGIC), format: { kind: "date", pattern: spec.datePattern || "mm/dd/yyyy" } } : spec.logic;
+  const font: FontId = spec.look?.font ?? "Helv";
+  const color = spec.look?.textColor ?? [0, 0, 0];
   try {
     const pageObj = page.getObject();
     const w = newWidget(doc, page, spec.rect);
     const fs = spec.fontSize ?? 0;
     let flags = (spec.readOnly ? FF_READONLY : 0) | (spec.required ? FF_REQUIRED : 0);
     let ref: mupdf.PDFObject;
-    if (spec.type === "radio") {
+    if (type === "radio") {
       // Find or create the group parent.
       let parent: mupdf.PDFObject | null = null;
       for (let i = 0; i < fields.length; i++) {
@@ -214,66 +425,96 @@ export function addField(doc: mupdf.PDFDocument, pageIndex: number, spec: FieldS
         fields.push(parent);
       }
       const kids = parent.get("Kids");
-      const on = (spec.exportValue || `Choice ${kids.length + 1}`).replace(/[\s/()<>[\]{}%#]/g, "_");
+      let on = safeName(spec.exportValue || `Choice ${kids.length + 1}`);
+      // Each button in a group needs its own value.
+      const used = new Set<string>();
+      for (let i = 0; i < kids.length; i++) {
+        const n = kids.get(i).get("AP").get("N");
+        if (n.isDictionary()) n.forEach((_v, k) => k !== "Off" && used.add(String(k)));
+      }
+      for (let i = 2; used.has(on); i++) on = safeName(`${spec.exportValue || "Choice"} ${i}`);
       w.put("Parent", parent);
       w.put("AS", doc.newName("Off"));
+      w.put("DA", doc.newString(makeDA("ZaDb" as FontId, 0, color)));
       ref = doc.addObject(w);
       kids.push(ref);
+      writeLook(doc, ref, { checkStyle: "circle", ...spec.look }, "toggle");
       setToggleAppearance(doc, ref, on, true);
     } else {
       w.put("T", doc.newString(spec.name));
       if (spec.tooltip) w.put("TU", doc.newString(spec.tooltip));
-      switch (spec.type) {
+      switch (type) {
         case "text":
           w.put("FT", doc.newName("Tx"));
-          w.put("DA", doc.newString(`/Helv ${fs} Tf 0 g`));
+          w.put("DA", doc.newString(makeDA(font, fs, color)));
           if (spec.multiline) flags |= FF_MULTILINE;
           if (spec.maxLen) w.put("MaxLen", spec.maxLen);
+          if (spec.comb && spec.maxLen && !spec.multiline) flags |= FF_COMB;
           break;
         case "checkbox":
           w.put("FT", doc.newName("Btn"));
           w.put("V", doc.newName("Off"));
           w.put("AS", doc.newName("Off"));
-          w.put("DA", doc.newString("/ZaDb 0 Tf 0 g"));
+          w.put("DA", doc.newString(makeDA("ZaDb" as FontId, 0, color)));
           break;
         case "combobox":
         case "listbox":
           w.put("FT", doc.newName("Ch"));
-          w.put("DA", doc.newString(`/Helv ${fs} Tf 0 g`));
-          if (spec.type === "combobox") flags |= FF_COMBO;
+          w.put("DA", doc.newString(makeDA(font, fs, color)));
+          if (type === "combobox") flags |= FF_COMBO | (spec.editable ? FF_EDIT : 0);
+          else if (spec.multiSelect) flags |= FF_MULTISELECT;
           w.put("Opt", (spec.options ?? []).map((s) => doc.newString(s)));
           break;
         case "signature":
           w.put("FT", doc.newName("Sig"));
           break;
+        case "button":
+          w.put("FT", doc.newName("Btn"));
+          flags |= FF_PUSHBUTTON;
+          w.put("DA", doc.newString(makeDA(font, fs, color)));
+          w.put("MK", w.get("MK"));
+          w.get("MK").put("BG", [0.85, 0.86, 0.87]);
+          w.get("MK").put("CA", doc.newString(spec.caption ?? spec.name));
+          if (spec.look?.align === undefined) w.put("Q", 1);
+          break;
       }
       w.put("Ff", flags);
       ref = doc.addObject(w);
       fields.push(ref);
-      if (spec.type === "checkbox") setToggleAppearance(doc, ref, (spec.exportValue || "Yes").replace(/[\s/()<>[\]{}%#]/g, "_"), false);
+      if (spec.look) writeLook(doc, ref, spec.look, type === "checkbox" ? "toggle" : type === "button" ? "button" : type === "signature" ? "sig" : "text");
+      if (type === "checkbox") setToggleAppearance(doc, ref, safeName(spec.exportValue || "Yes"), false);
+      if (type === "button") {
+        writeAction(doc, ref, spec.action ?? { kind: "none" });
+        setButtonAppearance(doc, ref);
+      }
     }
-    if (spec.type === "radio" && spec.tooltip) ref.put("TU", doc.newString(spec.tooltip));
+    if (type === "radio" && spec.tooltip) ref.put("TU", doc.newString(spec.tooltip));
     pageAnnots(doc, pageObj).push(ref);
     const key = ref.asIndirect();
-    if (spec.logic && spec.type === "text") writeLogic(doc, ref, spec.logic);
+    if (logic && type === "text") writeLogic(doc, ref, logic);
     // Let MuPDF build the appearance for text and choice fields (and set any initial value).
+    page.destroy();
     const fresh = doc.loadPage(pageIndex) as mupdf.PDFPage;
     try {
       const wid = fresh.getWidgets().find((x) => x.getObject().asIndirect() === key);
       if (wid) {
-        if (spec.type === "text") {
-          wid.setTextValue(spec.value ?? "");
-        }
-        else if ((spec.type === "combobox" || spec.type === "listbox") && spec.value) wid.setChoiceValue(spec.value);
-        else if (spec.type === "checkbox" && spec.value && /^(1|y|yes|true|on|x)$/i.test(spec.value)) wid.toggle();
-        wid.update();
+        if (type === "text") {
+          if (logic && logic.format.kind !== "none") setDisplayed(doc, wid, spec.value ?? "", logic.format);
+          else wid.setTextValue(spec.value ?? "");
+        } else if ((type === "combobox" || type === "listbox") && spec.value) wid.setChoiceValue(spec.value);
+        else if (type === "checkbox" && spec.value && /^(1|y|yes|true|on|x)$/i.test(spec.value)) wid.toggle();
+        if (type !== "button") wid.update();
       }
     } finally {
       fresh.destroy();
     }
     return key;
   } finally {
-    page.destroy();
+    try {
+      page.destroy();
+    } catch {
+      /* already destroyed */
+    }
   }
 }
 
@@ -290,6 +531,13 @@ function fieldDict(o: mupdf.PDFObject) {
   return o.get("T").isNull() && p.isDictionary() ? p : o;
 }
 
+function onStateOf(o: mupdf.PDFObject): string | null {
+  let on: string | null = null;
+  const n = o.get("AP").get("N");
+  if (n.isDictionary()) n.forEach((_v, k) => k !== "Off" && (on = String(k)));
+  return on;
+}
+
 export function fieldProps(doc: mupdf.PDFDocument, pageIndex: number, key: number): FieldProps {
   const page = doc.loadPage(pageIndex) as mupdf.PDFPage;
   try {
@@ -297,28 +545,31 @@ export function fieldProps(doc: mupdf.PDFDocument, pageIndex: number, key: numbe
     const o = w.getObject();
     const fd = fieldDict(o);
     const ff = w.getFieldFlags();
-    const da = o.get("DA").isString() ? o.get("DA").asString() : fd.get("DA").isString() ? fd.get("DA").asString() : "";
     const tu = fd.get("TU");
-    let exportValue: string | null = null;
-    if (w.isCheckbox() || w.isRadioButton()) {
-      const n = o.get("AP").get("N");
-      if (n.isDictionary()) n.forEach((_v, k) => k !== "Off" && (exportValue = String(k)));
-    }
+    const type = w.getFieldType();
+    const mk = o.get("MK");
     return {
       key,
       page: pageIndex,
-      type: w.getFieldType(),
+      type,
       name: w.getName(),
       rect: Array.from(w.getBounds()),
       options: w.isChoice() ? w.getOptions() : [],
-      exportValue,
+      exportValue: w.isCheckbox() || w.isRadioButton() ? onStateOf(o) : null,
       required: (ff & FF_REQUIRED) !== 0,
       readOnly: (ff & FF_READONLY) !== 0,
       multiline: w.isText() && w.isMultiline(),
       maxLen: w.isText() ? w.getMaxLen() : 0,
-      fontSize: Number(/([\d.]+)\s+Tf/.exec(da)?.[1] ?? 0),
+      fontSize: parseDA(daOf(o)).size,
       tooltip: tu.isString() ? tu.asString() : "",
       logic: readLogic(o),
+      look: readLook(o),
+      caption: type === "button" && mk.isDictionary() && mk.get("CA").isString() ? mk.get("CA").asString() : "",
+      action: type === "button" ? readAction(o) : { kind: "none" },
+      comb: (ff & FF_COMB) !== 0,
+      editable: type === "combobox" && (ff & FF_EDIT) !== 0,
+      multiSelect: type === "listbox" && (ff & FF_MULTISELECT) !== 0,
+      value: type === "signature" || type === "button" ? "" : w.getValue() ?? "",
     };
   } finally {
     page.destroy();
@@ -331,6 +582,8 @@ export function updateField(doc: mupdf.PDFDocument, pageIndex: number, key: numb
     const w = findWidget(page, key);
     const o = w.getObject();
     const fd = fieldDict(o);
+    const type = w.getFieldType();
+    const toggle = w.isCheckbox() || w.isRadioButton();
     if (patch.name !== undefined && patch.name.trim() && patch.name !== w.getName()) {
       const taken = fieldNames(doc);
       if (taken.has(patch.name.trim())) throw new Error(`There is already a field named “${patch.name.trim()}”`);
@@ -343,21 +596,42 @@ export function updateField(doc: mupdf.PDFDocument, pageIndex: number, key: numb
     if (w.isText()) {
       set(patch.multiline, FF_MULTILINE);
       if (patch.maxLen !== undefined) patch.maxLen > 0 ? o.put("MaxLen", patch.maxLen) : o.delete("MaxLen");
+      set(patch.comb, FF_COMB);
+      if (!o.get("MaxLen").isNumber() || (fd.get("Ff").isNumber() && fd.get("Ff").asNumber() & FF_MULTILINE)) applyFlags(fd, 0, FF_COMB);
     }
-    if (patch.fontSize !== undefined && (w.isText() || w.isChoice())) o.put("DA", doc.newString(`/Helv ${patch.fontSize} Tf 0 g`));
+    if (type === "combobox") set(patch.editable, FF_EDIT);
+    if (type === "listbox") set(patch.multiSelect, FF_MULTISELECT);
+    if (patch.fontSize !== undefined && (w.isText() || w.isChoice() || type === "button")) {
+      const cur = parseDA(daOf(o));
+      o.put("DA", doc.newString(makeDA(cur.font, patch.fontSize, cur.color)));
+    }
     if (patch.options && w.isChoice()) o.put("Opt", patch.options.map((s) => doc.newString(s)));
-    if (patch.rect) {
-      o.put("Rect", toUserRect(page, patch.rect));
-      if (w.isCheckbox() || w.isRadioButton()) {
-        let on = "Yes";
-        const n = o.get("AP").get("N");
-        if (n.isDictionary()) n.forEach((_v, k) => k !== "Off" && (on = String(k)));
-        setToggleAppearance(doc, o, on, w.isRadioButton());
-      }
+    if (patch.rect) o.put("Rect", toUserRect(page, patch.rect));
+    if (patch.look) writeLook(doc, o, patch.look, toggle ? "toggle" : type === "button" ? "button" : type === "signature" ? "sig" : "text");
+    if (type === "button") {
+      if (patch.caption !== undefined) o.get("MK").put("CA", doc.newString(patch.caption));
+      if (patch.action) writeAction(doc, o, patch.action);
     }
+    let on = toggle ? onStateOf(o) ?? "Yes" : "";
+    if (toggle && patch.exportValue !== undefined && patch.exportValue.trim() && safeName(patch.exportValue.trim()) !== on) {
+      const next = safeName(patch.exportValue.trim());
+      const wasOn = o.get("AS").isName() && o.get("AS").asName() === on;
+      if (wasOn) {
+        o.put("AS", doc.newName(next));
+        fd.put("V", doc.newName(next));
+      }
+      on = next;
+    }
+    if (toggle && (patch.rect || patch.look || patch.exportValue !== undefined)) setToggleAppearance(doc, o, on, w.isRadioButton());
+    if (type === "button" && (patch.rect || patch.look || patch.caption !== undefined || patch.fontSize !== undefined)) setButtonAppearance(doc, o);
     if (patch.logic && w.isText()) writeLogic(doc, o, patch.logic);
-    if (w.isText()) setDisplayed(doc, w, w.getValue() ?? "", readLogic(o).format);
-    w.update();
+    if (w.isText()) setDisplayed(doc, w, patch.value ?? w.getValue() ?? "", readLogic(o).format);
+    else if (w.isChoice()) {
+      // Rebuild the appearance with the new look/choices.
+      const v = w.getValue();
+      if (v) w.setChoiceValue(v);
+    }
+    if (type !== "button" && !toggle) w.update();
   } finally {
     page.destroy();
   }
@@ -380,7 +654,133 @@ export function deleteField(doc: mupdf.PDFDocument, pageIndex: number, key: numb
     removeFrom(parent.get("Kids"), key);
     if (parent.get("Kids").length === 0) removeFrom(fields, parent.asIndirect());
   } else removeFrom(fields, key);
+  const co = af.isDictionary() ? af.get("CO") : null;
+  if (co?.isArray()) removeFrom(co, key);
 }
+
+// ---------- arranging several fields ----------
+export interface FieldRef { page: number; key: number }
+
+/** Move/resize many fields at once (align, distribute, match size). */
+export function setFieldRects(doc: mupdf.PDFDocument, items: (FieldRef & { rect: number[] })[]) {
+  for (const it of items) updateField(doc, it.page, it.key, { rect: it.rect });
+}
+
+/** Apply the same change to many fields (e.g. Required, font size, colors). */
+export function updateFields(doc: mupdf.PDFDocument, items: FieldRef[], patch: FieldPatch) {
+  if (patch.name !== undefined && items.length > 1) throw new Error("Several fields can't share one name");
+  for (const it of items) updateField(doc, it.page, it.key, patch);
+}
+
+export function deleteFields(doc: mupdf.PDFDocument, items: FieldRef[]) {
+  for (const it of items) deleteField(doc, it.page, it.key);
+}
+
+/** The next free name in a series: "Qty 1" → "Qty 2", "Name" → "Name 2". */
+export function nextName(taken: Set<string>, name: string): string {
+  const m = /^(.*?)(\d+)$/.exec(name);
+  if (m) {
+    for (let i = +m[2] + 1; ; i++) {
+      const n = `${m[1]}${i}`;
+      if (!taken.has(n)) return n;
+    }
+  }
+  return uniqueName(taken, name);
+}
+
+/**
+ * Copy a field to new places (duplicate, paste, a grid of copies, the same spot on other pages).
+ * Copies keep every property and get the next name in the series; a radio button copy joins
+ * the same group as a new choice. Returns the new fields.
+ */
+export function cloneField(doc: mupdf.PDFDocument, src: FieldRef, targets: { page: number; rect: number[] }[]): FieldRef[] {
+  const p = fieldProps(doc, src.page, src.key);
+  const taken = fieldNames(doc);
+  const type: NewFieldType = p.type === "radiobutton" ? "radio" : (p.type as NewFieldType);
+  const out: FieldRef[] = [];
+  let name = p.name;
+  for (const t of targets) {
+    if (type !== "radio") {
+      name = nextName(taken, name);
+      taken.add(name);
+    }
+    const spec: FieldSpec = {
+      type, name, rect: t.rect, options: p.options, required: p.required, readOnly: p.readOnly, multiline: p.multiline, maxLen: p.maxLen,
+      fontSize: p.fontSize, tooltip: p.tooltip, logic: p.logic, look: p.look, caption: p.caption, action: p.action, comb: p.comb,
+      editable: p.editable, multiSelect: p.multiSelect, exportValue: type === "checkbox" ? p.exportValue ?? undefined : undefined,
+    };
+    out.push({ page: t.page, key: addField(doc, t.page, spec) });
+  }
+  if (p.logic.calc.kind !== "none") recalculate(doc);
+  return out;
+}
+
+// ---------- tab order ----------
+export type TabOrder = "rows" | "columns" | "manual" | "structure" | "unspecified";
+
+/** The fields on a page in the order Tab moves through them, and how that order is set. */
+export function tabOrder(doc: mupdf.PDFDocument, pageIndex: number): { order: TabOrder; keys: number[] } {
+  const pageObj = doc.findPage(pageIndex) as mupdf.PDFObject;
+  const tabs = pageObj.get("Tabs");
+  const t = tabs.isName() ? tabs.asName() : "";
+  const keys: number[] = [];
+  const annots = pageObj.get("Annots");
+  if (annots.isArray()) for (let i = 0; i < annots.length; i++) {
+    const a = annots.get(i);
+    if (a.get("Subtype").isName() && a.get("Subtype").asName() === "Widget") keys.push(a.asIndirect());
+  }
+  return { order: t === "R" ? "rows" : t === "C" ? "columns" : t === "S" ? "structure" : t === "M" ? "manual" : "unspecified", keys };
+}
+
+/** Put the page's fields in this Tab order (fields not listed keep their place after the others). */
+export function setTabOrder(doc: mupdf.PDFDocument, pageIndex: number, keys: number[], mark: "R" | "C" | null = null) {
+  const pageObj = doc.findPage(pageIndex) as mupdf.PDFObject;
+  const annots = pageObj.get("Annots");
+  if (!annots.isArray()) return;
+  const all: mupdf.PDFObject[] = [];
+  for (let i = 0; i < annots.length; i++) all.push(annots.get(i));
+  const isW = (a: mupdf.PDFObject) => a.get("Subtype").isName() && a.get("Subtype").asName() === "Widget";
+  const widgets = all.filter(isW);
+  const rank = (a: mupdf.PDFObject) => {
+    const i = keys.indexOf(a.asIndirect());
+    return i < 0 ? keys.length + widgets.indexOf(a) : i;
+  };
+  const sorted = widgets.slice().sort((a, b) => rank(a) - rank(b));
+  // Widgets go back into the slots widgets had, so comments keep their places.
+  let wi = 0;
+  const next = all.map((a) => (isW(a) ? sorted[wi++] : a));
+  const arr = doc.newArray();
+  for (const a of next) arr.push(a);
+  pageObj.put("Annots", arr);
+  if (mark) pageObj.put("Tabs", doc.newName(mark));
+  else pageObj.delete("Tabs");
+}
+
+/** Order Tab by rows (left to right, top to bottom) or by columns (top to bottom, left to right). */
+export function autoTabOrder(doc: mupdf.PDFDocument, pageIndex: number, by: "rows" | "columns"): number[] {
+  const page = doc.loadPage(pageIndex) as mupdf.PDFPage;
+  let items: { key: number; r: number[] }[];
+  try {
+    items = page.getWidgets().map((w) => ({ key: w.getObject().asIndirect(), r: Array.from(w.getBounds()) }));
+  } finally {
+    page.destroy();
+  }
+  const [a0, a1, b0, b1] = by === "rows" ? [1, 3, 0, 2] : [0, 2, 1, 3];
+  items.sort((p, q) => p.r[a0] - q.r[a0] || p.r[b0] - q.r[b0]);
+  // Group into rows (or columns): fields whose middles fall inside the band of the first one.
+  const bands: { key: number; r: number[] }[][] = [];
+  for (const it of items) {
+    const mid = (it.r[a0] + it.r[a1]) / 2;
+    const band = bands.find((b) => mid >= b[0].r[a0] - 1 && mid <= b[0].r[a1] + 1);
+    if (band) band.push(it);
+    else bands.push([it]);
+  }
+  bands.sort((p, q) => p[0].r[a0] - q[0].r[a0]);
+  const keys = bands.flatMap((b) => b.sort((p, q) => p.r[b0] - q.r[b0] || p.r[b1] - q.r[b1]).map((x) => x.key));
+  setTabOrder(doc, pageIndex, keys, by === "rows" ? "R" : "C");
+  return keys;
+}
+
 
 // ---------- detection ----------
 export interface DetectedField extends FieldSpec {
@@ -568,7 +968,7 @@ export function suggestName(doc: mupdf.PDFDocument, pageIndex: number, rect: num
     const lines = pageLines(page);
     const toggle = type === "checkbox" || type === "radio";
     const label = labelFor(lines, rect, toggle);
-    const fallback = { text: "Text field", checkbox: "Check box", radio: "Option", combobox: "Dropdown", listbox: "List", signature: "Signature" }[type];
+    const fallback = { text: "Text field", date: "Date", checkbox: "Check box", radio: "Option", combobox: "Dropdown", listbox: "List", signature: "Signature", button: "Button" }[type];
     // Radio groups are named from the text before the buttons, each button from its own label.
     const groupLabel = type === "radio" ? labelFor(lines, rect, false) : label;
     return { name: uniqueName(fieldNames(doc), (type === "radio" ? groupLabel : label) || fallback), label };
