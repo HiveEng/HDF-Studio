@@ -10,6 +10,8 @@ export interface FormDeps {
   changed(label: string): void;
   signField(f: FieldInfo): void;
   status?(msg: string): void;
+  /** A push button was clicked: clear the form, print or open its link. */
+  pressButton?(f: FieldInfo): void;
 }
 
 export function setupForms(d: FormDeps) {
@@ -31,10 +33,11 @@ export function setupForms(d: FormDeps) {
 
   function place(docId: number, sizes: [number, number][], f: FieldInfo) {
     const pageEl = d.pageEl(f.page);
-    if (!pageEl || f.type === "button" || (f.type === "signature" && f.value)) return; // signed: show its own appearance
+    if (!pageEl || (f.type === "button" && (!f.action || f.action.kind === "none")) || (f.type === "signature" && f.value)) return; // signed: show its own appearance
     const [pw, ph] = sizes[f.page];
     const [x0, y0, x1, y1] = f.rect;
     let el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement;
+    let extra: HTMLElement | null = null; // drawn above the field (the date picker button)
     switch (f.type) {
       case "text": {
         const t = f.multiline ? document.createElement("textarea") : Object.assign(document.createElement("input"), { type: "text" });
@@ -45,6 +48,29 @@ export function setupForms(d: FormDeps) {
         if (f.maxLen > 0) (t as HTMLInputElement).maxLength = f.maxLen;
         const fk = f.logic.format.kind;
         if (fk === "number" || fk === "percent") t.inputMode = "decimal";
+        if (fk === "special") t.inputMode = "tel";
+        if (fk === "date" && !f.multiline && f.logic.calc.kind === "none") {
+          // A calendar button beside the date: picks a day and fills it in the field's style.
+          const pick = Object.assign(document.createElement("input"), { type: "date", className: "field-datepick", tabIndex: -1, title: "Pick a date" });
+          const [, py0, px1, py1] = f.rect;
+          const h = py1 - py0;
+          Object.assign(pick.style, { left: `${((px1 - Math.min(h, 16)) / pw) * 100}%`, top: `${(py0 / ph) * 100}%`, width: `${(Math.min(h, 16) / pw) * 100}%`, height: `${(h / ph) * 100}%` });
+          const iso = /^(\d{4})-(\d{2})-(\d{2})$/;
+          pick.addEventListener("pointerdown", (e) => e.stopPropagation());
+          pick.addEventListener("click", () => {
+            const d0 = new Date(f.shown || f.value);
+            if (!isNaN(+d0)) pick.value = `${d0.getFullYear()}-${String(d0.getMonth() + 1).padStart(2, "0")}-${String(d0.getDate()).padStart(2, "0")}`;
+            (pick as HTMLInputElement & { showPicker?: () => void }).showPicker?.();
+          });
+          pick.addEventListener("change", () => {
+            if (!iso.test(pick.value)) return;
+            t.value = pick.value; // the engine turns yyyy-mm-dd into the field's own date style
+            t.dispatchEvent(new Event("change"));
+          });
+          pick.classList.add("field");
+          pick.dataset.key = `${f.key}-cal`;
+          if (!f.readOnly) extra = pick;
+        }
         if (f.logic.calc.kind !== "none") {
           t.readOnly = true;
           t.tabIndex = -1;
@@ -74,6 +100,12 @@ export function setupForms(d: FormDeps) {
         el = Object.assign(document.createElement("button"), { textContent: f.value ? "Signed" : "Sign here", type: "button" });
         el.onclick = () => d.signField(f);
         break;
+      case "button":
+        // Transparent over the button's own drawing; clicking runs its action.
+        el = Object.assign(document.createElement("button"), { type: "button", title: f.action?.kind === "url" ? `Open ${f.action.url}` : f.action?.kind === "print" ? "Print" : "Clear the form" });
+        el.setAttribute("aria-label", f.caption || f.name);
+        el.onclick = () => d.pressButton?.(f);
+        break;
       default:
         return;
     }
@@ -84,7 +116,7 @@ export function setupForms(d: FormDeps) {
     if (f.readOnly) (el as HTMLInputElement).disabled = true;
     // keep page tools (pan, select) from grabbing clicks meant for the field
     el.addEventListener("pointerdown", (e) => e.stopPropagation());
-    if (f.type !== "signature") {
+    if (f.type !== "signature" && f.type !== "button") {
       const commit = async () => {
         const v = el instanceof HTMLInputElement && el.type === "checkbox" ? (el.checked ? "Yes" : "Off") : el instanceof HTMLInputElement && el.type === "radio" ? f.onState ?? "" : (el as HTMLInputElement).value;
         const doc = d.doc();
@@ -107,6 +139,7 @@ export function setupForms(d: FormDeps) {
       el.addEventListener("change", commit);
     }
     pageEl.append(el);
+    if (extra) pageEl.append(extra);
   }
 
   return { render, get fields() { return current; } };
