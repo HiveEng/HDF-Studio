@@ -358,6 +358,11 @@ const SHOTS: Record<string, (p: Page) => Promise<void>> = {
     await open(p, makeFormPdf(), "Site Inspection Form.pdf");
     await run(p, "prepareForm");
     await p.waitForTimeout(800);
+    await run(p, "showThumbs");
+    await run(p, "formFieldList");
+    await p.mouse.click(5, 450); // focus the page without hitting a field
+    await p.keyboard.press("Control+A");
+    await p.waitForTimeout(500);
     await save(p, "form-designer.png");
   },
   async chest(p) {

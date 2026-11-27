@@ -36,6 +36,6 @@ If you skip an update, use **Check for updates** when you're ready.
 
 ## Installing on a new computer
 
-Download **HDF-Studio-Setup.exe** from the release page and run it. It installs for your Windows account, so it doesn't need administrator rights. IT can deploy the **.msi** instead.
+Download **HDS-Setup.exe** from the release page and run it. It installs for your Windows account, so it doesn't need administrator rights. IT can deploy **HDS.msi** instead.
 
 > **Note:** The installer isn't code-signed yet. If Windows shows *Windows protected your PC*, click **More info**, then **Run anyway**.

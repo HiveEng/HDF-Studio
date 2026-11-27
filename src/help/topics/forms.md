@@ -9,7 +9,7 @@ summary: Fill in PDF forms, fill many copies from a spreadsheet, and export the 
 
 When a PDF has form fields, {{app}} says so in the status bar. Click a field and type, or tick check boxes and choose from lists. [[Tab]] moves to the next field.
 
-Fields with calculations (totals, sums) update as you type.
+Fields with calculations (totals, sums) update as you type. Date fields open a calendar, and buttons on the form clear it, print it or open a link.
 
 ## Fill from a spreadsheet
 
