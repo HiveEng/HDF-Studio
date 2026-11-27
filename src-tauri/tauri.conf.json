@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "HDF Studio",
+  "productName": "HDS",
   "version": "0.1.0",
   "identifier": "com.hiveeng.hdfstudio",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "HDF Studio",
+        "title": "HDS",
         "width": 1280,
         "height": 860,
         "minWidth": 640,
@@ -50,13 +50,18 @@
       }
     ],
     "license": "AGPL-3.0-or-later",
-    "shortDescription": "Open-source PDF reader and editor",
+    "shortDescription": "Hive Document Studio: PDF reader and editor",
     "windows": {
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "installerHooks": "windows/installer-hooks.nsh"
+      },
+      "wix": {
+        "upgradeCode": "355bfd85-57a8-5da1-a3f6-7a5597f42ed2"
       }
     },
-    "createUpdaterArtifacts": false
+    "createUpdaterArtifacts": false,
+    "longDescription": "HDS (Hive Document Studio) by Hive Engineering: open-source PDF reader and editor."
   },
   "plugins": {
     "updater": {

@@ -1,4 +1,4 @@
-# HDF Studio review server for QNAP Container Station (Applications > Create > paste this).
+# HDS review server for QNAP Container Station (Applications > Create > paste this).
 # Review PDFs and comments are kept in the NAS shared folder below, so NAS backups cover them.
 services:
   hdf-review:

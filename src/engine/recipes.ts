@@ -1,5 +1,5 @@
 // Recipes: reusable lists of steps applied to each file in a batch.
-// The same runner powers the batch panel in the app and the `hdfstudio` command line tool.
+// The same runner powers the batch panel in the app and the `hds` command line tool.
 import { autoTag, isTagged } from "./autotag";
 import * as mupdf from "mupdf";
 import { parseRanges } from "./ranges";

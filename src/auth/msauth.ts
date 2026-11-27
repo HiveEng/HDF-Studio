@@ -1,5 +1,5 @@
 // Microsoft 365 (Entra ID) sign-in for desktop apps: authorization code + PKCE with a loopback redirect.
-// The system browser does the sign-in, so passwords, MFA and passkeys never pass through HDF Studio.
+// The system browser does the sign-in, so passwords, MFA and passkeys never pass through HDS.
 // The ID token (audience = our app) is what the review server checks; the refresh token keeps people
 // signed in between sessions. Everything that touches the OS is injected so this also runs in tests.
 
@@ -173,7 +173,7 @@ export class MsAuth {
         const code = (e as { code?: string }).code;
         const desc = (e as { description?: string }).description ?? "";
         // Admin approval is needed and the user can't give it: say so plainly.
-        if (/AADSTS65001|AADSTS90094|AADSTS90008/.test(desc) && !interactive) throw new Error("HDF Studio needs permission to reach OneDrive and SharePoint. Ask your Microsoft 365 admin to approve it.");
+        if (/AADSTS65001|AADSTS90094|AADSTS90008/.test(desc) && !interactive) throw new Error("HDS needs permission to reach OneDrive and SharePoint. Ask your Microsoft 365 admin to approve it.");
         if (code && !/interaction_required|consent_required|invalid_grant|login_required/.test(code) && !/AADSTS65001/.test(desc)) throw e;
         /* consent or sign-in needed: fall through to the browser */
       }

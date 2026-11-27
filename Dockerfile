@@ -1,4 +1,4 @@
-# HDF Studio review server. Build: docker build -t hdf-review .
+# HDS review server. Build: docker build -t hdf-review .
 # Run:   docker run -p 8787:8787 -v hdf-reviews:/data --env-file deploy/review-server/hive.env hdf-review
 FROM node:22-slim
 WORKDIR /app

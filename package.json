@@ -1,7 +1,7 @@
 {
   "name": "hdf-studio",
   "version": "0.1.0",
-  "description": "HDF Studio: open-source PDF reader and editor",
+  "description": "HDS (Hive Document Studio): open-source PDF reader and editor",
   "scripts": {
     "test": "node --import tsx --test test/*.test.ts",
     "predev": "node scripts/ocr-assets.mjs",
@@ -9,6 +9,7 @@
     "prebuild": "node scripts/ocr-assets.mjs",
     "build": "tsc -p . && vite build",
     "tauri": "tauri",
+    "hds": "tsx cli/hdfstudio.ts",
     "hdfstudio": "tsx cli/hdfstudio.ts"
   },
   "license": "AGPL-3.0-or-later",
@@ -39,6 +40,7 @@
   },
   "type": "module",
   "bin": {
+    "hds": "cli/hdfstudio.ts",
     "hdfstudio": "cli/hdfstudio.ts"
   }
 }

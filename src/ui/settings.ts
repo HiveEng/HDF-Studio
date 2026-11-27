@@ -91,7 +91,9 @@ export async function openSettings(d: SettingsDeps) {
   const updateBtn = el("button", { type: "button", textContent: "Check for updates" });
   updateBtn.onclick = () => d.checkUpdates();
   const about = el("section", { className: "set-sec hidden" },
-    el("h3", { textContent: "HDF Studio" }),
+    el("h3", { textContent: "HDS" }),
+    el("p", { textContent: "Hive Document Studio, by Hive Engineering" }),
+    el("p", { textContent: "Hive Document Studio, by Hive Engineering" }),
     el("p", { textContent: `Version ${version}` }),
     el("p", { className: "set-note", textContent: "Updates are checked automatically when the app starts." }),
     el("div", {}, updateBtn),

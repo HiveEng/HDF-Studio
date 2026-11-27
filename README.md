@@ -1,6 +1,6 @@
-# HDF Studio
+# HDS (Hive Document Studio)
 
-An open-source PDF reader and editor for Windows (macOS and Linux to follow), built for speed
+HDS, short for Hive Document Studio (formerly HDF Studio), is an open-source PDF reader and editor for Windows (macOS and Linux to follow), built for speed
 and batch workflows. Licensed under the GNU AGPL v3 or later.
 
 ## Layout
@@ -48,7 +48,7 @@ npm test                # engine tests (Node)
 npm run tauri build     # Windows installers in src-tauri/target/release/bundle/
 ```
 
-## Batch and the `hdfstudio` command line tool
+## Batch and the `hds` command line tool
 
 The **Batch** panel (Ctrl+B) runs a recipe over any number of PDFs. A recipe is a list of steps, one per
 line, e.g.
@@ -68,24 +68,24 @@ later `redact` step finds the text). Save your own recipes next to the built-in 
 The same recipes run from the terminal:
 
 ```sh
-npm run hdfstudio -- run "Bates" "D:/Case 42/Exhibits" -r -o "D:/Case 42/Stamped"
-npm run hdfstudio -- run - *.pdf --step 'stamp text="DRAFT" position=diagonal' --name "{name}-draft"
-npm run hdfstudio -- merge -o binder.pdf ch1.pdf ch2.pdf ch3.pdf
-npm run hdfstudio -- split big.pdf --bookmarks
-npm run hdfstudio -- search "invoice 1042" ./archive -r --csv > hits.csv
-npm run hdfstudio -- fill form.pdf people.csv --name "{Last} - {First}" --flatten
-npm run hdfstudio -- sign ./contracts --cert me.pfx --password **** --reason Approved --page 1 --rect "350,700,570,760" --tsa
-npm run hdfstudio -- verify ./contracts
-npm run hdfstudio -- ocr ./scans -r -o ./searchable     # make scanned PDFs searchable (add --lang eng+fra for other languages)
-npm run hdfstudio -- run "OCR scans, then redact" ./scans -o ./clean
-npm run hdfstudio -- compare contract-v1.pdf contract-v2.pdf -o changes.pdf
-npm run hdfstudio -- make-fillable ./paper-forms -o ./fillable   # detect fields on flat forms
-npm run hdfstudio -- comments draft.pdf review-ann.pdf review-bob.xfdf -o merged.pdf   # combine reviewers' comments
-npm run hdfstudio -- watch "D:/Scans/Inbox" --recipe "Make scans searchable"   # runs until Ctrl+C
-npm run hdfstudio -- tag ./reports -o ./accessible --lang en-CA   # tag for screen readers
-npm run hdfstudio -- check ./outgoing -r                # PDF/A, accessibility and security report
-npm run hdfstudio -- pdfa ./to-archive -o ./archive      # PDF/A-2b (needs Ghostscript)
-npm run hdfstudio -- recipes          # list built-in recipes and step types
+npm run hds -- run "Bates" "D:/Case 42/Exhibits" -r -o "D:/Case 42/Stamped"
+npm run hds -- run - *.pdf --step 'stamp text="DRAFT" position=diagonal' --name "{name}-draft"
+npm run hds -- merge -o binder.pdf ch1.pdf ch2.pdf ch3.pdf
+npm run hds -- split big.pdf --bookmarks
+npm run hds -- search "invoice 1042" ./archive -r --csv > hits.csv
+npm run hds -- fill form.pdf people.csv --name "{Last} - {First}" --flatten
+npm run hds -- sign ./contracts --cert me.pfx --password **** --reason Approved --page 1 --rect "350,700,570,760" --tsa
+npm run hds -- verify ./contracts
+npm run hds -- ocr ./scans -r -o ./searchable     # make scanned PDFs searchable (add --lang eng+fra for other languages)
+npm run hds -- run "OCR scans, then redact" ./scans -o ./clean
+npm run hds -- compare contract-v1.pdf contract-v2.pdf -o changes.pdf
+npm run hds -- make-fillable ./paper-forms -o ./fillable   # detect fields on flat forms
+npm run hds -- comments draft.pdf review-ann.pdf review-bob.xfdf -o merged.pdf   # combine reviewers' comments
+npm run hds -- watch "D:/Scans/Inbox" --recipe "Make scans searchable"   # runs until Ctrl+C
+npm run hds -- tag ./reports -o ./accessible --lang en-CA   # tag for screen readers
+npm run hds -- check ./outgoing -r                # PDF/A, accessibility and security report
+npm run hds -- pdfa ./to-archive -o ./archive      # PDF/A-2b (needs Ghostscript)
+npm run hds -- recipes          # list built-in recipes and step types
 ```
 
 ## Keyboard
@@ -119,7 +119,7 @@ npm run hdfstudio -- recipes          # list built-in recipes and step types
 |---|---|---|---|
 | 1 | View & search | Tabs, thumbnails, outline, zoom, full-text search | Done |
 | 2 | Organize & combine | Merge, split, reorder, rotate, extract, delete, insert pages | Done |
-| 3 | Automation | Batch panel, saved recipes, `hdfstudio` CLI, stamps/Bates/watermarks, watch folders (app and CLI) | Done |
+| 3 | Automation | Batch panel, saved recipes, `hds` CLI, stamps/Bates/watermarks, watch folders (app and CLI) | Done |
 | 4 | Comment & review | Highlight, notes, shapes, ink, stamps, threaded replies, XFDF export and import | Done |
 | 5 | Redaction & security | Permanent redaction (text, images, vector art), find-and-redact by text/regex/patterns, hidden-data removal, AES-256 passwords and permissions | Done |
 | 6 | Forms & e-signatures | Form designer (text, check box, radio, dropdown, list, signature fields; move, resize, properties), Detect fields to make flat forms fillable (app and CLI), fill/flatten, CSV mail merge, drawn/typed/image signatures, certificate (PKCS#7, .pfx) digital signatures with RFC 3161 trusted timestamps, validation (including timestamps), batch signing | Done |
@@ -127,5 +127,5 @@ npm run hdfstudio -- recipes          # list built-in recipes and step types
 | 8 | Create & convert | Images, XPS, EPUB, HTML, text to PDF; PDF to Word, images, text, HTML, SVG; Office files via optional LibreOffice | Done |
 | 9 | OCR | Make scanned PDFs searchable (invisible text layer), 44 languages (English bundled; others download once, then work offline; two at a time for mixed documents), any script searchable including Arabic, Hebrew, CJK and Indic, scan detection on open, batch and CLI OCR | Done |
 | 10 | Compare | Word-level diff across the whole document (reflowed text isn't flagged), pixel diff for images and drawings, changes marked as comments with a clickable list, CLI report | Done |
-| 11 | Compliance & accessibility | Document check (PDF/A, accessibility, security) with one-click fixes; Make accessible: automatic tagging (headings by size, paragraphs, lists, ruled tables with header rows, figures, links, form fields; running headers, footers and decoration as artifacts; reading order, language, title, tab order) plus an alt-text review with previews; PDF/A-2b via optional Ghostscript plus a built-in sRGB output intent; `hdfstudio tag` and a batch recipe step | Done |
-| 12 | Collaboration | Review threads and status (Accepted, Rejected, Completed…), status and reviewer filters, merge reviewers' PDF copies or XFDF files without duplicates, `hdfstudio comments` CLI | Done (live shared review parked) |
+| 11 | Compliance & accessibility | Document check (PDF/A, accessibility, security) with one-click fixes; Make accessible: automatic tagging (headings by size, paragraphs, lists, ruled tables with header rows, figures, links, form fields; running headers, footers and decoration as artifacts; reading order, language, title, tab order) plus an alt-text review with previews; PDF/A-2b via optional Ghostscript plus a built-in sRGB output intent; `hds tag` and a batch recipe step | Done |
+| 12 | Collaboration | Review threads and status (Accepted, Rejected, Completed…), status and reviewer filters, merge reviewers' PDF copies or XFDF files without duplicates, `hds comments` CLI | Done (live shared review parked) |

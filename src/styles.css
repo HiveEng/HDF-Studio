@@ -1,4 +1,4 @@
-/* HDF Studio. Colours follow the Hive Engineering palette:
+/* HDS. Colours follow the Hive Engineering palette:
    charcoal #575859, cyan #05C7F2, lime #C5D932, yellow #F2CB05, ink #0D0D0D. */
 :root {
   --hive-grey: #575859; --hive-cyan: #05C7F2; --hive-lime: #C5D932; --hive-yellow: #F2CB05; --hive-ink: #0D0D0D;
@@ -195,6 +195,7 @@ main.no-sidebar #rail button.active::before { display: none; }
 .start { width: min(980px, 100%); text-align: center; }
 .start-logo { width: 150px; height: auto; margin-bottom: 4px; }
 :root.dark .start-logo { filter: brightness(1.35) saturate(1.1); }
+.tagline { margin: -4px 0 10px; font-size: 13px; letter-spacing: .4px; text-transform: uppercase; color: var(--muted, #575859); }
 .start h1 { margin: 0 0 6px; font-size: 26px; font-weight: 600; letter-spacing: -.3px; }
 .start > p { margin: 0 0 22px; }
 .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; text-align: left; }
