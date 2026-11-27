@@ -1,6 +1,6 @@
 // Staff-only access: HDS asks for a Hive Engineering Microsoft 365 sign-in before it can be
 // used. The browser does the sign-in (MFA and Conditional Access apply); only accounts in Hive's
-// own Microsoft 365 organization are accepted. After that the app works offline for a while, and
+// own Microsoft 365 organization are accepted, which includes Gmail guests Hive has invited. After that the app works offline for a while, and
 // a disabled or removed account is locked out the next time the app can reach Microsoft.
 import { MsAuth, type MsUser } from "../auth/msauth";
 import { oauthListen, oauthWait, httpPostForm, openExternal, isTauri } from "../platform";
@@ -25,7 +25,7 @@ export function setupSignIn(o: { logoHtml: string; onUser(u: MsUser): void; stat
       <div class="signin-logo">${o.logoHtml}</div>
       <h1>HDS</h1>
       <p class="tagline">Hive Document Studio</p>
-      <p class="signin-why">For Hive Engineering staff. Sign in with your work Microsoft 365 account to continue.</p>
+      <p class="signin-why">For Hive Engineering staff and invited guests. Sign in with your Hive work account, or the Gmail address Hive invited, to continue.</p>
       <button type="button" class="primary signin-btn">Sign in with Microsoft</button>
       <p class="signin-msg" aria-live="polite"></p>
       <p class="signin-note">Your browser opens for the sign-in, so your password never passes through HDS.</p>

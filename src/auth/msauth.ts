@@ -77,8 +77,9 @@ export class MsAuth {
     const c = decodeJwt(j.id_token);
     const email = emailOf(c);
     // Only accounts from our own Microsoft 365 organization (the tenant), whatever their email domain.
+    // Invited guests (for example a Gmail address) sign in through the tenant, so they pass this check.
     if (/^[0-9a-f-]{36}$/i.test(this.cfg.tenant) && c.tid && String(c.tid).toLowerCase() !== this.cfg.tenant.toLowerCase())
-      throw new Error(`Sign in with your work account (you signed in as ${email || "an account from another organization"})`);
+      throw new Error(`Sign in with your Hive work account, or a Gmail address Hive has invited (you signed in as ${email || "an account from another organization"})`);
     const domains = this.cfg.domains.map((d) => d.toLowerCase().replace(/^@/, ""));
     if (domains.length && !domains.some((d) => email.endsWith("@" + d)))
       throw new Error(`Sign in with your ${domains.map((d) => "@" + d).join(" or ")} account (you signed in as ${email || "an unknown account"})`);

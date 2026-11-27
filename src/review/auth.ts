@@ -1,5 +1,6 @@
 // Microsoft 365 (Entra ID) sign-in for the review server: checks the ID token each request
-// carries, and only lets in accounts from the allowed email domain (e.g. hiveng.ca).
+// carries, and only lets in accounts from the allowed email domains (e.g. hiveng.ca, gmail.com).
+// The token must come from our own tenant, so a Gmail account only gets in once Hive has invited it as a guest.
 import { createPublicKey, verify } from "node:crypto";
 
 type JsonWebKey = { kty?: string; n?: string; e?: string; kid?: string; [k: string]: unknown };

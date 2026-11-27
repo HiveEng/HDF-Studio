@@ -91,6 +91,7 @@ test("Microsoft sign-in: staff-only check (tenant, offline, revoked)", async () 
   const TENANT = "2cc319ea-c91f-4964-92a2-807a20ffe7b6";
   const store = memStore();
   let mode: "ok" | "offline" | "revoked" | "other-tenant" | "busy" | "mfa" = "ok";
+  let guest = false;
   let opened = "";
   const auth = new MsAuth({ tenant: TENANT, clientId: "cid", domains: [] }, {
     listen: async () => 1,
@@ -104,7 +105,7 @@ test("Microsoft sign-in: staff-only check (tenant, offline, revoked)", async () 
       if (mode === "busy") return JSON.stringify({ error: "temporarily_unavailable", error_description: "AADSTS90033: service busy" });
       if (mode === "mfa") return JSON.stringify({ error: "interaction_required", error_description: "AADSTS50076: MFA needed" });
       if (mode === "revoked") return JSON.stringify({ error: "invalid_grant", error_description: "AADSTS50057: account disabled" });
-      return JSON.stringify({ id_token: jwt({ name: "Pat", email: "pat@hiveeng.ca", tid: mode === "other-tenant" ? "00000000-0000-0000-0000-000000000000" : TENANT, exp: Date.now() / 1000 + 3600 }), refresh_token: "r" });
+      return JSON.stringify({ id_token: jwt({ name: "Pat", email: guest ? "Guest.Person@gmail.com" : "pat@hiveeng.ca", tid: mode === "other-tenant" ? "00000000-0000-0000-0000-000000000000" : TENANT, exp: Date.now() / 1000 + 3600 }), refresh_token: "r" });
     },
     store,
   });
@@ -116,6 +117,14 @@ test("Microsoft sign-in: staff-only check (tenant, offline, revoked)", async () 
   opened = "";
   await auth.signIn();
   assert.equal(auth.currentUser()?.email, "pat@hiveeng.ca");
+  // An invited Gmail guest signs in through our tenant, so it is accepted like staff.
+  guest = true;
+  opened = "";
+  await auth.signIn();
+  assert.equal(auth.currentUser()?.email, "guest.person@gmail.com");
+  guest = false;
+  opened = "";
+  await auth.signIn();
   const ok = await auth.check();
   assert.equal(ok.status, "ok");
   mode = "offline";

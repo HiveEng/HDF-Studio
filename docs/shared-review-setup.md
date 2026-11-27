@@ -10,18 +10,18 @@ on the same PDF together and sees each other's comments appear live.
 
 Shared review needs one small server that everyone can reach (an office machine, a VM, or a cloud
 host), and, to limit it to staff, a one-time Microsoft 365 app registration. After that, people sign in
-with their normal **@hiveng.ca** Microsoft account. Anyone else is refused, both in the app and by the
-server.
+with their normal **@hiveng.ca** Microsoft account, or a **@gmail.com** address that Hive has invited
+as a guest in Microsoft Entra. Anyone else is refused, both in the app and by the server.
 
 ## How sign-in works
 
 - When someone starts or joins a review, HDS opens their web browser at Microsoft's own sign-in
   page. Passwords, MFA and passkeys are handled by Microsoft, never by HDS.
-- Microsoft returns an ID token. HDS checks that the account ends in @hiveng.ca, then keeps the
+- Microsoft returns an ID token. HDS checks that the account belongs to Hive's tenant (staff or invited guest), then keeps the
   person signed in (Microsoft's refresh token, stored for that Windows user) so they aren't asked again.
 - Each request to the review server carries the token. The server checks Microsoft's signature, that
   the token was issued by your tenant for this app, that it hasn't expired, and that the email is
-  @hiveng.ca. Comments are signed with the account name, and nobody can edit or delete someone
+  @hiveng.ca or @gmail.com. Comments are signed with the account name, and nobody can edit or delete someone
   else's comment.
 - Your Conditional Access policies (MFA, compliant device, location) apply as usual, because the sign-in
   goes through Microsoft Entra ID.
@@ -67,13 +67,13 @@ The server is part of the `hds` command line tool (Node.js 20 or later):
 
 ```sh
 npm run hds -- review-server --port 8787 --data D:/hdf-reviews \
-  --ms-tenant <Directory (tenant) ID> --ms-client <Application (client) ID> --domain hiveng.ca
+  --ms-tenant <Directory (tenant) ID> --ms-client <Application (client) ID> --domain hiveng.ca,gmail.com
 ```
 
 - `--data` is where uploaded PDFs and comments are kept (one folder per review). Back it up with your
   other file shares.
 - `--domain` accepts a comma-separated list if you ever need more than one domain.
-- It prints `Review server running on port 8787 (Microsoft sign-in, @hiveng.ca only)` when ready.
+- It prints `Review server running on port 8787 (Microsoft sign-in, @hiveng.ca, @gmail.com only)` when ready.
 
 **Use HTTPS.** Put the server behind your usual reverse proxy or load balancer with a certificate
 (for example IIS with URL Rewrite, nginx, Caddy, or an Azure App Service / Container App), and give it a
@@ -131,6 +131,20 @@ In HDS:
   **Leave**. Saved copies remember their review, so reopening the file reconnects automatically.
 - **Sign out of Microsoft** is in the command palette (Ctrl+K).
 
+## Letting in Gmail users
+
+Gmail addresses are allowed, but only people Hive has invited. A Gmail account is not part of Hive's
+Microsoft 365, so Microsoft won't sign it in to HDS until it is added as a guest:
+
+1. In the Microsoft Entra admin center go to **Users › All users › New user › Invite external user**,
+   enter their Gmail address and send the invite. They accept it from their inbox (Microsoft emails
+   them a one-time code; no Microsoft password is needed).
+2. If the HDS app registration's Enterprise application has **Assignment required** set to Yes, add the
+   guest to the assigned group too.
+
+Nothing else changes in the app registration: it stays single-tenant ("Accounts in this organizational
+directory only"). Guests can't reach Hive's OneDrive or SharePoint unless those are shared with them.
+
 ## Troubleshooting
 
 | Message | What to check |
@@ -138,7 +152,8 @@ In HDS:
 | `AADSTS50011: redirect URI … does not match` | The registration needs the `http://localhost` redirect under *Mobile and desktop applications* (not *Web* or *Single-page application*). |
 | `AADSTS65001: … has not consented` | Grant admin consent on the API permissions page. |
 | `AADSTS50105: … not assigned to a role` | Assignment is required and the person isn't in an assigned group. |
-| `Sign in with your @hiveng.ca account` | They picked a personal or guest account. Choose the work account in the browser. |
+| `Only @hiveng.ca, @gmail.com accounts can use this review server` | They picked an account at another domain. Choose the work account, or the Gmail address Hive invited. |
+| `AADSTS50020: User account … does not exist in tenant` | A Gmail user who hasn't been invited yet. Invite them as a guest (see below). |
 | `Signed in to a different organisation` | `--ms-tenant` must be the Directory (tenant) ID GUID of the tenant people sign in to. |
 | `Sign-in token is for another app` | `--ms-client` must match the Application (client) ID the app signed in with. |
 | Comments appear only every few seconds | The proxy is buffering `/events`; turn buffering off for that path. |

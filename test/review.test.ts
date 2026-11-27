@@ -171,3 +171,23 @@ test("review server: rate limits failed sign-ins and keeps an access log", async
     server.close();
   }
 });
+
+test("Microsoft sign-in: invited Gmail guests get in when gmail.com is allowed, outsiders don't", async () => {
+  const { generateKeyPairSync, sign } = await import("node:crypto");
+  const { createVerifier } = await import("../src/review/auth");
+  const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const jwk = { ...publicKey.export({ format: "jwk" }), kid: "k1" };
+  const tenant = "11111111-2222-3333-4444-555555555555", clientId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+  const jwt = (claims: Record<string, unknown>) => {
+    const enc = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
+    const head = enc({ alg: "RS256", kid: "k1", typ: "JWT" });
+    const body = enc({ iss: `https://login.microsoftonline.com/${tenant}/v2.0`, aud: clientId, exp: Date.now() / 1000 + 3600, ...claims });
+    return `${head}.${body}.${sign("RSA-SHA256", Buffer.from(`${head}.${body}`), privateKey).toString("base64url")}`;
+  };
+  const verifyToken = createVerifier({ kind: "microsoft", tenant, clientId, domains: ["hiveng.ca", "gmail.com"], jwks: async () => [jwk as never] });
+  assert.deepEqual(await verifyToken(jwt({ preferred_username: "Guest.Person@Gmail.com", name: "Guest Person" })), { email: "guest.person@gmail.com", name: "Guest Person" });
+  assert.equal((await verifyToken(jwt({ preferred_username: "dana@hiveng.ca" }))).email, "dana@hiveng.ca");
+  await assert.rejects(verifyToken(jwt({ preferred_username: "x@outlook.com" })), /Only @hiveng\.ca, @gmail\.com/);
+  // A Gmail account signed in through Microsoft's consumer tenant (not invited to ours) is refused.
+  await assert.rejects(verifyToken(jwt({ preferred_username: "x@gmail.com", iss: "https://login.microsoftonline.com/9188040d-6c67-4c5b-b112-36a304b66dad/v2.0" })), /different organisation/);
+});

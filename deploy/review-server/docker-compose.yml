@@ -12,7 +12,7 @@ services:
     environment:
       HDF_MS_TENANT: 2cc319ea-c91f-4964-92a2-807a20ffe7b6
       HDF_MS_CLIENT: 8b0d9e7f-df7a-44e9-b939-4961db6bf450
-      HDF_DOMAIN: hiveng.ca
+      HDF_DOMAIN: hiveng.ca,gmail.com
       HDF_DATA: /data
       TZ: America/Halifax
     volumes:

@@ -6,4 +6,4 @@ Set-Location $repo
 npm run hds -- review-server --port $Port --data $Data `
   --ms-tenant 2cc319ea-c91f-4964-92a2-807a20ffe7b6 `
   --ms-client 8b0d9e7f-df7a-44e9-b939-4961db6bf450 `
-  --domain hiveng.ca
+  --domain hiveng.ca,gmail.com
