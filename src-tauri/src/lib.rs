@@ -168,7 +168,7 @@ async fn oauth_wait(timeout_secs: u64) -> Result<String, String> {
                     }
                     let ok = query.contains("code=");
                     let body = format!(
-                        "<!doctype html><meta charset=\"utf-8\"><title>HDF Studio</title><body style=\"font:16px system-ui;text-align:center;margin-top:80px;color:#0D0D0D\"><h2>{}</h2><p>You can close this tab and go back to HDF Studio.</p></body>",
+                        "<!doctype html><meta charset=\"utf-8\"><title>HDS</title><body style=\"font:16px system-ui;text-align:center;margin-top:80px;color:#0D0D0D\"><h2>{}</h2><p>You can close this tab and go back to HDS.</p></body>",
                         if ok { "You're signed in" } else { "Sign-in didn't finish" }
                     );
                     let _ = s.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).as_bytes());
@@ -281,5 +281,5 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![startup_files, office_available, office_to_pdf, ghostscript_available, pdfa_convert, tsa_request, oauth_listen, oauth_wait, http_post_form, graph_fetch])
         .run(tauri::generate_context!())
-        .expect("error while running HDF Studio");
+        .expect("error while running HDS");
 }

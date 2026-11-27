@@ -21,6 +21,21 @@ export interface FieldInfo {
   shown: string;
   /** Format, calculation and validation from the field's scripts. */
   logic: FieldLogic;
+  /** Push buttons: the caption and what clicking does. */
+  caption?: string;
+  action?: { kind: "none" } | { kind: "reset" } | { kind: "print" } | { kind: "url"; url: string };
+  /** Fields that hold a list of choices and may take more than one. */
+  multiSelect?: boolean;
+}
+
+function buttonInfo(w: mupdf.PDFWidget): Pick<FieldInfo, "caption" | "action"> {
+  const o = w.getObject();
+  const mk = o.get("MK");
+  const a = o.get("A");
+  const s = a.isDictionary() && a.get("S").isName() ? a.get("S").asName() : "";
+  const action: FieldInfo["action"] =
+    s === "ResetForm" ? { kind: "reset" } : s === "Named" && a.get("N").isName() && a.get("N").asName() === "Print" ? { kind: "print" } : s === "URI" && a.get("URI").isString() ? { kind: "url", url: a.get("URI").asString() } : { kind: "none" };
+  return { caption: mk.isDictionary() && mk.get("CA").isString() ? mk.get("CA").asString() : "", action };
 }
 
 function onStateOf(w: mupdf.PDFWidget): string | null {
@@ -55,6 +70,8 @@ export function listFields(doc: mupdf.PDFDocument): FieldInfo[] {
         readOnly: w.isReadOnly(),
         multiline: type === "text" && w.isMultiline(),
         maxLen: type === "text" ? w.getMaxLen() : 0,
+        ...(type === "button" ? buttonInfo(w) : {}),
+        ...(type === "listbox" && w.getFieldFlags() & (1 << 21) ? { multiSelect: true } : {}),
       });
     }
     page.destroy();

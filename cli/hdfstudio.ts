@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// hdfstudio: command line companion to the HDF Studio app. Batch-process PDFs with the same engine and recipes.
+// hds: command line companion to the HDS app. Batch-process PDFs with the same engine and recipes.
 import { readFileSync, writeFileSync, readdirSync, statSync, mkdirSync, existsSync } from "node:fs";
 import { join, basename, dirname, resolve, extname } from "node:path";
 import { Engine } from "../src/engine/core";
@@ -42,50 +42,50 @@ function recognizerFor(lang: string, langPath?: string): Promise<Recognizer> {
   return createRecognizer(lang, { cachePath, cacheMethod: "write", gzip: true });
 }
 
-const HELP = `hdfstudio - batch PDF tools (AGPL-3.0)
+const HELP = `hds - batch PDF tools (AGPL-3.0)
 
 Usage:
-  hdfstudio info <files|folders...>                     Page count, size, title, encryption
-  hdfstudio merge -o out.pdf <files|folders...>         Merge in order, one bookmark per file
-  hdfstudio split <file> [--every N | --bookmarks] [-o dir]
-  hdfstudio extract <file> <pages> -o out.pdf           e.g. hdfstudio extract a.pdf "1-3,7" -o part.pdf
-  hdfstudio text <file> [-o out.txt]                    Extract text
-  hdfstudio search <text> <files|folders...> [--csv]    Find text across many PDFs
-  hdfstudio fill <form.pdf> <data.csv> [-o dir] [--name "{col} - {col}"] [--flatten]
+  hds info <files|folders...>                     Page count, size, title, encryption
+  hds merge -o out.pdf <files|folders...>         Merge in order, one bookmark per file
+  hds split <file> [--every N | --bookmarks] [-o dir]
+  hds extract <file> <pages> -o out.pdf           e.g. hds extract a.pdf "1-3,7" -o part.pdf
+  hds text <file> [-o out.txt]                    Extract text
+  hds search <text> <files|folders...> [--csv]    Find text across many PDFs
+  hds fill <form.pdf> <data.csv> [-o dir] [--name "{col} - {col}"] [--flatten]
                                                     Fill a form once per CSV row (mail merge)
-  hdfstudio fields <form.pdf>                           List form fields and current values
-  hdfstudio make-fillable <files|folders...> [-o dir] [--dry-run]
+  hds fields <form.pdf>                           List form fields and current values
+  hds make-fillable <files|folders...> [-o dir] [--dry-run]
                                                     Detect blanks, lines and boxes on flat forms and add fields
-  hdfstudio sign <files|folders...> --cert me.pfx --password pw [-o dir]
+  hds sign <files|folders...> --cert me.pfx --password pw [-o dir]
         [--reason ".."] [--location ".."] [--page N --rect "x0,y0,x1,y1"]  (points from top-left; omit for invisible)
         [--tsa [url]]   add a trusted RFC 3161 timestamp (default server: DigiCert)
                                                     Digitally sign one or many PDFs
-  hdfstudio verify <files|folders...>                   Validate digital signatures
-  hdfstudio make-cert "Your Name" -o me.pfx --password pw [--email you@x.com]
+  hds verify <files|folders...>                   Validate digital signatures
+  hds make-cert "Your Name" -o me.pfx --password pw [--email you@x.com]
                                                     Create a self-signed certificate
-  hdfstudio convert <files...> -o out.pdf [--size a4|letter|auto] [--each]
+  hds convert <files...> -o out.pdf [--size a4|letter|auto] [--each]
                                                     Images, HTML, text, EPUB, XPS (and Office files via LibreOffice) to PDF
-  hdfstudio export <files|folders...> --to png|jpg|docx|html|txt|svg [--dpi 150] [--pages 1-3] [-o dir]
+  hds export <files|folders...> --to png|jpg|docx|html|txt|svg [--dpi 150] [--pages 1-3] [-o dir]
                                                     PDF to images, Word, HTML, text or SVG
-  hdfstudio ocr <files|folders...> [-o dir] [--all] [--lang eng+fra] [--lang-path dir]
+  hds ocr <files|folders...> [-o dir] [--all] [--lang eng+fra] [--lang-path dir]
                                                     Make scanned PDFs searchable (adds an invisible text layer)
-  hdfstudio compare <old.pdf> <new.pdf> [-o report.pdf] [--json] [--text-only]
+  hds compare <old.pdf> <new.pdf> [-o report.pdf] [--json] [--text-only]
                                                     List what changed (exit code 1 if they differ); -o writes the new file with every change marked
-  hdfstudio watch <folder> --recipe <name|file.json> [-o dir] [--keep] [--interval 3]
+  hds watch <folder> --recipe <name|file.json> [-o dir] [--keep] [--interval 3]
                                                     Keep running: process every PDF dropped into the folder
                                                     (originals move to <folder>/processed unless --keep)
-  hdfstudio comments <file.pdf> [reviews.pdf|.xfdf ...] [-o out.pdf] [--xfdf out.xfdf]
+  hds comments <file.pdf> [reviews.pdf|.xfdf ...] [-o out.pdf] [--xfdf out.xfdf]
                                                     List comments with replies and status; merge reviewers' copies
-  hdfstudio tag <files|folders...> [--lang en-US] [--retag] [-o dir]
+  hds tag <files|folders...> [--lang en-US] [--retag] [-o dir]
                                                     Tag for accessibility (headings, lists, tables, images)
-  hdfstudio check <files|folders...> [--json]           PDF/A, accessibility and security check (exit 1 on errors)
-  hdfstudio pdfa <files|folders...> [-o dir]            Convert to PDF/A-2b for archiving (needs Ghostscript)
-  hdfstudio review-server [--port 8787] [--data ./reviews] [--token code]
+  hds check <files|folders...> [--json]           PDF/A, accessibility and security check (exit 1 on errors)
+  hds pdfa <files|folders...> [-o dir]            Convert to PDF/A-2b for archiving (needs Ghostscript)
+  hds review-server [--port 8787] [--data ./reviews] [--token code]
         [--ms-tenant <tenant id> --ms-client <app id> --domain hiveng.ca] [--trust-proxy]
         Keeps an access log in <data>/access.log. --trust-proxy: behind a reverse proxy or Cloudflare Tunnel.
                                                     Run the shared review server (Microsoft 365 sign-in recommended)
-  hdfstudio recipes                                     List built-in recipes and step types
-  hdfstudio run <recipe> <files|folders...> [options]   Apply a recipe to every PDF
+  hds recipes                                     List built-in recipes and step types
+  hds run <recipe> <files|folders...> [options]   Apply a recipe to every PDF
       <recipe> is a built-in name (quotes or a unique prefix), a .json file, or "-" to use --step only
       --step "<op> key=value ..."   add a step (repeatable), e.g.
             --step 'stamp text="Page {page} of {pages}" position=bottom-center'
@@ -177,7 +177,7 @@ function ghostscript(): string {
   throw new Error("PDF/A conversion needs Ghostscript (ghostscript.com); set GS to its path if it isn't found");
 }
 
-/** Ghostscript's PDF/A-2b conversion, before HDF Studio adds the output intent. */
+/** Ghostscript's PDF/A-2b conversion, before HDS adds the output intent. */
 export function gsPdfa(input: Uint8Array): Uint8Array {
   const dir = mkdtempSync(join(tmpdir(), "hdfstudio-"));
   try {
@@ -197,7 +197,7 @@ function findRecipe(name: string, steps: string[]): Recipe {
   if (exact) return structuredClone(exact);
   const matches = BUILTIN_RECIPES.filter((r) => r.name.toLowerCase().startsWith(lower));
   if (matches.length === 1) return structuredClone(matches[0]);
-  throw new Error(matches.length ? `"${name}" matches several recipes: ${matches.map((m) => m.name).join("; ")}` : `No recipe "${name}". Run "hdfstudio recipes" to list them.${steps.length ? "" : ' Use "-" with --step for inline steps.'}`);
+  throw new Error(matches.length ? `"${name}" matches several recipes: ${matches.map((m) => m.name).join("; ")}` : `No recipe "${name}". Run "hds recipes" to list them.${steps.length ? "" : ' Use "-" with --step for inline steps.'}`);
 }
 
 const fmtSize = (n: number) => (n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.round(n / 1024)} KB`);
@@ -248,7 +248,7 @@ export async function main(argv: string[]): Promise<number> {
     case "extract": {
       const [f, range] = rest;
       const out = args.flags.out as string;
-      if (!f || !range || !out) throw new Error('usage: hdfstudio extract <file> "<pages>" -o out.pdf');
+      if (!f || !range || !out) throw new Error('usage: hds extract <file> "<pages>" -o out.pdf');
       const d = e.open(readFileSync(f), basename(f));
       writeFileSync(out, e.extract(d.id, parseRanges(range, d.pageCount)));
       log(`Wrote ${out}`);
@@ -281,7 +281,7 @@ export async function main(argv: string[]): Promise<number> {
     }
     case "fill": {
       const [form, csv] = rest;
-      if (!form || !csv) throw new Error("usage: hdfstudio fill <form.pdf> <data.csv> [-o dir]");
+      if (!form || !csv) throw new Error("usage: hds fill <form.pdf> <data.csv> [-o dir]");
       const out = e.mailMerge(readFileSync(form), readFileSync(csv, "utf8"), { name: (args.flags.name as string) ?? `${basename(form, extname(form))} - {row}`, flatten: !!args.flags.flatten });
       const dir = (args.flags.out as string) ?? join(dirname(form), "hdfstudio-out");
       mkdirSync(dir, { recursive: true });
@@ -342,7 +342,7 @@ export async function main(argv: string[]): Promise<number> {
     }
     case "make-cert": {
       const out = args.flags.out as string, password = args.flags.password as string;
-      if (!rest[0] || !out || !password) throw new Error('usage: hdfstudio make-cert "Your Name" -o me.pfx --password pw');
+      if (!rest[0] || !out || !password) throw new Error('usage: hds make-cert "Your Name" -o me.pfx --password pw');
       writeFileSync(out, makeSelfSignedP12(rest[0], password, args.flags.email as string | undefined));
       log(`Wrote ${out}`);
       return 0;
@@ -392,7 +392,7 @@ export async function main(argv: string[]): Promise<number> {
     }
     case "make-fillable": {
       const files = collect(rest, recursive);
-      if (!files.length) throw new Error("usage: hdfstudio make-fillable <files|folders...> [-o dir]");
+      if (!files.length) throw new Error("usage: hds make-fillable <files|folders...> [-o dir]");
       let failed = 0;
       for (const f of files) {
         try {
@@ -421,7 +421,7 @@ export async function main(argv: string[]): Promise<number> {
     }
     case "ocr": {
       const files = collect(rest, recursive);
-      if (!files.length) throw new Error("usage: hdfstudio ocr <files|folders...>");
+      if (!files.length) throw new Error("usage: hds ocr <files|folders...>");
       const rec = await recognizerFor((args.flags.lang as string) ?? "eng", args.flags["lang-path"] as string | undefined);
       let failed = 0;
       try {
@@ -447,7 +447,7 @@ export async function main(argv: string[]): Promise<number> {
     }
     case "compare": {
       const [oldF, newF] = rest;
-      if (!oldF || !newF) throw new Error("usage: hdfstudio compare <old.pdf> <new.pdf> [-o report.pdf]");
+      if (!oldF || !newF) throw new Error("usage: hds compare <old.pdf> <new.pdf> [-o report.pdf]");
       const a = e.open(readFileSync(oldF), basename(oldF)), b = e.open(readFileSync(newF), basename(newF));
       const o = { visual: !args.flags["text-only"] };
       const { data, result } = e.compareReport(a.id, b.id, basename(oldF), o);
@@ -471,7 +471,7 @@ export async function main(argv: string[]): Promise<number> {
     }
     case "watch": {
       const [folder] = rest;
-      if (!folder || !args.flags.recipe) throw new Error("usage: hdfstudio watch <folder> --recipe <name>");
+      if (!folder || !args.flags.recipe) throw new Error("usage: hds watch <folder> --recipe <name>");
       const recipe = findRecipe(args.flags.recipe as string, args.steps);
       recipe.steps.push(...args.steps.map(parseStep));
       const ocr = ocrStep(recipe);
@@ -496,7 +496,7 @@ export async function main(argv: string[]): Promise<number> {
     }
     case "comments": {
       const [file, ...reviews] = rest;
-      if (!file) throw new Error("usage: hdfstudio comments <file.pdf> [reviews.pdf|.xfdf ...] [-o out.pdf] [--xfdf out.xfdf]");
+      if (!file) throw new Error("usage: hds comments <file.pdf> [reviews.pdf|.xfdf ...] [-o out.pdf] [--xfdf out.xfdf]");
       const d = e.open(readFileSync(file), basename(file));
       for (const r of reviews) {
         const data = readFileSync(r);
@@ -518,7 +518,7 @@ export async function main(argv: string[]): Promise<number> {
     }
     case "tag": {
       const files = collect(rest, recursive);
-      if (!files.length) throw new Error("usage: hdfstudio tag <files|folders...> [--lang en-US] [-o dir]");
+      if (!files.length) throw new Error("usage: hds tag <files|folders...> [--lang en-US] [-o dir]");
       let failed = 0;
       for (const f of files) {
         try {
@@ -531,7 +531,7 @@ export async function main(argv: string[]): Promise<number> {
           if (resolve(target) === resolve(f)) throw new Error("output would overwrite the input; use -o");
           writeFileSync(target, e.save(d.id));
           const noAlt = e.figures(d.id).filter((x) => !x.alt).length;
-          log(`✓ ${f}: ${r.headings} headings, ${r.paragraphs} paragraphs, ${r.lists} lists, ${r.tables} tables, ${r.figures} images${noAlt ? ` (${noAlt} need a description: open in HDF Studio › Describe images)` : ""} -> ${target}`);
+          log(`✓ ${f}: ${r.headings} headings, ${r.paragraphs} paragraphs, ${r.lists} lists, ${r.tables} tables, ${r.figures} images${noAlt ? ` (${noAlt} need a description: open in HDS › Describe images)` : ""} -> ${target}`);
           e.close(d.id);
         } catch (err) {
           failed++;
@@ -542,7 +542,7 @@ export async function main(argv: string[]): Promise<number> {
     }
     case "check": {
       const files = collect(rest, recursive);
-      if (!files.length) throw new Error("usage: hdfstudio check <files|folders...>");
+      if (!files.length) throw new Error("usage: hds check <files|folders...>");
       let bad = 0;
       const all: Record<string, unknown> = {};
       for (const f of files) {
@@ -567,7 +567,7 @@ export async function main(argv: string[]): Promise<number> {
     }
     case "pdfa": {
       const files = collect(rest, recursive);
-      if (!files.length) throw new Error("usage: hdfstudio pdfa <files|folders...> [-o dir]");
+      if (!files.length) throw new Error("usage: hds pdfa <files|folders...> [-o dir]");
       let failed = 0;
       for (const f of files) {
         const dir = (args.flags.out as string) ?? join(dirname(f), "hdfstudio-out");
@@ -627,7 +627,7 @@ export async function main(argv: string[]): Promise<number> {
     }
     case "run": {
       const [name, ...paths] = rest;
-      if (!name || !paths.length) throw new Error("usage: hdfstudio run <recipe> <files|folders...>");
+      if (!name || !paths.length) throw new Error("usage: hds run <recipe> <files|folders...>");
       const recipe = findRecipe(name, args.steps);
       recipe.steps.push(...args.steps.map(parseStep));
       if (args.flags.name) recipe.output = args.flags.name as string;
@@ -673,11 +673,11 @@ export async function main(argv: string[]): Promise<number> {
   }
 }
 
-if (process.argv[1] && /hdfstudio(\.ts|\.mjs|\.js)?$/.test(process.argv[1])) {
+if (process.argv[1] && /(hdfstudio|hds)(\.ts|\.mjs|\.js)?$/.test(process.argv[1])) {
   try {
     process.exitCode = await main(process.argv.slice(2));
   } catch (err) {
-    console.error(`hdfstudio: ${(err as Error).message}`);
+    console.error(`hds: ${(err as Error).message}`);
     process.exitCode = 1;
   }
 }

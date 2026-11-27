@@ -4,7 +4,7 @@
 > reviewers' copies (Comment › Merge reviews). The server code and these notes are kept in case it's
 > wanted later; the app-side sign-in and review panel are in git history (commit d0a40a1).
 
-HDF Studio itself needs no login. It opens, edits and saves PDFs on your own computer, works offline,
+HDS itself needs no login. It opens, edits and saves PDFs on your own computer, works offline,
 and sends nothing anywhere. Sign-in only comes into play for **shared review**, where a team comments
 on the same PDF together and sees each other's comments appear live.
 
@@ -15,9 +15,9 @@ server.
 
 ## How sign-in works
 
-- When someone starts or joins a review, HDF Studio opens their web browser at Microsoft's own sign-in
-  page. Passwords, MFA and passkeys are handled by Microsoft, never by HDF Studio.
-- Microsoft returns an ID token. HDF Studio checks that the account ends in @hiveng.ca, then keeps the
+- When someone starts or joins a review, HDS opens their web browser at Microsoft's own sign-in
+  page. Passwords, MFA and passkeys are handled by Microsoft, never by HDS.
+- Microsoft returns an ID token. HDS checks that the account ends in @hiveng.ca, then keeps the
   person signed in (Microsoft's refresh token, stored for that Windows user) so they aren't asked again.
 - Each request to the review server carries the token. The server checks Microsoft's signature, that
   the token was issued by your tenant for this app, that it hasn't expired, and that the email is
@@ -31,7 +31,7 @@ server.
 You need an account that can create app registrations (Application Developer, or Global Administrator).
 
 1. Go to <https://entra.microsoft.com> and choose **Identity › Applications › App registrations › New registration**.
-2. **Name:** `HDF Studio Review`.
+2. **Name:** `HDS Review`. (Set up before the rename? An existing `HDS Review` registration keeps working; renaming it is optional.)
 3. **Supported account types:** *Accounts in this organizational directory only (Single tenant)*.
 4. **Redirect URI:** choose the platform **Public client/native (mobile & desktop)** and enter `http://localhost`.
    (The app listens on a random local port for the browser to come back; Entra allows any port on
@@ -42,12 +42,12 @@ You need an account that can create app registrations (Application Developer, or
    - **Directory (tenant) ID**
 7. Open **Authentication** and check that **Allow public client flows** is set to **No** (it isn't needed)
    and that the `http://localhost` redirect is listed under *Mobile and desktop applications*.
-8. Open **API permissions**. The default **Microsoft Graph › User.Read** is fine. HDF Studio only asks for
+8. Open **API permissions**. The default **Microsoft Graph › User.Read** is fine. HDS only asks for
    `openid profile email offline_access` (who you are, and staying signed in). If your tenant blocks user
    consent, select **Grant admin consent for Hive Engineering**.
 
 Optional, to limit review access to a group rather than all staff: open **Enterprise applications ›
-HDF Studio Review › Properties**, set **Assignment required** to **Yes**, then add the group under
+HDS Review › Properties**, set **Assignment required** to **Yes**, then add the group under
 **Users and groups**.
 
 No client secret or certificate is needed, and none should be created: this is a desktop app, which
@@ -63,10 +63,10 @@ can't keep a secret, so it uses PKCE instead.
 The server also reads `HDF_MS_TENANT`, `HDF_MS_CLIENT`, `HDF_DOMAIN`, `HDF_DATA` and `PORT` from the
 environment, which suits Azure App Service and Container Apps.
 
-The server is part of the `hdfstudio` command line tool (Node.js 20 or later):
+The server is part of the `hds` command line tool (Node.js 20 or later):
 
 ```sh
-npm run hdfstudio -- review-server --port 8787 --data D:/hdf-reviews \
+npm run hds -- review-server --port 8787 --data D:/hdf-reviews \
   --ms-tenant <Directory (tenant) ID> --ms-client <Application (client) ID> --domain hiveng.ca
 ```
 
@@ -122,7 +122,7 @@ again).
 
 ## Step 3: tell people the server address
 
-In HDF Studio:
+In HDS:
 
 - **Comment › Shared review** uploads the open PDF, signs in if needed, and copies a link such as
   `https://review.hiveng.ca/r/Ab12Cd34` to send to reviewers.

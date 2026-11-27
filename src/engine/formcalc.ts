@@ -13,10 +13,16 @@ export type FieldFormat =
   | { kind: "none" }
   | { kind: "number"; decimals: number; sep: NumberSep; negParens?: boolean; currency?: string; prepend?: boolean }
   | { kind: "percent"; decimals: number; sep: NumberSep }
-  | { kind: "date"; pattern: string };
+  | { kind: "date"; pattern: string }
+  | { kind: "special"; mask: SpecialMask };
+/** Acrobat's "special" formats: AFSpecial_Format(0..3). */
+export type SpecialMask = "zip" | "zip4" | "phone" | "ssn";
+const SPECIAL: SpecialMask[] = ["zip", "zip4", "phone", "ssn"];
+const SPECIAL_DIGITS: Record<SpecialMask, number> = { zip: 5, zip4: 9, phone: 10, ssn: 9 };
+export const SPECIAL_LABEL: Record<SpecialMask, string> = { zip: "ZIP code", zip4: "ZIP+4", phone: "Phone number", ssn: "Social Security number" };
 export type CalcOp = "SUM" | "PRD" | "AVG" | "MIN" | "MAX";
 export type FieldCalc = { kind: "none" } | { kind: "simple"; op: CalcOp; fields: string[] } | { kind: "formula"; expr: string } | { kind: "script"; js: string };
-export type FieldValidate = { kind: "none" } | { kind: "range"; min?: number; max?: number } | { kind: "script"; js: string };
+export type FieldValidate = { kind: "none" } | { kind: "range"; min?: number; max?: number } | { kind: "email" } | { kind: "script"; js: string };
 export interface FieldLogic {
   format: FieldFormat;
   calc: FieldCalc;
@@ -49,6 +55,7 @@ export function parseFormat(js: string): FieldFormat {
   }
   if ((m = /AFDate_FormatEx\s*\(\s*["']([^"']*)["']/.exec(js))) return { kind: "date", pattern: m[1] };
   if ((m = /AFDate_Format\s*\(\s*(\d+)/.exec(js))) return { kind: "date", pattern: OLD_DATE_FORMATS[+m[1]] ?? "m/d/yy" };
+  if ((m = /AFSpecial_Format\s*\(\s*(\d+)/.exec(js)) && SPECIAL[+m[1]]) return { kind: "special", mask: SPECIAL[+m[1]] };
   return { kind: "none" };
 }
 const OLD_DATE_FORMATS = ["m/d", "m/d/yy", "mm/dd/yy", "mm/yy", "d-mmm", "d-mmm-yy", "dd-mmm-yy", "yy-mm-dd", "mmm-yy", "mmmm-yy", "mmm d, yyyy", "mmmm d, yyyy", "m/d/yy h:MM tt", "m/d/yy HH:MM"];
@@ -68,6 +75,7 @@ export function parseCalc(js: string): FieldCalc {
 
 export function parseValidate(js: string): FieldValidate {
   if (!js.trim()) return { kind: "none" };
+  if (/VALIDATE email/.test(js)) return { kind: "email" };
   const m = /AFRange_Validate\s*\(([^)]*)\)/.exec(js);
   if (m) {
     const [gt, min, lt, max] = args(m[1]);
@@ -105,6 +113,10 @@ export function formatScripts(f: FieldFormat): { F: string; K: string } | null {
       return { F: `AFPercent_Format(${f.decimals}, ${f.sep});`, K: `AFPercent_Keystroke(${f.decimals}, ${f.sep});` };
     case "date":
       return { F: `AFDate_FormatEx(${q(f.pattern)});`, K: `AFDate_KeystrokeEx(${q(f.pattern)});` };
+    case "special": {
+      const n = SPECIAL.indexOf(f.mask);
+      return { F: `AFSpecial_Format(${n});`, K: `AFSpecial_Keystroke(${n});` };
+    }
     default:
       return null;
   }
@@ -126,6 +138,7 @@ export function calcScript(c: FieldCalc): string | null {
 }
 export function validateScript(v: FieldValidate): string | null {
   if (v.kind === "range") return `AFRange_Validate(${v.min !== undefined}, ${v.min ?? 0}, ${v.max !== undefined}, ${v.max ?? 0});`;
+  if (v.kind === "email") return `/** VALIDATE email **/ if (event.value && !/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(event.value)) { app.alert("Enter an email address like name@example.com."); event.rc = false; }`;
   if (v.kind === "script") return v.js;
   return null;
 }
@@ -210,7 +223,14 @@ export function parseDate(s: string, pattern = "mm/dd/yyyy"): Date | null {
     [d, y] = nums.length >= 2 ? (nums[0] > 31 ? [nums[1], nums[0]] : [nums[0], nums[1]]) : [nums[0], new Date().getFullYear()];
   } else {
     const parts: Record<string, number | undefined> = {};
-    [...order.replace("h", "").slice(0, 3)].forEach((k, i) => (parts[k] = nums[i]));
+    let keys = [...order.replace("h", "").slice(0, 3)];
+    // A four-digit year typed in another place than the style puts it (3/7/2026 into yyyy-mm-dd).
+    const yAt = nums.findIndex((n) => n > 999);
+    if (yAt >= 0 && keys.includes("y") && keys.indexOf("y") !== yAt && nums.length === keys.length) {
+      keys = keys.filter((k) => k !== "y");
+      keys.splice(yAt, 0, "y");
+    }
+    keys.forEach((k, i) => (parts[k] = nums[i]));
     ({ y, m, d } = parts);
     if (y === undefined) y = new Date().getFullYear();
     if (d === undefined) d = 1;
@@ -248,7 +268,22 @@ export function display(raw: string, f: FieldFormat): string {
     const d = parseDate(raw, f.pattern);
     return d ? formatDate(d, f.pattern) : raw;
   }
+  if (f.kind === "special") return formatSpecial(raw, f.mask) ?? raw;
   return raw;
+}
+
+/** 12345-6789, (555) 123-4567, 123-45-6789; null when the digits don't fit the mask. */
+export function formatSpecial(raw: string, mask: SpecialMask): string | null {
+  const d = raw.replace(/\D/g, "");
+  if (mask === "zip4" && d.length === 5) return d;
+  if (mask === "phone" && d.length === 7) return `${d.slice(0, 3)}-${d.slice(3)}`;
+  if (d.length !== SPECIAL_DIGITS[mask]) return null;
+  switch (mask) {
+    case "zip": return d;
+    case "zip4": return `${d.slice(0, 5)}-${d.slice(5)}`;
+    case "phone": return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+    case "ssn": return `${d.slice(0, 3)}-${d.slice(3, 5)}-${d.slice(5)}`;
+  }
 }
 
 /** Turn what was typed into the value to store; an error message when it can't be. */
@@ -265,8 +300,12 @@ export function normalize(typed: string, logic: FieldLogic): { value: string } |
     const d = parseDate(value, f.pattern);
     if (!d) return { error: `“${typed}” isn't a date like ${formatDate(new Date(2025, 11, 31), f.pattern)}.` };
     value = formatDate(d, f.pattern);
+  } else if (value && f.kind === "special") {
+    if (formatSpecial(value, f.mask) === null || /[^\d\s().+-]/.test(value)) return { error: `“${typed}” isn't a ${SPECIAL_LABEL[f.mask]}.` };
+    value = value.replace(/\D/g, ""); // stored as digits, shown with the mask (as Acrobat does)
   }
   const v = logic.validate;
+  if (value && v.kind === "email" && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value)) return { error: `“${typed}” isn't an email address.` };
   if (value && v.kind === "range") {
     const n = makeNumber(value);
     const show = (x: number) => (f.kind === "number" || f.kind === "percent" ? formatNumber(x, f) : String(x));

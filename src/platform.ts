@@ -118,7 +118,7 @@ export async function openExternal(url: string) {
 
 // ---------- Microsoft sign-in helpers (desktop app only) ----------
 async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  if (!isTauri) throw new Error("Microsoft sign-in needs the HDF Studio desktop app");
+  if (!isTauri) throw new Error("Microsoft sign-in needs the HDS desktop app");
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<T>(cmd, args);
 }

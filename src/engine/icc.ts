@@ -6,7 +6,7 @@ function s15f16(v: number) {
 }
 
 export function srgbIcc(): Uint8Array {
-  const desc = "sRGB (HDF Studio)";
+  const desc = "sRGB (HDS)";
   const cprt = "No copyright, use freely";
   // sRGB tone curve, sampled.
   const curve = Array.from({ length: 1024 }, (_, i) => {
